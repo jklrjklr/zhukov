@@ -1,3 +1,4 @@
+class_name PlayerCamera
 extends Camera2D
 
 @export var view_offset: float = 250.0

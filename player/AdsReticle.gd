@@ -1,3 +1,4 @@
+class_name AdsReticle
 extends Node2D
 
 var reticle_type: String = "dot"

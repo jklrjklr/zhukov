@@ -7,7 +7,7 @@ extends CharacterBody2D
 @export_range(5.0, 90.0, 1.0) var ease_start_deg: float = 30.0
 @export_range(0.0, 0.5, 0.01) var ease_min_factor: float = 0.5
 
-@onready var _camera: Camera2D = $Camera2D
+@onready var _camera: PlayerCamera = $Camera2D
 @onready var _sprite: Node2D   = $Sprite2D
 @onready var inventory: InventorySystem = $InventorySystem
 @onready var state_machine: CharacterStateMachine = $CharacterStateMachine

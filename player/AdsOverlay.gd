@@ -4,7 +4,7 @@ const _SHADER   := preload("res://player/ads_vignette.gdshader")
 const _RETICLE  := preload("res://player/AdsReticle.gd")
 
 var _vignette: ColorRect
-var _reticle: Node2D
+var _reticle: AdsReticle
 var _mat: ShaderMaterial
 
 func _ready() -> void:
@@ -21,8 +21,7 @@ func _build() -> void:
 	_vignette.material = _mat
 	add_child(_vignette)
 
-	_reticle = Node2D.new()
-	_reticle.set_script(_RETICLE)
+	_reticle = _RETICLE.new()
 	add_child(_reticle)
 
 func show_ads(sight: SightData) -> void:

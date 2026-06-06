@@ -19,11 +19,6 @@ void fragment() {
     float dist    = length(uv);
     float outside = smoothstep(circle_radius - softness, circle_radius + softness, dist);
 
-    if (outside < 0.001) {
-        COLOR = vec4(0.0, 0.0, 0.0, 0.0);   // inside aperture: fully transparent
-        return;
-    }
-
     // 4-tap box blur of the scene (sampled before this overlay is composited).
     vec4 s = (
         texture(SCREEN_TEXTURE, SCREEN_UV + vec2(blur_strength, 0.0)) +
@@ -32,7 +27,8 @@ void fragment() {
         texture(SCREEN_TEXTURE, SCREEN_UV - vec2(0.0, blur_strength))
     ) * 0.25;
 
-    // Darken the blurred sample, then output with alpha = outside blend factor.
+    // outside=0 → alpha 0 (fully transparent inside aperture)
+    // outside=1 → alpha 1 (fully opaque darkened outside)
     vec3 darkened = s.rgb * (1.0 - dark_alpha);
     COLOR = vec4(darkened, outside);
 }
