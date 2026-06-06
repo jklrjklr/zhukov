@@ -1,0 +1,30 @@
+{
+  "micro_uzi": {
+    "type": "smg",
+    "display_name": "Micro Uzi",
+    "damage": 25,
+    "armor_penetration": 15,
+    "stagger_power": 0.2,
+    "damage_falloff_start": 200.0,
+    "damage_falloff_end": 500.0,
+    "rpm": 950,
+    "muzzle_velocity": 700.0,
+    "fire_modes": ["semi", "auto"],
+    "pellet_count": 1,
+    "spread": 3.5,
+    "muzzle_rise": 6.0,
+    "muzzle_rise_recovery": 8.0,
+    "lateral_recoil": 2.0,
+    "lateral_recoil_left_chance": 0.5,
+    "ergonomics": 0.55,
+    "ads_speed": 0.15,
+    "reload_time": 1.8,
+    "reload_type": "magazine",
+    "magazine_size": 32,
+    "weight": 1.2,
+    "sound_level": 0.6,
+    "muzzle_flash_scale": 0.8,
+    "slot_size": [1, 2],
+    "sprite": ""
+  }
+}
