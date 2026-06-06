@@ -5,7 +5,7 @@ if [ "${CLAUDE_CODE_REMOTE:-}" != "true" ]; then
   exit 0
 fi
 
-GODOT_VERSION="4.3"
+GODOT_VERSION="4.5"
 GODOT_RELEASE="stable"
 GODOT_BINARY="Godot_v${GODOT_VERSION}-${GODOT_RELEASE}_linux.x86_64"
 GODOT_URL="https://github.com/godotengine/godot/releases/download/${GODOT_VERSION}-${GODOT_RELEASE}/${GODOT_BINARY}.zip"
