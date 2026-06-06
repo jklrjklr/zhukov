@@ -1,5 +1,6 @@
-# res://HUD/HUD.gd
 extends CanvasLayer
+
+signal inventory_requested
 
 @onready var _fire_visual: TextureRect = $FireButton
 @onready var _reload_btn: TextureRect = $ReloadButton
@@ -16,6 +17,13 @@ func _ready() -> void:
 	TouchInputHandler.fire_mode_button_rect = _fire_mode_btn.get_global_rect()
 
 	_progress_circle.position = Vector2(DisplayServer.window_get_size()) * 0.5
+
+	var inv_btn := Button.new()
+	inv_btn.text = "BAG"
+	inv_btn.position = Vector2(16, 16)
+	inv_btn.size = Vector2(72, 44)
+	inv_btn.pressed.connect(func(): inventory_requested.emit())
+	add_child(inv_btn)
 
 	_weapon_system.reloading.connect(_on_reloading)
 	_weapon_system.reload_complete.connect(_progress_circle.hide_progress)

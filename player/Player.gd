@@ -9,6 +9,7 @@ extends CharacterBody2D
 
 @onready var _camera: Camera2D = $Camera2D
 @onready var _sprite: Node2D   = $Sprite2D
+@onready var inventory: InventorySystem = $InventorySystem
 
 var _facing_angle: float = 0.0
 var _initialized: bool = false

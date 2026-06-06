@@ -109,6 +109,50 @@ func to_dict() -> Dictionary:
 		"backpack": {"layout": backpack_layout, "compartments": compartments_data},
 	}
 
+func save(path: String) -> void:
+	var file := FileAccess.open(path, FileAccess.WRITE)
+	if not file:
+		push_error("InventorySystem: cannot write to %s" % path)
+		return
+	file.store_string(JSON.stringify(to_dict(), "\t"))
+	file.close()
+
+func load_from_file(path: String) -> void:
+	var file := FileAccess.open(path, FileAccess.READ)
+	if not file:
+		push_error("InventorySystem: cannot read %s" % path)
+		return
+	var data: Variant = JSON.parse_string(file.get_as_text())
+	file.close()
+	if not (data is Dictionary):
+		push_error("InventorySystem: invalid save JSON in %s" % path)
+		return
+	_apply_dict(data as Dictionary)
+
+func _apply_dict(data: Dictionary) -> void:
+	var eq: Dictionary = data.get("equipment", {})
+	for slot_name: String in eq:
+		var d: Variant = eq[slot_name]
+		if d is Dictionary and not (d as Dictionary).is_empty():
+			var slot := _get_slot(slot_name)
+			if slot:
+				slot.equip(Item.from_save(d as Dictionary))
+
+	var bp: Dictionary = data.get("backpack", {})
+	if bp.has("layout"):
+		set_backpack_layout(bp["layout"])
+	for cd: Dictionary in bp.get("compartments", []):
+		var ci: int = cd.get("compartment_id", -1)
+		if ci < 0 or ci >= backpack_compartments.size():
+			continue
+		var grid := backpack_compartments[ci]
+		for entry: Dictionary in cd.get("items", []):
+			var item := Item.from_save(entry)
+			var gp_arr: Array = entry.get("grid_pos", [0, 0])
+			grid.place_item(item, Vector2i(gp_arr[0], gp_arr[1]), entry.get("rotated", false))
+
+	inventory_changed.emit()
+
 func _get_slot(name: String) -> InventorySlot:
 	match name:
 		"helmet":       return helmet
