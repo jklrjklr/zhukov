@@ -32,7 +32,7 @@ func _ready() -> void:
 	shot_fired.connect(_on_shot_fired)
 
 func _on_shot_fired(origin: Vector2, direction: Vector2, damage: int, data: WeaponData) -> void:
-	BulletSpawner.spawn(origin, direction, damage, data.muzzle_velocity)
+	BulletSpawner.spawn(origin, direction, damage, data.muzzle_velocity, data.headshot_multiplier)
 
 func get_active_weapon() -> WeaponData:
 	return slots[_active_slot].data

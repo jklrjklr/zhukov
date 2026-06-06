@@ -21,6 +21,7 @@ var health: int = 100
 
 signal health_changed(new_hp: int)
 signal player_died
+signal headshot_received
 
 func _ready() -> void:
 	_update_ergonomics_stats()
@@ -77,9 +78,11 @@ func set_ergonomics(value: float) -> void:
 	ergonomics = clampf(value, 0.0, 1.0)
 	_update_ergonomics_stats()
 
-func take_damage(amount: int) -> void:
+func take_damage(amount: int, is_headshot: bool = false) -> void:
 	health = max(0, health - amount)
 	health_changed.emit(health)
+	if is_headshot:
+		headshot_received.emit()
 	if health == 0:
 		player_died.emit()
 

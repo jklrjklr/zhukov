@@ -26,6 +26,7 @@ var magazine_size: int = 0
 var weight: float = 1.0
 var sound_level: float = 0.5
 var muzzle_flash_scale: float = 1.0
+var headshot_multiplier: float = 3.0
 var slot_size: Array = [1, 2]
 var sprite_path: String = ""
 var ammo_current: int = 0
@@ -67,6 +68,7 @@ static func from_dict(id: String, def: Dictionary) -> WeaponData:
 	w.weight = def.get("weight", 1.0)
 	w.sound_level = def.get("sound_level", 0.5)
 	w.muzzle_flash_scale = def.get("muzzle_flash_scale", 1.0)
+	w.headshot_multiplier = def.get("headshot_multiplier", 3.0)
 	w.slot_size = def.get("slot_size", [1, 2])
 	w.sprite_path = def.get("sprite", "")
 	w.ammo_current = w.magazine_size
