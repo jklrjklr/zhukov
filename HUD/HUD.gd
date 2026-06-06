@@ -1,6 +1,8 @@
 extends CanvasLayer
 
 signal inventory_requested
+signal ads_pressed
+signal ads_released
 
 @onready var _fire_visual: TextureRect = $FireButton
 @onready var _reload_btn: TextureRect = $ReloadButton
@@ -24,6 +26,14 @@ func _ready() -> void:
 	inv_btn.size = Vector2(72, 44)
 	inv_btn.pressed.connect(func(): inventory_requested.emit())
 	add_child(inv_btn)
+
+	var ads_btn := Button.new()
+	ads_btn.text = "ADS"
+	ads_btn.position = Vector2(16, 70)
+	ads_btn.size = Vector2(72, 44)
+	ads_btn.button_down.connect(func(): ads_pressed.emit())
+	ads_btn.button_up.connect(func(): ads_released.emit())
+	add_child(ads_btn)
 
 	_weapon_system.reloading.connect(_on_reloading)
 	_weapon_system.reload_complete.connect(_progress_circle.hide_progress)

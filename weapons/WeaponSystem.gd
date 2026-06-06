@@ -27,9 +27,13 @@ var _burst_remaining: int = 0
 @warning_ignore("unused_private_class_variable")
 var _burst_timer: float = 0.0
 
+var _state_machine: CharacterStateMachine = null
+
 func _ready() -> void:
 	_item_db = get_node_or_null("/root/ItemDB")
 	shot_fired.connect(_on_shot_fired)
+	await get_tree().process_frame
+	_state_machine = get_parent().get_node_or_null("CharacterStateMachine")
 
 func _on_shot_fired(origin: Vector2, direction: Vector2, damage: int, data: WeaponData) -> void:
 	BulletSpawner.spawn(origin, direction, damage, data.muzzle_velocity, data.headshot_multiplier)
@@ -96,6 +100,8 @@ func switch_slot(slot: int) -> void:
 	weapon_switched.emit(_active_slot)
 
 func shoot() -> void:
+	if _state_machine != null and not _state_machine.can_shoot():
+		return
 	if _is_reloading or _fire_timer > 0.0:
 		return
 
@@ -109,6 +115,8 @@ func shoot() -> void:
 	_do_shoot()
 
 func start_burst(count: int) -> void:
+	if _state_machine != null and not _state_machine.can_shoot():
+		return
 	if _is_reloading or _fire_timer > 0.0:
 		return
 
@@ -146,6 +154,8 @@ func _do_shoot() -> void:
 	_apply_recoil_to_camera(w, lateral_sign)
 
 func reload() -> void:
+	if _state_machine != null and not _state_machine.can_reload():
+		return
 	var w: WeaponData = get_active_weapon()
 	if w == null or _is_reloading or w.ammo_current == w.magazine_size:
 		return

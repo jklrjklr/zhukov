@@ -8,6 +8,21 @@ func _ready() -> void:
 	$HUD.inventory_requested.connect(inventory_ui.toggle)
 	_seed_demo_items(inventory_sys)
 
+	var ads_overlay: CanvasLayer = $AdsOverlay
+	var player: Player = $Player
+	player.entered_ads.connect(ads_overlay.show_ads)
+	player.exited_ads.connect(ads_overlay.hide_ads)
+
+	$HUD.ads_pressed.connect(_on_ads_pressed)
+	$HUD.ads_released.connect(player.on_ads_released)
+
+
+func _on_ads_pressed() -> void:
+	var player: Player = $Player
+	var weapon_sys: WeaponSystem = player.get_node("WeaponSystem")
+	var sight: SightData = weapon_sys.get_active_weapon().get_sight() if weapon_sys.get_active_weapon() != null else SightData.iron_sights()
+	player.on_ads_pressed(sight)
+
 
 func _seed_demo_items(inv: InventorySystem) -> void:
 	var helmet := Item.new()

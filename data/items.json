@@ -26,6 +26,13 @@
     "muzzle_flash_scale": 0.8,
     "headshot_multiplier": 3.0,
     "slot_size": [1, 2],
-    "sprite": ""
+    "sprite": "",
+    "sight": {
+      "display_name": "Iron Sights",
+      "reticle_type": "dot",
+      "ergo_mult": 0.85,
+      "scope_mult": 1.0,
+      "fov_radius": 0.40
+    }
   }
 }

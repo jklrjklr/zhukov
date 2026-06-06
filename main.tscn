@@ -1,4 +1,4 @@
-[gd_scene load_steps=18 format=3 uid="uid://bfydskd2wdhop"]
+[gd_scene load_steps=20 format=3 uid="uid://bfydskd2wdhop"]
 
 [ext_resource type="Script" uid="uid://j6dynugeol5g" path="res://player/Player.gd" id="1_h2yge"]
 [ext_resource type="Script" uid="uid://fhhlm2q3e3vn" path="res://world/GridBackground.gd" id="1_lquwl"]
@@ -16,6 +16,8 @@
 [ext_resource type="PackedScene" path="res://inventory/ui/InventoryUI.tscn" id="14_invui"]
 [ext_resource type="Script" path="res://main.gd" id="15_main"]
 [ext_resource type="Script" path="res://characters/HurtBox.gd" id="16_hurtbox"]
+[ext_resource type="Script" path="res://characters/CharacterStateMachine.gd" id="17_csm"]
+[ext_resource type="PackedScene" path="res://player/AdsOverlay.tscn" id="18_adsoverlay"]
 
 [sub_resource type="CapsuleShape2D" id="CapsuleShape2D_0e48y"]
 [sub_resource type="CapsuleShape2D" id="CapsuleShape2D_body_hb"]
@@ -63,6 +65,9 @@ script = ExtResource("7_5vw27")
 [node name="Sprite2D" type="Sprite2D" parent="Player/WeaponSystem/WeaponSlot0"]
 
 [node name="Muzzle" type="Node2D" parent="Player/WeaponSystem/WeaponSlot0"]
+
+[node name="CharacterStateMachine" type="Node" parent="Player"]
+script = ExtResource("17_csm")
 
 [node name="InventorySystem" type="Node" parent="Player"]
 script = ExtResource("13_invsys")
@@ -127,5 +132,7 @@ offset_right = 122.5
 offset_bottom = 85.5
 scale = Vector2(3, 3)
 text = "1"
+
+[node name="AdsOverlay" parent="." instance=ExtResource("18_adsoverlay")]
 
 [node name="InventoryUI" parent="." instance=ExtResource("14_invui")]

@@ -110,6 +110,11 @@ func get_move_vector() -> Vector2:
 	var raw := _joystick_current - _joystick_origin
 	return raw.limit_length(JOYSTICK_RADIUS) / JOYSTICK_RADIUS
 
+func is_running_joystick() -> bool:
+	if _joystick_touch_index == -1:
+		return false
+	return (_joystick_current - _joystick_origin).length() > JOYSTICK_RADIUS
+
 func get_camera_angular_velocity() -> float:
 	return 0.0
 

@@ -10,11 +10,14 @@ extends CharacterBody2D
 @onready var _camera: Camera2D = $Camera2D
 @onready var _sprite: Node2D   = $Sprite2D
 @onready var inventory: InventorySystem = $InventorySystem
+@onready var state_machine: CharacterStateMachine = $CharacterStateMachine
 
 var _facing_angle: float = 0.0
 var _initialized: bool = false
 var _turn_speed_rad: float = 0.0
 var _reaction_delay: float = 0.0
+var _weapon_ergo: float = 0.5
+var _ads_ergo_mult: float = 1.0
 
 var max_health: int = 100
 var health: int = 100
@@ -22,10 +25,12 @@ var health: int = 100
 signal health_changed(new_hp: int)
 signal player_died
 signal headshot_received
+signal entered_ads(sight: SightData)
+signal exited_ads
 
 func _ready() -> void:
 	_update_ergonomics_stats()
-	# temp test setup — remove later
+	state_machine.state_changed.connect(_on_state_changed)
 	await get_tree().process_frame
 	$WeaponSystem.equip(0, "micro_uzi")
 	add_to_group("player")
@@ -38,6 +43,7 @@ func _physics_process(delta: float) -> void:
 		return
 	_apply_movement(delta)
 	_update_facing(delta)
+	_check_run_state()
 
 func _get_target_angle() -> float:
 	return _camera.rotation + facing_offset
@@ -49,6 +55,13 @@ func _apply_movement(delta: float) -> void:
 	else:
 		velocity = raw_dir.rotated(_camera.rotation) * move_speed
 	move_and_slide()
+
+func _check_run_state() -> void:
+	var running := TouchInputHandler.is_running_joystick()
+	if running and not state_machine.is_running() and not state_machine.is_ads():
+		state_machine.transition(CharacterStateMachine.State.RUNNING)
+	elif not running and state_machine.is_running():
+		state_machine.transition(CharacterStateMachine.State.HIPFIRE)
 
 func _update_facing(delta: float) -> void:
 	var target_angle: float = _get_target_angle()
@@ -75,8 +88,31 @@ func _update_ergonomics_stats() -> void:
 	_reaction_delay = lerpf(0.5, 0.05, ergonomics)
 
 func set_ergonomics(value: float) -> void:
-	ergonomics = clampf(value, 0.0, 1.0)
+	_weapon_ergo = clampf(value, 0.0, 1.0)
+	_apply_combined_ergo()
+
+func set_ads_ergo_mult(mult: float) -> void:
+	_ads_ergo_mult = mult
+	_apply_combined_ergo()
+
+func _apply_combined_ergo() -> void:
+	ergonomics = clampf(_weapon_ergo * _ads_ergo_mult, 0.0, 1.0)
 	_update_ergonomics_stats()
+
+func on_ads_pressed(sight: SightData) -> void:
+	if state_machine.transition(CharacterStateMachine.State.ADS):
+		set_ads_ergo_mult(sight.ergo_mult)
+		_camera.set_ads_scope(sight.scope_mult)
+		entered_ads.emit(sight)
+
+func on_ads_released() -> void:
+	if state_machine.transition(CharacterStateMachine.State.HIPFIRE):
+		set_ads_ergo_mult(1.0)
+		_camera.clear_ads_scope()
+		exited_ads.emit()
+
+func _on_state_changed(_old: CharacterStateMachine.State, _new: CharacterStateMachine.State) -> void:
+	pass
 
 func take_damage(amount: int, is_headshot: bool = false) -> void:
 	health = max(0, health - amount)
@@ -89,6 +125,12 @@ func take_damage(amount: int, is_headshot: bool = false) -> void:
 func heal(amount: int) -> void:
 	health = min(max_health, health + amount)
 	health_changed.emit(health)
+
+func enter_idle() -> void:
+	state_machine.transition(CharacterStateMachine.State.IDLE)
+
+func exit_idle() -> void:
+	state_machine.transition(CharacterStateMachine.State.HIPFIRE)
 
 func angle_difference(from: float, to: float) -> float:
 	return fposmod(to - from + PI, TAU) - PI

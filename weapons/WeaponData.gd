@@ -28,6 +28,7 @@ var sound_level: float = 0.5
 var muzzle_flash_scale: float = 1.0
 var headshot_multiplier: float = 3.0
 var slot_size: Array = [1, 2]
+var _sight: SightData = null
 var sprite_path: String = ""
 var ammo_current: int = 0
 var fire_mode_index: int = 0
@@ -72,7 +73,12 @@ static func from_dict(id: String, def: Dictionary) -> WeaponData:
 	w.slot_size = def.get("slot_size", [1, 2])
 	w.sprite_path = def.get("sprite", "")
 	w.ammo_current = w.magazine_size
+	if def.has("sight"):
+		w._sight = SightData.from_dict(def["sight"])
 	return w
+
+func get_sight() -> SightData:
+	return _sight if _sight != null else SightData.iron_sights()
 
 func cycle_fire_mode() -> void:
 	if fire_modes.size() <= 1:
