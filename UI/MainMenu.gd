@@ -4,13 +4,18 @@ extends CanvasLayer
 signal slot_selected(slot_index: int)
 signal exit_requested
 
-var _main_panel:  Control
-var _slot_panel:  Control
+var _main_panel:   Control
+var _slot_panel:   Control
 var _slot_buttons: Array[Button] = []
+var _settings_menu: SettingsMenu = null
 
 func _ready() -> void:
 	layer        = 19
 	process_mode = PROCESS_MODE_ALWAYS
+
+	_settings_menu = SettingsMenu.new()
+	_settings_menu.setup(null)
+	add_child(_settings_menu)
 
 	var root := Control.new()
 	root.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
@@ -30,9 +35,9 @@ func _ready() -> void:
 	_main_panel = _card()
 	var mv := _vb(_main_panel)
 	_heading(mv, "ZHUKOV", 36)
-	_btn(mv, "START", Color(0.12, 0.40, 0.18), func(): _open_slots())
-	_btn(mv, "SAVE",  Color(0.15, 0.28, 0.50), func(): _open_slots())
-	_btn(mv, "EXIT",  Color(0.50, 0.10, 0.10), func(): exit_requested.emit())
+	_btn(mv, "START",    Color(0.12, 0.40, 0.18), func(): _open_slots())
+	_btn(mv, "SETTINGS", Color(0.15, 0.28, 0.50), func(): _settings_menu.open())
+	_btn(mv, "EXIT",     Color(0.50, 0.10, 0.10), func(): exit_requested.emit())
 	center.add_child(_main_panel)
 
 	# ── Slot picker panel ─────────────────────────────────────────────────────
@@ -43,7 +48,7 @@ func _ready() -> void:
 	for i in 3:
 		var idx := i
 		var b: Button = _btn(sv, _slot_label(i), Color(0.18, 0.25, 0.40), func(): _pick(idx))
-		b.custom_minimum_size = Vector2(260, 60)
+		b.custom_minimum_size = Vector2(280, 60)
 		_slot_buttons.append(b)
 	_btn(sv, "BACK", Color(0.28, 0.18, 0.08), func():
 		_slot_panel.visible = false

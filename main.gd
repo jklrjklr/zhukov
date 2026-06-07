@@ -1,6 +1,6 @@
 extends Node2D
 
-var _playtime: float = 0.0
+var _playtime: float  = 0.0
 var _game_active: bool = false
 var _pause_menu: PauseMenu = null
 
@@ -15,7 +15,7 @@ func _ready() -> void:
 func _open_main_menu() -> void:
 	var menu := MainMenu.new()
 	add_child(menu)
-	menu.slot_selected.connect(_start_game)
+	menu.slot_selected.connect(_load_slot)
 	menu.exit_requested.connect(func(): get_tree().quit())
 
 func _process(delta: float) -> void:
@@ -30,7 +30,9 @@ func _hide_game() -> void:
 	$Player.process_mode = Node.PROCESS_MODE_DISABLED
 	$HUD.process_mode    = Node.PROCESS_MODE_DISABLED
 
-func _start_game(slot: int) -> void:
+# ── Slot selected → setup everything → open safehouse ────────────────────────
+
+func _load_slot(slot: int) -> void:
 	for child in get_children():
 		if child is MainMenu:
 			child.queue_free()
@@ -45,15 +47,18 @@ func _start_game(slot: int) -> void:
 			save_data = parsed
 	_playtime = float(save_data.get("playtime", 0.0))
 
-	var player: Player            = $Player
+	var player: Player                 = $Player
 	var inventory_sys: InventorySystem = $Player/InventorySystem
-	var inventory_ui: CanvasLayer = $InventoryUI
+	var inventory_ui: CanvasLayer      = $InventoryUI
 
-	# Restore or seed inventory
+	# Inventory: restore from save or seed fresh
 	if save_data.has("inventory"):
 		inventory_sys.load_from_dict(save_data["inventory"])
 	else:
 		_seed_demo_items(inventory_sys)
+	inventory_ui.setup(inventory_sys)
+	inventory_ui.visibility_changed.connect(func():
+		TouchInputHandler.joystick_disabled = inventory_ui.visible)
 
 	# Restore player state
 	if save_data.has("health"):
@@ -68,13 +73,7 @@ func _start_game(slot: int) -> void:
 		player.survival.hunger  = float(sv.get("hunger",  100.0))
 		player.survival.thirst  = float(sv.get("thirst",  100.0))
 
-	# Wire up game systems (skip if already connected)
-	if not $HUD.inventory_requested.is_connected(inventory_ui.toggle):
-		inventory_ui.setup(inventory_sys)
-		inventory_ui.visibility_changed.connect(func():
-			TouchInputHandler.joystick_disabled = inventory_ui.visible)
-		$HUD.inventory_requested.connect(inventory_ui.toggle)
-
+	# Wire ADS (once)
 	var ads_overlay: CanvasLayer = $AdsOverlay
 	if not player.entered_ads.is_connected(ads_overlay.show_ads):
 		player.entered_ads.connect(ads_overlay.show_ads)
@@ -82,6 +81,11 @@ func _start_game(slot: int) -> void:
 		$HUD.ads_pressed.connect(_on_ads_pressed)
 		$HUD.ads_released.connect(player.on_ads_released)
 
+	# Wire HUD inventory (once)
+	if not $HUD.inventory_requested.is_connected(inventory_ui.toggle):
+		$HUD.inventory_requested.connect(inventory_ui.toggle)
+
+	# Screen effects + pause menu (created fresh each slot load)
 	var screen_fx := ScreenEffects.new()
 	add_child(screen_fx)
 
@@ -93,12 +97,20 @@ func _start_game(slot: int) -> void:
 	$HUD.pause_requested.connect(_pause_menu.open)
 	_pause_menu.edit_layout_requested.connect($HUD.begin_layout_edit)
 
-	# Enable and show game
+	# Show safehouse
+	var safehouse := Safehouse.new()
+	safehouse.setup(slot, _playtime, player, inventory_ui)
+	add_child(safehouse)
+	safehouse.deployed.connect(_deploy_to_field)
+
+# ── Deploy: remove safehouse, start field ─────────────────────────────────────
+
+func _deploy_to_field() -> void:
+	$InventoryUI.layer   = 1
 	$Player.process_mode = Node.PROCESS_MODE_INHERIT
 	$HUD.process_mode    = Node.PROCESS_MODE_INHERIT
 	for node: Node in [$GridBackground, $Player, $HUD, $AdsOverlay]:
 		node.visible = true
-
 	_game_active = true
 
 
