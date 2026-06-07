@@ -1,8 +1,9 @@
 extends Node
 
-var save_slot: int   = -1
-var playtime:  float = 0.0
-var save_data: Dictionary = {}
+var save_slot:        int        = -1
+var playtime:         float      = 0.0
+var save_data:        Dictionary = {}
+var ads_toggle_mode:  bool       = false
 
 func load_slot(slot: int) -> void:
 	save_slot = slot

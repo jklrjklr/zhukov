@@ -109,13 +109,11 @@ func _apply_combined_ergo() -> void:
 func on_ads_pressed(sight: SightData) -> void:
 	if state_machine.transition(CharacterStateMachine.State.ADS):
 		set_ads_ergo_mult(sight.ergo_mult)
-		_camera.set_ads_scope(sight.scope_mult)
 		entered_ads.emit(sight)
 
 func on_ads_released() -> void:
 	if state_machine.transition(CharacterStateMachine.State.HIPFIRE):
 		set_ads_ergo_mult(1.0)
-		_camera.clear_ads_scope()
 		exited_ads.emit()
 
 func _on_state_changed(_old: CharacterStateMachine.State, _new: CharacterStateMachine.State) -> void:

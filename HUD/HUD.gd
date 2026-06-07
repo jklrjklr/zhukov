@@ -17,6 +17,7 @@ var _player: Player = null
 var _editor: InputLayoutEditor = null
 var _inv_btn: Button = null
 var _ads_btn: Button = null
+var _ads_active: bool = false
 
 func _ready() -> void:
 	await get_tree().process_frame
@@ -41,8 +42,19 @@ func _ready() -> void:
 	var _fm_vis_w: float = _fire_mode_btn.size.x * _fire_mode_btn.scale.x
 	_ads_btn.position = Vector2(_fire_mode_btn.position.x + _fm_vis_w + 8, _fire_mode_btn.position.y)
 	_ads_btn.size = Vector2(72, _fire_mode_btn.size.y * _fire_mode_btn.scale.y)
-	_ads_btn.button_down.connect(func(): ads_pressed.emit())
-	_ads_btn.button_up.connect(func(): ads_released.emit())
+	_ads_btn.button_down.connect(func():
+		if GameState.ads_toggle_mode:
+			if _ads_active:
+				_ads_active = false
+				ads_released.emit()
+			else:
+				_ads_active = true
+				ads_pressed.emit()
+		else:
+			ads_pressed.emit())
+	_ads_btn.button_up.connect(func():
+		if not GameState.ads_toggle_mode:
+			ads_released.emit())
 	add_child(_ads_btn)
 
 	# ── Status bars ────────────────────────────────────────────────────────

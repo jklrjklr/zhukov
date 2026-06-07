@@ -33,7 +33,6 @@ shape = SubResource("CapsuleShape2D_main")
 
 [node name="Camera2D" type="Camera2D" parent="."]
 ignore_rotation = false
-limit_enabled = false
 rotation_smoothing_speed = 0.0
 script = ExtResource("3")
 view_offset = 300.0
