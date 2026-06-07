@@ -120,7 +120,11 @@ func get_move_vector() -> Vector2:
 func is_running_joystick() -> bool:
 	if _joystick_touch_index == -1:
 		return false
-	return (_joystick_current - _joystick_origin).length() > JOYSTICK_RADIUS
+	var delta := _joystick_current - _joystick_origin
+	if delta.length() <= JOYSTICK_RADIUS:
+		return false
+	# Only run within a 60° cone pointing up (±30° of Vector2.UP)
+	return absf(delta.normalized().angle_to(Vector2.UP)) <= deg_to_rad(30.0)
 
 func get_camera_angular_velocity() -> float:
 	return 0.0
