@@ -3,6 +3,7 @@ extends CanvasLayer
 signal inventory_requested
 signal ads_pressed
 signal ads_released
+signal pause_requested
 
 @onready var _fire_visual: TextureRect = $FireButton
 @onready var _reload_btn: TextureRect = $ReloadButton
@@ -108,6 +109,16 @@ func _ready() -> void:
 	edit_btn.pressed.connect(_editor.begin_edit)
 	add_child(edit_btn)
 
+	# Pause / menu button — top-right corner
+	var menu_btn := Button.new()
+	menu_btn.text = "||"
+	menu_btn.position = Vector2(DisplayServer.window_get_size().x - 52.0, 4)
+	menu_btn.size = Vector2(44, 32)
+	menu_btn.add_theme_font_size_override("font_size", 14)
+	menu_btn.pressed.connect(func(): pause_requested.emit())
+	add_child(menu_btn)
+	_editor.register("menu_btn", "MENU", menu_btn)
+
 	# Re-sync touch rects after layout may have shifted
 	await get_tree().process_frame
 	_sync_touch_rects()
@@ -125,6 +136,9 @@ func _on_reload_cancelled() -> void:
 
 func _on_fire_mode_changed(mode: String) -> void:
 	_update_mode_label(mode)
+
+func begin_layout_edit() -> void:
+	_editor.begin_edit()
 
 func _update_mode_label(mode: String) -> void:
 	match mode:
