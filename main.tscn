@@ -1,23 +1,24 @@
-[gd_scene load_steps=20 format=3 uid="uid://bfydskd2wdhop"]
+[gd_scene load_steps=21 format=3 uid="uid://bfydskd2wdhop"]
 
-[ext_resource type="Script" uid="uid://j6dynugeol5g" path="res://player/Player.gd" id="1_h2yge"]
-[ext_resource type="Script" uid="uid://fhhlm2q3e3vn" path="res://world/GridBackground.gd" id="1_lquwl"]
-[ext_resource type="Script" uid="uid://b32oed0h8jyry" path="res://player/PlayerCamera.gd" id="3_1bvp3"]
-[ext_resource type="Texture2D" uid="uid://bmk2kxiyni3un" path="res://assets/Player.png" id="3_dg77c"]
-[ext_resource type="Script" uid="uid://c4vqa1i1xvyb0" path="res://player/DebugOverlay.gd" id="4_1bvp3"]
-[ext_resource type="Script" uid="uid://bupl06o87o6l0" path="res://weapons/WeaponSystem.gd" id="6_272bh"]
-[ext_resource type="Script" uid="uid://d3ma1umibqm5o" path="res://weapons/WeaponSlot.gd" id="7_5vw27"]
-[ext_resource type="Script" uid="uid://d4nlgw4aoay7h" path="res://HUD/HUD.gd" id="8_kek77"]
-[ext_resource type="Texture2D" uid="uid://bivnxylge7let" path="res://assets/FireButton.png" id="9_kek77"]
+[ext_resource type="Script" uid="uid://deu3tlt274on5" path="res://player/Player.gd" id="1_h2yge"]
+[ext_resource type="Script" uid="uid://ddyrpkae2eu3e" path="res://world/GridBackground.gd" id="1_lquwl"]
+[ext_resource type="Script" uid="uid://cjhnjko0puokk" path="res://player/PlayerCamera.gd" id="3_1bvp3"]
+[ext_resource type="Texture2D" uid="uid://duq8xl8d0iufc" path="res://assets/Player.png" id="3_dg77c"]
+[ext_resource type="Script" uid="uid://bcl6p3le18g82" path="res://player/DebugOverlay.gd" id="4_1bvp3"]
+[ext_resource type="Script" uid="uid://b0ing7uu7swf7" path="res://weapons/WeaponSystem.gd" id="6_272bh"]
+[ext_resource type="Script" uid="uid://o316ks4oiolv" path="res://weapons/WeaponSlot.gd" id="7_5vw27"]
+[ext_resource type="Script" uid="uid://6737maa23bj4" path="res://HUD/HUD.gd" id="8_kek77"]
+[ext_resource type="Texture2D" uid="uid://ccikx3jn6rhi7" path="res://assets/FireButton.png" id="9_kek77"]
 [ext_resource type="PackedScene" uid="uid://vh6qfys0chin" path="res://HUD/progresscircle/ProgressCircle.tscn" id="10_4c57u"]
-[ext_resource type="Texture2D" uid="uid://dp8m2vbsckuk7" path="res://assets/Reload_button.png" id="11_efxa6"]
-[ext_resource type="Texture2D" uid="uid://bhds46l68727a" path="res://assets/FireModeButton.png" id="12_dg77c"]
-[ext_resource type="Script" path="res://inventory/InventorySystem.gd" id="13_invsys"]
-[ext_resource type="PackedScene" path="res://inventory/ui/InventoryUI.tscn" id="14_invui"]
-[ext_resource type="Script" path="res://main.gd" id="15_main"]
-[ext_resource type="Script" path="res://characters/HurtBox.gd" id="16_hurtbox"]
-[ext_resource type="Script" path="res://characters/CharacterStateMachine.gd" id="17_csm"]
-[ext_resource type="PackedScene" path="res://player/AdsOverlay.tscn" id="18_adsoverlay"]
+[ext_resource type="Texture2D" uid="uid://igpoxb78rxb3" path="res://assets/Reload_button.png" id="11_efxa6"]
+[ext_resource type="Texture2D" uid="uid://cseh0sar66dav" path="res://assets/FireModeButton.png" id="12_dg77c"]
+[ext_resource type="Script" uid="uid://cersocwqfjest" path="res://inventory/InventorySystem.gd" id="13_invsys"]
+[ext_resource type="PackedScene" uid="uid://inventory_ui_scene" path="res://inventory/ui/InventoryUI.tscn" id="14_invui"]
+[ext_resource type="Script" uid="uid://31o3d7ilm1ae" path="res://main.gd" id="15_main"]
+[ext_resource type="Script" uid="uid://bjmrsr6g7jyvl" path="res://characters/HurtBox.gd" id="16_hurtbox"]
+[ext_resource type="Script" uid="uid://2j27ob0w0iw" path="res://characters/CharacterStateMachine.gd" id="17_csm"]
+[ext_resource type="PackedScene" uid="uid://ads_overlay_scene" path="res://player/AdsOverlay.tscn" id="18_adsoverlay"]
+[ext_resource type="Script" uid="uid://ntxvf74biexb" path="res://characters/SurvivalStats.gd" id="19_survival"]
 
 [sub_resource type="CapsuleShape2D" id="CapsuleShape2D_0e48y"]
 [sub_resource type="CapsuleShape2D" id="CapsuleShape2D_body_hb"]
@@ -68,6 +69,9 @@ script = ExtResource("7_5vw27")
 
 [node name="CharacterStateMachine" type="Node" parent="Player"]
 script = ExtResource("17_csm")
+
+[node name="SurvivalStats" type="Node" parent="Player"]
+script = ExtResource("19_survival")
 
 [node name="InventorySystem" type="Node" parent="Player"]
 script = ExtResource("13_invsys")

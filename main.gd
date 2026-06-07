@@ -16,6 +16,15 @@ func _ready() -> void:
 	$HUD.ads_pressed.connect(_on_ads_pressed)
 	$HUD.ads_released.connect(player.on_ads_released)
 
+	var screen_fx := ScreenEffects.new()
+	add_child(screen_fx)
+
+	var pause_menu := PauseMenu.new()
+	pause_menu.setup(player, inventory_sys, screen_fx)
+	add_child(pause_menu)
+	$HUD.pause_requested.connect(pause_menu.open)
+	pause_menu.edit_layout_requested.connect($HUD.begin_layout_edit)
+
 
 func _on_ads_pressed() -> void:
 	var player: Player = $Player

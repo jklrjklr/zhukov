@@ -27,7 +27,7 @@ func _build_cells() -> void:
 			cell.mouse_filter = Control.MOUSE_FILTER_IGNORE
 			var s := StyleBoxFlat.new()
 			s.bg_color = Color(0.10, 0.10, 0.15, 0.92)
-			s.border_width_all = 1
+			s.set_border_width_all(1)
 			s.border_color = Color(0.25, 0.25, 0.30, 0.6)
 			cell.add_theme_stylebox_override("panel", s)
 			add_child(cell)

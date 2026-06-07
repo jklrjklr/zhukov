@@ -50,7 +50,7 @@ func _drop_data(_pos: Vector2, data: Variant) -> void:
 func _apply_style(color: Color) -> void:
 	var s := StyleBoxFlat.new()
 	s.bg_color = color
-	s.border_width_all = 1
+	s.set_border_width_all(1)
 	s.border_color = Color(0.4, 0.4, 0.4, 0.5)
-	s.corner_radius_all = 3
+	s.set_corner_radius_all(3)
 	add_theme_stylebox_override("panel", s)

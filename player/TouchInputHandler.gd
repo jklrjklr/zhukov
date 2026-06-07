@@ -1,7 +1,7 @@
 extends Node
 
 const JOYSTICK_RADIUS: float = 80.0
-const SWIPE_SENSITIVITY: float = 0.02
+var swipe_sensitivity: float = 0.02
 
 signal camera_rotated(delta_angle: float)
 
@@ -99,7 +99,7 @@ func _apply_cam_swipe(event: InputEventScreenDrag, last_pos: Vector2) -> void:
 	var dx: float = event.position.x - last_pos.x
 	var swipe_speed: float = absf(event.velocity.x)
 	var accel_mult: float = clampf(swipe_speed / 500000.0, 0.001, 0.2)
-	camera_rotated.emit(dx * SWIPE_SENSITIVITY * accel_mult * Engine.get_frames_per_second())
+	camera_rotated.emit(dx * swipe_sensitivity * accel_mult * Engine.get_frames_per_second())
 
 func _physics_process(_delta: float) -> void:
 	pass

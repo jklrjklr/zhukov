@@ -4,7 +4,7 @@ This file provides guidance to Claude Code when working with this repository.
 
 ## Project
 
-Godot 4.3 game project. GDScript source lives in `src/`, tests in `tests/`.
+Godot 4.5 game project. GDScript source lives in `src/`, tests in `tests/`.
 
 ## Commands
 
