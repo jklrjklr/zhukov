@@ -9,6 +9,7 @@ var _screen_fx: ScreenEffects = null
 var _main_panel:       Control
 var _video_panel:      Control
 var _audio_panel:      Control
+var _general_panel:    Control
 
 var _fps_option:        OptionButton
 var _quality_option:    OptionButton
@@ -18,6 +19,7 @@ var _sens_slider:       HSlider
 var _master_slider:     HSlider
 var _gameplay_slider:   HSlider
 var _music_slider:      HSlider
+var _ads_mode_option:   OptionButton
 
 func setup(screen_fx: ScreenEffects = null) -> void:
 	_screen_fx = screen_fx
@@ -63,9 +65,10 @@ func _build_ui() -> void:
 	_main_panel = _card()
 	var mv := _vb(_main_panel)
 	_heading(mv, "SETTINGS", 22)
-	_btn(mv, "VIDEO", Color(0.15, 0.35, 0.50), func(): _show_only(_video_panel))
-	_btn(mv, "AUDIO", Color(0.20, 0.40, 0.25), func(): _show_only(_audio_panel))
-	_btn(mv, "BACK",  Color(0.30, 0.20, 0.08), close)
+	_btn(mv, "GENERAL", Color(0.28, 0.20, 0.36), func(): _show_only(_general_panel))
+	_btn(mv, "VIDEO",   Color(0.15, 0.35, 0.50), func(): _show_only(_video_panel))
+	_btn(mv, "AUDIO",   Color(0.20, 0.40, 0.25), func(): _show_only(_audio_panel))
+	_btn(mv, "BACK",    Color(0.30, 0.20, 0.08), close)
 	center.add_child(_main_panel)
 
 	_video_panel = _card()
@@ -96,8 +99,19 @@ func _build_ui() -> void:
 		_show_only(_main_panel))
 	center.add_child(_audio_panel)
 
+	_general_panel = _card()
+	_general_panel.visible = false
+	var gv := _vb(_general_panel)
+	_heading(gv, "GENERAL", 20)
+	_ads_mode_option = _option(gv, "ADS Mode", ["Press & Hold", "Toggle"])
+	_btn(gv, "BACK", Color(0.30, 0.20, 0.08), func():
+		_apply_general()
+		_write_settings()
+		_show_only(_main_panel))
+	center.add_child(_general_panel)
+
 func _show_only(panel: Control) -> void:
-	for p: Control in [_main_panel, _video_panel, _audio_panel]:
+	for p: Control in [_main_panel, _video_panel, _audio_panel, _general_panel]:
 		p.visible = (p == panel)
 
 # ── Apply ─────────────────────────────────────────────────────────────────────
@@ -119,6 +133,9 @@ func _apply_video() -> void:
 		_screen_fx.set_brightness(_brightness_slider.value)
 		_screen_fx.set_contrast(_contrast_slider.value)
 	TouchInputHandler.swipe_sensitivity = _sens_slider.value * 0.002
+
+func _apply_general() -> void:
+	GameState.ads_toggle_mode = (_ads_mode_option.selected == 1)
 
 func _apply_audio() -> void:
 	_set_bus_volume("Master",   _master_slider.value)
@@ -142,6 +159,7 @@ func _write_settings() -> void:
 		"fps_index":       _fps_option.selected,
 		"quality":         _quality_option.selected,
 		"sensitivity":     _sens_slider.value,
+		"ads_toggle":      _ads_mode_option.selected,
 	}
 	var f := FileAccess.open(SETTINGS_PATH, FileAccess.WRITE)
 	if f:
@@ -165,8 +183,10 @@ func _apply_saved_settings() -> void:
 	if d.has("fps_index"):       _fps_option.select(int(d["fps_index"]))
 	if d.has("quality"):         _quality_option.select(int(d["quality"]))
 	if d.has("sensitivity"):     _sens_slider.value = float(d["sensitivity"])
+	if d.has("ads_toggle"):      _ads_mode_option.select(int(d["ads_toggle"]))
 	_apply_video()
 	_apply_audio()
+	_apply_general()
 
 # ── Widget helpers ────────────────────────────────────────────────────────────
 
