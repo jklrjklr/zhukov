@@ -13,7 +13,7 @@ signal fire_mode_changed(mode: String)
 @onready var slots: Array[WeaponSlot] = [$WeaponSlot0]
 @onready var player: Player = get_parent()
 @onready var body_sprite: Node2D = get_parent().get_node("Sprite2D")
-@onready var camera: PlayerCamera = get_parent().get_node("Camera2D")
+@onready var camera: Camera2D = get_parent().get_node("Camera2D")
 
 var _item_db: Node = null
 var _active_slot: int = 0
@@ -192,9 +192,9 @@ func _decay_recoil(delta: float) -> void:
 		_lateral_current = 0.0
 		return
 
-	var zoom_sq := camera.get_scope_mult() * camera.get_scope_mult()
-	_rise_current = move_toward(_rise_current, 0.0, w.muzzle_rise_recovery * zoom_sq * delta)
-	_lateral_current = move_toward(_lateral_current, 0.0, w.muzzle_rise_recovery * zoom_sq * delta)
+	var z := camera.zoom.x
+	_rise_current = move_toward(_rise_current, 0.0, w.muzzle_rise_recovery * z * z * delta)
+	_lateral_current = move_toward(_lateral_current, 0.0, w.muzzle_rise_recovery * z * z * delta)
 
 func _apply_recoil_to_camera(w: WeaponData, lateral_sign: float) -> void:
 	var lateral_rad: float = w.lateral_recoil * 0.001 * lateral_sign

@@ -15,8 +15,8 @@ func _ready() -> void:
 	_refresh_camera()
 
 func _physics_process(delta: float) -> void:
-	var zoom_sq := _ads_scope_mult * _ads_scope_mult
-	_recoil_zoom = move_toward(_recoil_zoom, 0.0, recoil_zoom_return_speed * zoom_sq * delta)
+	var z := zoom.x
+	_recoil_zoom = move_toward(_recoil_zoom, 0.0, recoil_zoom_return_speed * z * z * delta)
 	_refresh_camera()
 
 func _on_camera_rotated(delta_angle: float) -> void:
@@ -49,6 +49,3 @@ func _refresh_camera() -> void:
 
 func set_muzzle_rise_recovery(value: float) -> void:
 	recoil_zoom_return_speed = value
-
-func get_scope_mult() -> float:
-	return _ads_scope_mult
