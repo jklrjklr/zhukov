@@ -97,7 +97,8 @@ func _setup_player() -> void:
 	cam.limit_right   = int(WORLD_W)
 	cam.limit_bottom  = int(WORLD_H)
 
-	# ADS overlay
+	# FOV overlay — needs player reference for world-space tracking
+	_ads_overlay.setup(_player)
 	_player.entered_ads.connect(_ads_overlay.show_ads)
 	_player.exited_ads.connect(_ads_overlay.hide_ads)
 	$HUD.ads_pressed.connect(_on_ads_pressed)

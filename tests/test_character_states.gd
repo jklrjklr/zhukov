@@ -92,7 +92,7 @@ func test_sight_data_defaults() -> void:
 	var s := SightData.iron_sights()
 	assert(s.ergo_mult == 0.85, "default ergo_mult")
 	assert(s.scope_mult == 1.0, "default scope_mult")
-	assert(s.fov_radius == 0.40, "default fov_radius")
+	assert(s.fov_radius == 0.45, "default fov_radius")
 	assert(s.reticle_type == "dot", "default reticle_type")
 
 func test_sight_data_from_dict() -> void:

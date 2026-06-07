@@ -41,6 +41,7 @@ func _ready() -> void:
 		player.survival.thirst  = float(sv.get("thirst",  100.0))
 
 	var ads_overlay: CanvasLayer = $AdsOverlay
+	ads_overlay.setup(player)
 	player.entered_ads.connect(ads_overlay.show_ads)
 	player.exited_ads.connect(ads_overlay.hide_ads)
 	$HUD.ads_pressed.connect(_on_ads_pressed)
