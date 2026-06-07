@@ -38,8 +38,9 @@ func _ready() -> void:
 
 	_ads_btn = Button.new()
 	_ads_btn.text = "ADS"
-	_ads_btn.position = Vector2(16, 70)
-	_ads_btn.size = Vector2(72, 44)
+	var _fm_vis_w: float = _fire_mode_btn.size.x * _fire_mode_btn.scale.x
+	_ads_btn.position = Vector2(_fire_mode_btn.position.x + _fm_vis_w + 8, _fire_mode_btn.position.y)
+	_ads_btn.size = Vector2(72, _fire_mode_btn.size.y * _fire_mode_btn.scale.y)
 	_ads_btn.button_down.connect(func(): ads_pressed.emit())
 	_ads_btn.button_up.connect(func(): ads_released.emit())
 	add_child(_ads_btn)

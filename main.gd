@@ -5,6 +5,8 @@ func _ready() -> void:
 	var inventory_ui: CanvasLayer = $InventoryUI
 	var inventory_sys: InventorySystem = $Player/InventorySystem
 	inventory_ui.setup(inventory_sys)
+	inventory_ui.visibility_changed.connect(func():
+		TouchInputHandler.joystick_disabled = inventory_ui.visible)
 	$HUD.inventory_requested.connect(inventory_ui.toggle)
 	_seed_demo_items(inventory_sys)
 
