@@ -20,6 +20,7 @@ var _facing_angle: float = 0.0
 var _initialized: bool = false
 var _turn_speed_rad: float = 0.0
 var _reaction_delay: float = 0.0
+var _ads_raise_time: float = 0.35
 var _weapon_ergo: float = 0.5
 var _ads_ergo_mult: float = 1.0
 
@@ -29,7 +30,7 @@ var health: int = 100
 signal health_changed(new_hp: int)
 signal player_died
 signal headshot_received
-signal entered_ads(sight: SightData)
+signal entered_ads(sight: SightData, raise_time: float)
 signal exited_ads
 
 func _ready() -> void:
@@ -93,6 +94,7 @@ func _update_facing(delta: float) -> void:
 func _update_ergonomics_stats() -> void:
 	_turn_speed_rad = deg_to_rad(lerpf(90.0, 480.0, ergonomics))
 	_reaction_delay = lerpf(0.5, 0.05, ergonomics)
+	_ads_raise_time = lerpf(0.65, 0.08, ergonomics)
 
 func set_ergonomics(value: float) -> void:
 	_weapon_ergo = clampf(value, 0.0, 1.0)
@@ -109,7 +111,7 @@ func _apply_combined_ergo() -> void:
 func on_ads_pressed(sight: SightData) -> void:
 	if state_machine.transition(CharacterStateMachine.State.ADS):
 		set_ads_ergo_mult(sight.ergo_mult)
-		entered_ads.emit(sight)
+		entered_ads.emit(sight, _ads_raise_time)
 
 func on_ads_released() -> void:
 	if state_machine.transition(CharacterStateMachine.State.HIPFIRE):

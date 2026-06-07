@@ -32,8 +32,8 @@ func _build() -> void:
 	_reticle.visible = false
 	add_child(_reticle)
 
-func show_ads(sight: SightData) -> void:
-	_tween_params(sight.fov_radius, _ADS_DARK)
+func show_ads(sight: SightData, raise_time: float = _TWEEN_DUR) -> void:
+	_tween_params(sight.fov_radius, _ADS_DARK, raise_time)
 	_reticle.set_type(sight.reticle_type)
 	_reticle.visible = true
 
@@ -46,7 +46,7 @@ func _process(_dt: float) -> void:
 	_mat.set_shader_parameter("aspect_ratio", vp.x / vp.y)
 	_reticle.position = vp * 0.5
 
-func _tween_params(radius: float, dark: float) -> void:
+func _tween_params(radius: float, dark: float, duration: float = _TWEEN_DUR) -> void:
 	if _tween != null:
 		_tween.kill()
 	var cur_r := float(_mat.get_shader_parameter("circle_radius"))
@@ -54,7 +54,7 @@ func _tween_params(radius: float, dark: float) -> void:
 	_tween = create_tween().set_parallel(true)
 	_tween.tween_method(
 		func(v: float): _mat.set_shader_parameter("circle_radius", v),
-		cur_r, radius, _TWEEN_DUR)
+		cur_r, radius, duration)
 	_tween.tween_method(
 		func(v: float): _mat.set_shader_parameter("dark_alpha", v),
-		cur_d, dark, _TWEEN_DUR)
+		cur_d, dark, duration)
