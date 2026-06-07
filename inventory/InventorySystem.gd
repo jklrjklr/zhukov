@@ -129,6 +129,9 @@ func load_from_file(path: String) -> void:
 		return
 	_apply_dict(data as Dictionary)
 
+func load_from_dict(data: Dictionary) -> void:
+	_apply_dict(data)
+
 func _apply_dict(data: Dictionary) -> void:
 	var eq: Dictionary = data.get("equipment", {})
 	for slot_name: String in eq:

@@ -7,6 +7,9 @@ const SETTINGS_PATH := "user://settings.json"
 signal resumed
 signal edit_layout_requested
 
+var save_slot: int = -1
+var playtime: float = 0.0
+
 var _player: Player = null
 var _inventory: InventorySystem = null
 var _screen_fx: ScreenEffects = null
@@ -300,8 +303,10 @@ func _apply_saved_settings() -> void:
 func _save_game() -> void:
 	if _player == null:
 		return
+	var path := MainMenu.save_path(save_slot) if save_slot >= 0 else SAVE_PATH
 	var s := _player.survival
 	var data: Dictionary = {
+		"playtime":   playtime,
 		"health":     _player.health,
 		"max_health": _player.max_health,
 		"position":   [_player.global_position.x, _player.global_position.y],
@@ -310,8 +315,9 @@ func _save_game() -> void:
 			"hunger":  s.hunger,
 			"thirst":  s.thirst,
 		},
+		"inventory": _inventory.to_dict() if _inventory != null else {},
 	}
-	var f := FileAccess.open(SAVE_PATH, FileAccess.WRITE)
+	var f := FileAccess.open(path, FileAccess.WRITE)
 	if f:
 		f.store_string(JSON.stringify(data, "\t"))
 
