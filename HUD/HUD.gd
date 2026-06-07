@@ -13,6 +13,9 @@ signal ads_released
 
 var _run_label: Label = null
 var _player: Player = null
+var _editor: InputLayoutEditor = null
+var _inv_btn: Button = null
+var _ads_btn: Button = null
 
 func _ready() -> void:
 	await get_tree().process_frame
@@ -22,50 +25,52 @@ func _ready() -> void:
 	TouchInputHandler.fire_mode_button_rect = _fire_mode_btn.get_global_rect()
 
 	_progress_circle.position = Vector2(DisplayServer.window_get_size()) * 0.5
-
-	var inv_btn := Button.new()
-	inv_btn.text = "BAG"
-	inv_btn.position = Vector2(16, 16)
-	inv_btn.size = Vector2(72, 44)
-	inv_btn.pressed.connect(func(): inventory_requested.emit())
-	add_child(inv_btn)
-
-	var ads_btn := Button.new()
-	ads_btn.text = "ADS"
-	ads_btn.position = Vector2(16, 70)
-	ads_btn.size = Vector2(72, 44)
-	ads_btn.button_down.connect(func(): ads_pressed.emit())
-	ads_btn.button_up.connect(func(): ads_released.emit())
-	add_child(ads_btn)
-
-	# Status bars (HP / Stamina / Hunger / Thirst)
 	_player = get_parent().get_node("Player")
+
+	# ── Buttons ────────────────────────────────────────────────────────────
+	_inv_btn = Button.new()
+	_inv_btn.text = "BAG"
+	_inv_btn.position = Vector2(16, 16)
+	_inv_btn.size = Vector2(72, 44)
+	_inv_btn.pressed.connect(func(): inventory_requested.emit())
+	add_child(_inv_btn)
+
+	_ads_btn = Button.new()
+	_ads_btn.text = "ADS"
+	_ads_btn.position = Vector2(16, 70)
+	_ads_btn.size = Vector2(72, 44)
+	_ads_btn.button_down.connect(func(): ads_pressed.emit())
+	_ads_btn.button_up.connect(func(): ads_released.emit())
+	add_child(_ads_btn)
+
+	# ── Status bars ────────────────────────────────────────────────────────
 	var status_bars := StatusBars.new()
 	status_bars.position = Vector2(102, 14)
 	status_bars.setup(_player)
 	add_child(status_bars)
 
-	# Minimap
+	# ── Minimap ────────────────────────────────────────────────────────────
 	var minimap := Minimap.new()
-	minimap.position = Vector2(1128, 82)
+	minimap.position = Vector2(1060, 10)
 	minimap.setup(_player)
 	add_child(minimap)
 
-	# Quick-use buttons
+	# ── Quick-use bar ──────────────────────────────────────────────────────
 	var quick_bar := QuickUseBar.new()
 	quick_bar.position = Vector2(660, 610)
 	quick_bar.setup(_player.inventory)
 	add_child(quick_bar)
 
-	# Run indicator
+	# ── Run indicator ──────────────────────────────────────────────────────
 	_run_label = Label.new()
-	_run_label.text = "▶ RUNNING"
+	_run_label.text = "▶  RUNNING"
 	_run_label.visible = false
 	_run_label.position = Vector2(540, 584)
 	_run_label.add_theme_font_size_override("font_size", 14)
 	_run_label.add_theme_color_override("font_color", Color(0.3, 1.0, 0.4))
 	add_child(_run_label)
 
+	# ── Weapon / reload events ─────────────────────────────────────────────
 	_weapon_system.reloading.connect(_on_reloading)
 	_weapon_system.reload_complete.connect(_progress_circle.hide_progress)
 	_weapon_system.fire_mode_changed.connect(_on_fire_mode_changed)
@@ -76,6 +81,41 @@ func _ready() -> void:
 		_update_mode_label(w.active_fire_mode)
 		_fire_mode_btn.modulate = Color(0.4, 0.4, 0.4) if w.fire_modes.size() <= 1 else Color.WHITE
 		_reload_btn.modulate    = Color(0.4, 0.4, 0.4) if w.ammo_current >= w.magazine_size else Color.WHITE
+
+	# ── Layout editor (must be last child so it renders on top) ────────────
+	_editor = InputLayoutEditor.new()
+	add_child(_editor)
+
+	# Register every draggable element
+	_editor.register("fire",        "FIRE",       _fire_visual)
+	_editor.register("reload",      "RELOAD",     _reload_btn)
+	_editor.register("fire_mode",   "FIRE MODE",  _fire_mode_btn)
+	_editor.register("bag",         "BAG",        _inv_btn)
+	_editor.register("ads",         "ADS",        _ads_btn)
+	_editor.register("status_bars", "STATUS BARS", status_bars)
+	_editor.register("minimap",     "MINIMAP",    minimap)
+	_editor.register("quick_use",   "QUICK USE",  quick_bar)
+	_editor.register("run_label",   "RUN LABEL",  _run_label)
+
+	_editor.load_saved()
+
+	# "Edit layout" trigger button — small gear at top-center
+	var edit_btn := Button.new()
+	edit_btn.text = "⚙"
+	edit_btn.position = Vector2(DisplayServer.window_get_size().x * 0.5 - 20, 4)
+	edit_btn.size = Vector2(40, 32)
+	edit_btn.add_theme_font_size_override("font_size", 18)
+	edit_btn.pressed.connect(_editor.begin_edit)
+	add_child(edit_btn)
+
+	# Re-sync touch rects after layout may have shifted
+	await get_tree().process_frame
+	_sync_touch_rects()
+
+func _sync_touch_rects() -> void:
+	TouchInputHandler.fire_button_rect      = _fire_visual.get_global_rect()
+	TouchInputHandler.reload_button_rect    = _reload_btn.get_global_rect()
+	TouchInputHandler.fire_mode_button_rect = _fire_mode_btn.get_global_rect()
 
 func _on_reloading(_duration: float) -> void:
 	_progress_circle.start("RELOAD", true)

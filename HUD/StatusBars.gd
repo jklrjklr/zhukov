@@ -1,5 +1,5 @@
 class_name StatusBars
-extends Node2D
+extends Control
 
 const BAR_W   := 160.0
 const BAR_H   := 12.0
@@ -21,6 +21,9 @@ func setup(player: Player) -> void:
 
 func _ready() -> void:
 	_font = ThemeDB.fallback_font
+	var h := _DEFS.size() * (BAR_H + GAP) - GAP
+	custom_minimum_size = Vector2(LABEL_W + BAR_W, h)
+	size = custom_minimum_size
 
 func _process(_dt: float) -> void:
 	queue_redraw()
@@ -38,14 +41,11 @@ func _draw() -> void:
 	for i in _DEFS.size():
 		var y   := i * (BAR_H + GAP)
 		var pct := clampf(values[i], 0.0, 1.0)
-		# Background
 		draw_rect(Rect2(LABEL_W, y, BAR_W, BAR_H), Color(0.08, 0.08, 0.08, 0.7))
-		# Fill — shift to orange/red when low
 		var col: Color = _DEFS[i].color
 		if pct < 0.25:
 			col = col.lerp(Color(1.0, 0.2, 0.1, 0.92), (0.25 - pct) / 0.25)
 		draw_rect(Rect2(LABEL_W, y, BAR_W * pct, BAR_H), col)
-		# Label
 		draw_string(_font, Vector2(0.0, y + BAR_H - 2.0),
 			_DEFS[i].label, HORIZONTAL_ALIGNMENT_LEFT, -1, 9,
 			Color(0.88, 0.88, 0.88, 0.9))
