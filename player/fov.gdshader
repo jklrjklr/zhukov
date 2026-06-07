@@ -11,9 +11,8 @@ uniform float aspect_ratio     : hint_range(0.5, 4.0)  = 1.7778;
 // Layer 1 — ambient circle (skill-based; wired later)
 uniform float ambient_radius   : hint_range(0.0, 0.5)  = 0.12;
 
-// Layer 2 — sight cone
+// Layer 2 — sight cone (extends to screen edges — no distance cutoff)
 uniform float sight_half_angle : hint_range(0.0, 1.6)  = 0.90;  // radians
-uniform float sight_dist       : hint_range(0.0, 1.0)  = 0.50;  // fraction of screen height
 
 uniform float dark_alpha       : hint_range(0.0, 1.0)  = 0.88;
 uniform float softness         : hint_range(0.001, 0.1) = 0.03;
@@ -41,11 +40,7 @@ void fragment() {
 		sight_half_angle - softness * 3.0,
 		sight_half_angle + softness,
 		angle_diff);
-	float in_dist = 1.0 - smoothstep(
-		sight_dist - softness * 2.0,
-		sight_dist + softness,
-		dist);
-	float sight = in_angle * in_dist;
+	float sight = in_angle;
 
 	// Lit if inside ambient circle OR inside sight cone
 	float visibility = max(ambient, sight);

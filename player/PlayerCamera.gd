@@ -8,6 +8,7 @@ extends Camera2D
 @export var recoil_zoom_return_speed: float = 0.5
 
 var _recoil_zoom: float = 0.0
+var _scope_mult:  float = 1.0   # >1 zooms OUT (shows more world) when scoped
 
 func _ready() -> void:
 	TouchInputHandler.camera_rotated.connect(_on_camera_rotated)
@@ -32,10 +33,18 @@ func add_lateral_recoil(radians: float) -> void:
 	rotation += radians
 	_refresh_camera()
 
+func set_ads_scope(mult: float) -> void:
+	_scope_mult = maxf(mult, 1.0)
+	_refresh_camera()
+
+func clear_ads_scope() -> void:
+	_scope_mult = 1.0
+	_refresh_camera()
+
 func _refresh_camera() -> void:
 	position = Vector2.UP.rotated(rotation) * view_offset
 
-	var z: float = max(0.1, base_zoom + _recoil_zoom)
+	var z: float = max(0.1, base_zoom + _recoil_zoom) / _scope_mult
 	zoom = Vector2(z, z)
 
 func set_muzzle_rise_recovery(value: float) -> void:
