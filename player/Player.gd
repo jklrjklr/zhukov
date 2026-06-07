@@ -11,6 +11,10 @@ extends CharacterBody2D
 @onready var _sprite: Node2D   = $Sprite2D
 @onready var inventory: InventorySystem = $InventorySystem
 @onready var state_machine: CharacterStateMachine = $CharacterStateMachine
+@onready var survival: SurvivalStats = $SurvivalStats
+
+var facing_angle: float:
+	get: return _facing_angle
 
 var _facing_angle: float = 0.0
 var _initialized: bool = false
@@ -57,11 +61,12 @@ func _apply_movement(delta: float) -> void:
 	move_and_slide()
 
 func _check_run_state() -> void:
-	var running := TouchInputHandler.is_running_joystick()
-	if running and not state_machine.is_running() and not state_machine.is_ads():
+	var wants_run := TouchInputHandler.is_running_joystick() and survival.can_run()
+	if wants_run and not state_machine.is_running() and not state_machine.is_ads():
 		state_machine.transition(CharacterStateMachine.State.RUNNING)
-	elif not running and state_machine.is_running():
+	elif not wants_run and state_machine.is_running():
 		state_machine.transition(CharacterStateMachine.State.HIPFIRE)
+	survival.set_running(state_machine.is_running())
 
 func _update_facing(delta: float) -> void:
 	var target_angle: float = _get_target_angle()

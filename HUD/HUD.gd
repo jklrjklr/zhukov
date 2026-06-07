@@ -11,6 +11,9 @@ signal ads_released
 @onready var _progress_circle: ProgressCircle = $ProgressCircle
 @onready var _weapon_system: Node = get_parent().get_node("Player/WeaponSystem")
 
+var _run_label: Label = null
+var _player: Player = null
+
 func _ready() -> void:
 	await get_tree().process_frame
 
@@ -34,6 +37,34 @@ func _ready() -> void:
 	ads_btn.button_down.connect(func(): ads_pressed.emit())
 	ads_btn.button_up.connect(func(): ads_released.emit())
 	add_child(ads_btn)
+
+	# Status bars (HP / Stamina / Hunger / Thirst)
+	_player = get_parent().get_node("Player")
+	var status_bars := StatusBars.new()
+	status_bars.position = Vector2(102, 14)
+	status_bars.setup(_player)
+	add_child(status_bars)
+
+	# Minimap
+	var minimap := Minimap.new()
+	minimap.position = Vector2(1128, 82)
+	minimap.setup(_player)
+	add_child(minimap)
+
+	# Quick-use buttons
+	var quick_bar := QuickUseBar.new()
+	quick_bar.position = Vector2(660, 610)
+	quick_bar.setup(_player.inventory)
+	add_child(quick_bar)
+
+	# Run indicator
+	_run_label = Label.new()
+	_run_label.text = "▶ RUNNING"
+	_run_label.visible = false
+	_run_label.position = Vector2(540, 584)
+	_run_label.add_theme_font_size_override("font_size", 14)
+	_run_label.add_theme_color_override("font_color", Color(0.3, 1.0, 0.4))
+	add_child(_run_label)
 
 	_weapon_system.reloading.connect(_on_reloading)
 	_weapon_system.reload_complete.connect(_progress_circle.hide_progress)
@@ -98,6 +129,9 @@ func _physics_process(_delta: float) -> void:
 
 	if _weapon_system.get_is_reloading():
 		_progress_circle.set_progress(_weapon_system.get_reload_progress())
+
+	if _run_label != null and _player != null:
+		_run_label.visible = _player.state_machine.is_running()
 
 	_fire_visual.modulate = Color(0.7, 0.7, 0.7) if TouchInputHandler.fire_held else Color.WHITE
 
