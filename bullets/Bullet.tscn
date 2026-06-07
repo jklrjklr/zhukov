@@ -18,4 +18,3 @@ rotation = -1.5707964
 scale = Vector2(0.2, 0.4)
 points = PackedVector2Array(0, 27.499998, 0, -27.499998)
 
-[connection signal="body_entered" from="." to="." method="_on_body_entered"]

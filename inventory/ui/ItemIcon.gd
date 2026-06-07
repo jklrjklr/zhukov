@@ -28,9 +28,9 @@ func setup(p_item: Item, p_source_key: String, forced_cols: int = -1, forced_row
 	_label.text = p_item.display_name if p_item.display_name != "" else p_item.item_id
 	var s := StyleBoxFlat.new()
 	s.bg_color = _color_for_type(p_item.type)
-	s.border_width_all = 2
+	s.set_border_width_all(2)
 	s.border_color = Color(1, 1, 1, 0.65)
-	s.corner_radius_all = 4
+	s.set_corner_radius_all(4)
 	add_theme_stylebox_override("panel", s)
 
 func _get_drag_data(_pos: Vector2) -> Variant:

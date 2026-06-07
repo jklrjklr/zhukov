@@ -15,7 +15,10 @@ var _body_target: Node = null
 var _hit_queued: bool = false
 
 func _ready() -> void:
-	area_entered.connect(_on_area_entered)
+	if not area_entered.is_connected(_on_area_entered):
+		area_entered.connect(_on_area_entered)
+	if not body_entered.is_connected(_on_body_entered):
+		body_entered.connect(_on_body_entered)
 
 func init(pos: Vector2, dir: Vector2, dmg: int, spd: float = 1200.0, hs_mult: float = 3.0) -> void:
 	global_position = pos
