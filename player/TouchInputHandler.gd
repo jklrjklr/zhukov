@@ -2,6 +2,13 @@ extends Node
 
 const JOYSTICK_RADIUS: float = 80.0
 var swipe_sensitivity: float = 0.02
+var joystick_disabled: bool = false:
+	set(v):
+		joystick_disabled = v
+		if v:
+			_joystick_touch_index = -1
+			_joystick_origin      = Vector2.ZERO
+			_joystick_current     = Vector2.ZERO
 
 signal camera_rotated(delta_angle: float)
 
@@ -46,7 +53,7 @@ func _input(event: InputEvent) -> void:
 func _handle_touch(event: InputEventScreenTouch) -> void:
 	if event.pressed:
 		var is_left: bool = event.position.x < _screen_mid_x
-		if is_left:
+		if is_left and not joystick_disabled:
 			if _joystick_touch_index == -1:
 				_joystick_touch_index = event.index
 				_joystick_origin = event.position
@@ -113,7 +120,11 @@ func get_move_vector() -> Vector2:
 func is_running_joystick() -> bool:
 	if _joystick_touch_index == -1:
 		return false
-	return (_joystick_current - _joystick_origin).length() > JOYSTICK_RADIUS
+	var delta := _joystick_current - _joystick_origin
+	if delta.length() <= JOYSTICK_RADIUS:
+		return false
+	# Only run within a 60° cone pointing up (±30° of Vector2.UP)
+	return absf(delta.normalized().angle_to(Vector2.UP)) <= deg_to_rad(30.0)
 
 func get_camera_angular_velocity() -> float:
 	return 0.0

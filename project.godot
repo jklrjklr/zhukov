@@ -13,13 +13,14 @@ config_version=5
 config/name="Zhukov"
 config/features=PackedStringArray("4.5", "Forward Plus")
 config/icon="res://icon.svg"
-run/main_scene="res://main.tscn"
+run/main_scene="res://title.tscn"
 
 [autoload]
 
 TouchInputHandler="*res://player/TouchInputHandler.gd"
 BulletSpawner="*res://bullets/BulletSpawner.gd"
 ItemDB="*res://weapons/ItemDB.gd"
+GameState="*res://GameState.gd"
 
 [display]
 

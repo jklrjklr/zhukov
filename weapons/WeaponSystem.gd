@@ -192,8 +192,9 @@ func _decay_recoil(delta: float) -> void:
 		_lateral_current = 0.0
 		return
 
-	_rise_current = move_toward(_rise_current, 0.0, w.muzzle_rise_recovery * delta)
-	_lateral_current = move_toward(_lateral_current, 0.0, w.muzzle_rise_recovery * delta)
+	var z := camera.zoom.x
+	_rise_current = move_toward(_rise_current, 0.0, w.muzzle_rise_recovery * z * z * delta)
+	_lateral_current = move_toward(_lateral_current, 0.0, w.muzzle_rise_recovery * z * z * delta)
 
 func _apply_recoil_to_camera(w: WeaponData, lateral_sign: float) -> void:
 	var lateral_rad: float = w.lateral_recoil * 0.001 * lateral_sign

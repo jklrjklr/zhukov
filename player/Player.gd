@@ -61,7 +61,9 @@ func _apply_movement(delta: float) -> void:
 	move_and_slide()
 
 func _check_run_state() -> void:
-	var wants_run := TouchInputHandler.is_running_joystick() and survival.can_run()
+	var wants_run := TouchInputHandler.is_running_joystick() \
+		and survival.can_run() \
+		and not TouchInputHandler.fire_held
 	if wants_run and not state_machine.is_running() and not state_machine.is_ads():
 		state_machine.transition(CharacterStateMachine.State.RUNNING)
 	elif not wants_run and state_machine.is_running():

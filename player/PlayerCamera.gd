@@ -15,7 +15,8 @@ func _ready() -> void:
 	_refresh_camera()
 
 func _physics_process(delta: float) -> void:
-	_recoil_zoom = move_toward(_recoil_zoom, 0.0, recoil_zoom_return_speed * delta)
+	var z := zoom.x
+	_recoil_zoom = move_toward(_recoil_zoom, 0.0, recoil_zoom_return_speed * z * z * delta)
 	_refresh_camera()
 
 func _on_camera_rotated(delta_angle: float) -> void:
