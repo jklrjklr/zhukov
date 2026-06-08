@@ -229,7 +229,7 @@ func _cy(row: int) -> float:
 	match row:
 		0: return (R0Y1 + R0Y2) * 0.5   # 232
 		1: return (R1Y1 + R1Y2) * 0.5   # 664
-		_: return (R2Y1 + R2Y2) * 0.5   # 1096
+		_: return (R1Y1 + R1Y2) * 0.5
 
 # ── Station visuals ───────────────────────────────────────────────────────────
 
