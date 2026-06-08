@@ -12,6 +12,8 @@
 [ext_resource type="Script" uid="uid://ntxvf74biexb" path="res://characters/SurvivalStats.gd" id="10"]
 
 [sub_resource type="CapsuleShape2D" id="CapsuleShape2D_main"]
+radius = 10.0
+height = 0.0
 [sub_resource type="CapsuleShape2D" id="CapsuleShape2D_body"]
 radius = 10.0
 height = 0.0

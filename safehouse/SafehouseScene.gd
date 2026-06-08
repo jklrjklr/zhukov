@@ -61,7 +61,7 @@ var _resting:        bool  = false
 func _ready() -> void:
 	_playtime = GameState.playtime
 	_setup_player()
-	_build_floors()
+	_build_floor_tilemap()
 	_build_walls()
 	_build_station_visuals()
 	_build_shooting_range()
@@ -107,42 +107,44 @@ func _setup_player() -> void:
 	# Pause signal → no pause menu in safehouse, just ignore
 	$HUD.pause_requested.connect(func(): pass)
 
-# ── Floors ────────────────────────────────────────────────────────────────────
+# ── Floor tilemap ─────────────────────────────────────────────────────────────
 
-func _build_floors() -> void:
-	var rooms := [
-		[Rect2(C0X1, R0Y1, 560, 400), Color(0.13, 0.09, 0.07)],  # living
-		[Rect2(C1X1, R0Y1, 560, 400), Color(0.07, 0.09, 0.14)],  # workshop
-		[Rect2(C2X1, R0Y1, 560, 400), Color(0.07, 0.10, 0.13)],  # planning
-		[Rect2(C0X1, R1Y1, 560, 400), Color(0.07, 0.11, 0.08)],  # stash
-		[Rect2(C1X1, R1Y1, 560, 400), Color(0.09, 0.08, 0.10)],  # entry
-		[Rect2(C2X1, R1Y1, 560, 400), Color(0.13, 0.08, 0.06)],  # armory
-		[Rect2(C0X1, R2Y1, C2X2 - C0X1, 400), Color(0.06, 0.06, 0.07)],  # range
+func _build_floor_tilemap() -> void:
+	const TILE := 16
+	var tileset := TileSet.new()
+	tileset.tile_size = Vector2i(TILE, TILE)
+
+	var src := TileSetAtlasSource.new()
+	src.texture = load("res://assets/tiles/safehouse_atlas.png") as Texture2D
+	src.texture_region_size = Vector2i(TILE, TILE)
+	for i in range(9):
+		src.create_tile(Vector2i(i, 0))
+	var src_id := tileset.add_source(src)
+
+	var layer := TileMapLayer.new()
+	layer.tile_set = tileset
+	layer.z_index = -1
+	add_child(layer)
+
+	# atlas col → tile index: 0=wall 1=entry 2=living 3=workshop 4=stash 5=armory 6=planning 7=range 8=door_frame
+	var rooms: Array = [
+		[C0X1, R0Y1, C0X2, R0Y2, 2],  # living
+		[C1X1, R0Y1, C1X2, R0Y2, 3],  # workshop
+		[C2X1, R0Y1, C2X2, R0Y2, 6],  # planning
+		[C0X1, R1Y1, C0X2, R1Y2, 4],  # stash
+		[C1X1, R1Y1, C1X2, R1Y2, 1],  # entry
+		[C2X1, R1Y1, C2X2, R1Y2, 5],  # armory
+		[C0X1, R2Y1, C2X2, R2Y2, 7],  # range
 	]
-	for info: Array in rooms:
-		var r: Rect2   = info[0]
-		var col: Color = info[1]
-		var bg := ColorRect.new()
-		bg.position = r.position
-		bg.size     = r.size
-		bg.color    = col
-		add_child(bg)
-		var step := 40.0
-		var lx := r.position.x + step
-		while lx < r.position.x + r.size.x:
-			_floor_line(Vector2(lx, r.position.y), Vector2(1, r.size.y), col)
-			lx += step
-		var ly := r.position.y + step
-		while ly < r.position.y + r.size.y:
-			_floor_line(Vector2(r.position.x, ly), Vector2(r.size.x, 1), col)
-			ly += step
-
-func _floor_line(pos: Vector2, sz: Vector2, base_col: Color) -> void:
-	var l := ColorRect.new()
-	l.color    = base_col.lightened(0.07)
-	l.position = pos
-	l.size     = sz
-	add_child(l)
+	for room: Array in rooms:
+		var tx1 := int(room[0]) / TILE
+		var ty1 := int(room[1]) / TILE
+		var tx2 := int(room[2]) / TILE
+		var ty2 := int(room[3]) / TILE
+		var tidx: int = int(room[4])
+		for tx in range(tx1, tx2):
+			for ty in range(ty1, ty2):
+				layer.set_cell(Vector2i(tx, ty), src_id, Vector2i(tidx, 0))
 
 # ── Walls ─────────────────────────────────────────────────────────────────────
 
