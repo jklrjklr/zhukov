@@ -43,21 +43,21 @@ const HEAD_MAX_LOCAL:  float = PI / 3.0   # 60° max head offset from body
 const BODY_SPEED_MULT: float = 0.55       # body turns at 55 % of head speed
 
 # Feet walk animation
-const WALK_FREQ:      float   = 5.5
-const WALK_AMP:       float   = 9.0
-const FOOT_L_BASE:    Vector2 = Vector2(-8.0, 22.0)
-const FOOT_R_BASE:    Vector2 = Vector2( 8.0, 22.0)
+const WALK_FREQ:      float   = 1.6
+const WALK_AMP:       float   = 20.0
+const FOOT_L_BASE:    Vector2 = Vector2(-15.0, 6.0)
+const FOOT_R_BASE:    Vector2 = Vector2( 15.0, 6.0)
 var   _walk_phase:    float   = 0.0
 
-# Arm animation
-const ARM_BASE_ROT:   float = PI      # arms point toward body front (−y in body space)
-const ARM_SWING_AMP:  float = 0.22    # ≈ 13° swing per side
-const ARM_BASE_LEN:   float = 1.0     # upper-arm scale.y at rest (scale 1 = natural size)
-const ARM_LEN_VARY:   float = 0.06    # ± length scale variation during stride
-const ARM_ELBOW_Y:    float = 48.0    # cropped upper-arm sprite height in pixels
-const ELBOW_BEND:     float = 0.25    # resting elbow bend (≈ 14°)
-const SHOULDER_L_POS: Vector2 = Vector2(-28.0, -12.0)
-const SHOULDER_R_POS: Vector2 = Vector2( 28.0, -12.0)
+# Arm animation — keep in sync with ShoulderL/R position and ElbowL/R position in Player.tscn
+const ARM_BASE_ROT:   float = PI
+const ARM_SWING_AMP:  float = 0.22
+const ARM_BASE_LEN:   float = 1.0
+const ARM_LEN_VARY:   float = 0.06
+const ARM_ELBOW_Y:    float = 30.0    # must match ElbowL/R position.y in Player.tscn
+const ELBOW_BEND:     float = 0.25
+const SHOULDER_L_POS: Vector2 = Vector2(-27.0,  0.0)  # must match ShoulderL position in Player.tscn
+const SHOULDER_R_POS: Vector2 = Vector2( 28.0,  0.0)  # must match ShoulderR position in Player.tscn
 
 # Arm spring state
 var _arm_l_rot: float = ARM_BASE_ROT
@@ -177,7 +177,6 @@ func _update_arms(delta: float) -> void:
 	var t   := minf(spd / move_speed, 1.0)
 
 	# Target shoulder rotations: base pointing forward ± walking swing
-	# Left arm is in-phase with right foot (opposite side), right arm with left foot
 	var tgt_l := ARM_BASE_ROT + sin(_walk_phase + PI) * ARM_SWING_AMP * t
 	var tgt_r := ARM_BASE_ROT + sin(_walk_phase)      * ARM_SWING_AMP * t
 
@@ -199,7 +198,7 @@ func _update_arms(delta: float) -> void:
 	var len_l := ARM_BASE_LEN + sin(_walk_phase + PI) * ARM_LEN_VARY * t
 	var len_r := ARM_BASE_LEN + sin(_walk_phase)      * ARM_LEN_VARY * t
 	_upper_arm_l.scale = Vector2( 1.0, len_l)
-	_upper_arm_r.scale = Vector2(-1.0, len_r)  # x stays -1 for H-flip
+	_upper_arm_r.scale = Vector2(-1.0, len_r)
 	_elbow_l.position  = Vector2(0.0, ARM_ELBOW_Y * len_l)
 	_elbow_r.position  = Vector2(0.0, ARM_ELBOW_Y * len_r)
 
