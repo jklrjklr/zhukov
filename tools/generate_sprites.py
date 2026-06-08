@@ -96,44 +96,50 @@ def make_head() -> tuple:
     return W, H, rows
 
 
-def make_arm() -> tuple:
-    """5 × 8 px  —  upper 5 rows = short sleeve, lower 3 rows = tactical glove."""
-    W, H, SL = 5, 8, 5
+def make_upper_arm() -> tuple:
+    """5 × 4 px  —  shoulder to elbow (sleeve only); pivot at top edge."""
+    W, H = 5, 4
     rows = []
     for y in range(H):
         row = []
         for x in range(W):
-            if y < SL:
-                if x == 0 or x == W - 1 or y == 0:
-                    col = SL_D
-                else:
-                    col = SL_M
+            if x == 0 or x == W - 1 or y == 0:
+                col = SL_D
             else:
-                gy = y - SL
-                if x == 0 or x == W - 1 or gy == H - SL - 1:
-                    col = GL_D
-                else:
-                    col = GL_M
+                col = SL_M
             row.append(col)
         rows.append(row)
     return W, H, rows
 
 
-def make_feet() -> tuple:
-    """11 × 4 px  —  left boot (5 px), 1 px gap, right boot (5 px)."""
-    W, H = 11, 4
+def make_lower_arm() -> tuple:
+    """5 × 4 px  —  elbow to hand (sleeve row + 3 glove rows); pivot at top edge."""
+    W, H = 5, 4
     rows = []
     for y in range(H):
         row = []
         for x in range(W):
-            if x == 5:
-                row.append(T)
+            if y == 0:
+                col = SL_D if (x == 0 or x == W - 1) else SL_M
             else:
-                bx = x if x < 5 else x - 6
-                if y == 0 or bx == 0 or bx == 4:
-                    row.append(BT_E)
-                else:
-                    row.append(BT_M)
+                gy = y - 1
+                col = GL_D if (x == 0 or x == W - 1 or gy == 2) else GL_M
+            row.append(col)
+        rows.append(row)
+    return W, H, rows
+
+
+def make_foot() -> tuple:
+    """5 × 4 px  —  single boot; used for both feet."""
+    W, H = 5, 4
+    rows = []
+    for y in range(H):
+        row = []
+        for x in range(W):
+            if y == 0 or x == 0 or x == W - 1:
+                row.append(BT_E)
+            else:
+                row.append(BT_M)
         rows.append(row)
     return W, H, rows
 
@@ -176,15 +182,16 @@ def make_uzi() -> tuple:
 if __name__ == "__main__":
     base = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     parts = [
-        ("body",      make_body,  "assets/player/body.png"),
-        ("head",      make_head,  "assets/player/head.png"),
-        ("arm",       make_arm,   "assets/player/arm.png"),
-        ("feet",      make_feet,  "assets/player/feet.png"),
-        ("micro_uzi", make_uzi,   "assets/weapons/micro_uzi.png"),
+        ("body",      make_body,      "assets/player/body.png"),
+        ("head",      make_head,      "assets/player/head.png"),
+        ("upper_arm", make_upper_arm, "assets/player/upper_arm.png"),
+        ("lower_arm", make_lower_arm, "assets/player/lower_arm.png"),
+        ("foot",      make_foot,      "assets/player/foot.png"),
+        ("micro_uzi", make_uzi,       "assets/weapons/micro_uzi.png"),
     ]
     for label, fn, rel in parts:
         W, H, rows = fn()
         save_png(os.path.join(base, rel), W, H, rows)
-    print("Done — 5 sprite PNGs generated.")
+    print("Done — 6 sprite PNGs generated.")
     print("Player part sizes: body=18×10, head=10×10, arm=5×8, feet=11×4")
     print("Weapon: micro_uzi=5×11 (muzzle at top, stock at bottom)")
