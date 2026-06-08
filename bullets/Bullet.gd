@@ -81,4 +81,11 @@ func recycle() -> void:
 	if not is_inside_tree():
 		queue_free()
 		return
-	BulletSpawner.return_bullet(self)
+	# Look the pool up by path rather than the autoload identifier so this
+	# script also compiles under the headless `--script` test runner (which
+	# does not register autoloads). Falls back to freeing if the pool is gone.
+	var spawner := get_node_or_null("/root/BulletSpawner")
+	if spawner != null:
+		spawner.return_bullet(self)
+	else:
+		queue_free()

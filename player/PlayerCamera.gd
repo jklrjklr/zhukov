@@ -11,7 +11,11 @@ var _recoil_zoom: float = 0.0
 var _scope_mult:  float = 1.0   # >1 zooms OUT (shows more world) when scoped
 
 func _ready() -> void:
-	TouchInputHandler.camera_rotated.connect(_on_camera_rotated)
+	# Look the input autoload up by path so this script also compiles under the
+	# headless `--script` test runner, which does not register autoloads.
+	var input := get_node_or_null("/root/TouchInputHandler")
+	if input != null:
+		input.camera_rotated.connect(_on_camera_rotated)
 	_refresh_camera()
 
 func _physics_process(delta: float) -> void:

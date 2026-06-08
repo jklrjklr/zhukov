@@ -78,12 +78,13 @@ func to_dict() -> Dictionary:
 	for id: String in _placed:
 		var entry: Dictionary = _placed[id]
 		var pos: Vector2i = entry["pos"]
-		items_list.append({
-			"item_id": id,
-			"quantity": (entry["item"] as Item).quantity,
-			"grid_pos": [pos.x, pos.y],
-			"rotated": entry["rotated"],
-		})
+		# Embed the full item payload (id, type, grid_size, weight, …) so the
+		# entry round-trips through Item.from_save, then add placement fields.
+		var item_data := (entry["item"] as Item).to_dict()
+		item_data["item_id"] = id
+		item_data["grid_pos"] = [pos.x, pos.y]
+		item_data["rotated"] = entry["rotated"]
+		items_list.append(item_data)
 	return {"size": [cols, rows], "items": items_list}
 
 func _effective_size(item: Item, rotated: bool) -> Vector2i:

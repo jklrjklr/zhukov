@@ -7,6 +7,9 @@ extends CharacterBody2D
 @export_range(5.0, 90.0, 1.0) var ease_start_deg: float = 30.0
 @export_range(0.0, 0.5, 0.01) var ease_min_factor: float = 0.5
 
+# Looked up by path rather than the autoload identifier so Player.gd also
+# compiles under the headless `--script` test runner (no autoloads there).
+@onready var _input:       Node             = get_node_or_null("/root/TouchInputHandler")
 @onready var _camera:      PlayerCamera     = $Camera2D
 @onready var _sprite:      Node2D           = $Sprite2D
 @onready var inventory:    InventorySystem  = $InventorySystem
@@ -114,7 +117,7 @@ func _get_target_angle() -> float:
 	return _camera.rotation + facing_offset
 
 func _apply_movement(delta: float) -> void:
-	var raw_dir: Vector2 = TouchInputHandler.get_move_vector()
+	var raw_dir: Vector2 = _input.get_move_vector()
 	if raw_dir.length_squared() < 0.01:
 		velocity = velocity.move_toward(Vector2.ZERO, move_speed * 8.0 * delta)
 	else:
@@ -122,9 +125,9 @@ func _apply_movement(delta: float) -> void:
 	move_and_slide()
 
 func _check_run_state() -> void:
-	var wants_run := TouchInputHandler.is_running_joystick() \
+	var wants_run: bool = _input.is_running_joystick() \
 		and survival.can_run() \
-		and not TouchInputHandler.fire_held
+		and not _input.fire_held
 	if wants_run and not state_machine.is_running() and not state_machine.is_ads():
 		state_machine.transition(CharacterStateMachine.State.RUNNING)
 	elif not wants_run and state_machine.is_running():

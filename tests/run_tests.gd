@@ -18,10 +18,17 @@ func _init() -> void:
 
 	for path in test_scripts:
 		var script: GDScript = load(path)
-		if not script:
-			print("SKIP (load failed): ", path)
+		# load() returns a GDScript object even when compilation failed, so a
+		# truthiness check is not enough — verify it can actually instantiate.
+		if script == null or not script.can_instantiate():
+			print("FAIL  ", path.get_file(), " (failed to load/compile)")
+			failed += 1
 			continue
 		var suite: Object = script.new()
+		if suite == null:
+			print("FAIL  ", path.get_file(), " (could not instantiate suite)")
+			failed += 1
+			continue
 		for method in suite.get_method_list():
 			if not method["name"].begins_with("test_"):
 				continue

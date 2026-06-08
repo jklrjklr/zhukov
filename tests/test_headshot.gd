@@ -102,10 +102,12 @@ func test_player_headshot_received_signal() -> void:
 	var p := Player.new()
 	p.max_health = 200
 	p.health = 200
-	var signal_fired := false
-	p.headshot_received.connect(func(): signal_fired = true)
+	# Array capture: GDScript lambdas capture locals by value, so a bool would
+	# never reflect the mutation. An array element is captured by reference.
+	var signal_fired := [false]
+	p.headshot_received.connect(func(): signal_fired[0] = true)
 	p.take_damage(10, true)
-	assert(signal_fired, "headshot_received emitted on headshot")
+	assert(signal_fired[0], "headshot_received emitted on headshot")
 	assert(p.health == 190, "health reduced correctly")
 	p.free()
 
@@ -114,10 +116,10 @@ func test_player_normal_damage_no_headshot_signal() -> void:
 	var p := Player.new()
 	p.max_health = 100
 	p.health = 100
-	var signal_fired := false
-	p.headshot_received.connect(func(): signal_fired = true)
+	var signal_fired := [false]
+	p.headshot_received.connect(func(): signal_fired[0] = true)
 	p.take_damage(20, false)
-	assert(not signal_fired, "headshot_received NOT emitted for body shot")
+	assert(not signal_fired[0], "headshot_received NOT emitted for body shot")
 	p.free()
 
 
