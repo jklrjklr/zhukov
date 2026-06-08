@@ -45,19 +45,19 @@ const BODY_SPEED_MULT: float = 0.55       # body turns at 55 % of head speed
 # Feet walk animation
 const WALK_FREQ:      float   = 5.5
 const WALK_AMP:       float   = 9.0
-const FOOT_L_BASE:    Vector2 = Vector2(-6.0, 14.0)
-const FOOT_R_BASE:    Vector2 = Vector2( 6.0, 14.0)
+const FOOT_L_BASE:    Vector2 = Vector2(-8.0, 22.0)
+const FOOT_R_BASE:    Vector2 = Vector2( 8.0, 22.0)
 var   _walk_phase:    float   = 0.0
 
 # Arm animation
 const ARM_BASE_ROT:   float = PI      # arms point toward body front (−y in body space)
 const ARM_SWING_AMP:  float = 0.22    # ≈ 13° swing per side
-const ARM_BASE_LEN:   float = 4.0     # upper-arm scale.y at rest (matches tscn)
-const ARM_LEN_VARY:   float = 0.25    # ± length scale variation during stride
-const ARM_ELBOW_Y:    float = 16.0    # elbow y-offset at ARM_BASE_LEN (4 px × scale 4)
+const ARM_BASE_LEN:   float = 1.0     # upper-arm scale.y at rest (scale 1 = natural size)
+const ARM_LEN_VARY:   float = 0.06    # ± length scale variation during stride
+const ARM_ELBOW_Y:    float = 48.0    # cropped upper-arm sprite height in pixels
 const ELBOW_BEND:     float = 0.25    # resting elbow bend (≈ 14°)
-const SHOULDER_L_POS: Vector2 = Vector2(-26.0, -6.0)
-const SHOULDER_R_POS: Vector2 = Vector2( 26.0, -6.0)
+const SHOULDER_L_POS: Vector2 = Vector2(-28.0, -12.0)
+const SHOULDER_R_POS: Vector2 = Vector2( 28.0, -12.0)
 
 # Arm spring state
 var _arm_l_rot: float = ARM_BASE_ROT
@@ -198,10 +198,10 @@ func _update_arms(delta: float) -> void:
 	# Upper arm length stretches slightly during stride
 	var len_l := ARM_BASE_LEN + sin(_walk_phase + PI) * ARM_LEN_VARY * t
 	var len_r := ARM_BASE_LEN + sin(_walk_phase)      * ARM_LEN_VARY * t
-	_upper_arm_l.scale = Vector2( 4.0, len_l)
-	_upper_arm_r.scale = Vector2(-4.0, len_r)  # x stays -4 for H-flip
-	_elbow_l.position  = Vector2(0.0, len_l * 4.0)
-	_elbow_r.position  = Vector2(0.0, len_r * 4.0)
+	_upper_arm_l.scale = Vector2( 1.0, len_l)
+	_upper_arm_r.scale = Vector2(-1.0, len_r)  # x stays -1 for H-flip
+	_elbow_l.position  = Vector2(0.0, ARM_ELBOW_Y * len_l)
+	_elbow_r.position  = Vector2(0.0, ARM_ELBOW_Y * len_r)
 
 	# Subtle elbow flex during swing
 	_elbow_l.rotation =  ELBOW_BEND + sin(_walk_phase + PI) * 0.08 * t

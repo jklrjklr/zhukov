@@ -31,63 +31,57 @@ script = ExtResource("1")
 [node name="Sprite2D" type="Node2D" parent="."]
 
 [node name="FootL" type="Sprite2D" parent="Sprite2D"]
-position = Vector2(-6, 14)
-scale = Vector2(4, 4)
+position = Vector2(-8, 22)
 texture_filter = 1
 texture = ExtResource("15")
 
 [node name="FootR" type="Sprite2D" parent="Sprite2D"]
-position = Vector2(6, 14)
-scale = Vector2(4, 4)
+position = Vector2(8, 22)
 texture_filter = 1
 texture = ExtResource("15")
 
 [node name="Body" type="Sprite2D" parent="Sprite2D"]
-scale = Vector2(4, 4)
 texture_filter = 1
 texture = ExtResource("11")
 
 [node name="ShoulderL" type="Node2D" parent="Sprite2D"]
-position = Vector2(-26, -6)
+position = Vector2(-28, -12)
 rotation = 3.14159265
 
 [node name="ElbowL" type="Node2D" parent="Sprite2D/ShoulderL"]
-position = Vector2(0, 16)
+position = Vector2(0, 48)
 
 [node name="LowerArmL" type="Sprite2D" parent="Sprite2D/ShoulderL/ElbowL"]
-offset = Vector2(0, 2)
-scale = Vector2(4, 4)
+offset = Vector2(0, 24)
 texture_filter = 1
 texture = ExtResource("14")
 
 [node name="UpperArmL" type="Sprite2D" parent="Sprite2D/ShoulderL"]
-offset = Vector2(0, 2)
-scale = Vector2(4, 4)
+offset = Vector2(0, 24)
 texture_filter = 1
 texture = ExtResource("13")
 
 [node name="ShoulderR" type="Node2D" parent="Sprite2D"]
-position = Vector2(26, -6)
+position = Vector2(28, -12)
 rotation = 3.14159265
 
 [node name="ElbowR" type="Node2D" parent="Sprite2D/ShoulderR"]
-position = Vector2(0, 16)
+position = Vector2(0, 48)
 
 [node name="LowerArmR" type="Sprite2D" parent="Sprite2D/ShoulderR/ElbowR"]
-offset = Vector2(0, 2)
-scale = Vector2(-4, 4)
+offset = Vector2(0, 24)
+scale = Vector2(-1, 1)
 texture_filter = 1
 texture = ExtResource("14")
 
 [node name="UpperArmR" type="Sprite2D" parent="Sprite2D/ShoulderR"]
-offset = Vector2(0, 2)
-scale = Vector2(-4, 4)
+offset = Vector2(0, 24)
+scale = Vector2(-1, 1)
 texture_filter = 1
 texture = ExtResource("13")
 
 [node name="Head" type="Sprite2D" parent="Sprite2D"]
-position = Vector2(0, -20)
-scale = Vector2(3, 3)
+position = Vector2(0, -10)
 texture_filter = 1
 texture = ExtResource("12")
 
@@ -112,7 +106,6 @@ script = ExtResource("5")
 script = ExtResource("6")
 
 [node name="Sprite2D" type="Sprite2D" parent="WeaponSystem/WeaponSlot0"]
-scale = Vector2(3, 3)
 texture_filter = 1
 
 [node name="Muzzle" type="Node2D" parent="WeaponSystem/WeaponSlot0"]
