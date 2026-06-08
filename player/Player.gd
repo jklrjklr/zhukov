@@ -23,6 +23,8 @@ extends CharacterBody2D
 @onready var _elbow_r:     Node2D   = $Sprite2D/ShoulderR/ElbowR
 @onready var _upper_arm_l: Sprite2D = $Sprite2D/ShoulderL/UpperArmL
 @onready var _upper_arm_r: Sprite2D = $Sprite2D/ShoulderR/UpperArmR
+@onready var _hand_l:      Node2D   = $Sprite2D/ShoulderL/ElbowL/HandL
+@onready var _hand_r:      Node2D   = $Sprite2D/ShoulderR/ElbowR/HandR
 
 # Public facing angle — head direction, used by AdsOverlay and WeaponSystem
 var facing_angle: float:
@@ -54,7 +56,8 @@ const ARM_BASE_ROT:   float = PI
 const ARM_SWING_AMP:  float = 0.22
 const ARM_BASE_LEN:   float = 1.0
 const ARM_LEN_VARY:   float = 0.06
-const ARM_ELBOW_Y:    float = 30.0    # must match ElbowL/R position.y in Player.tscn
+const ARM_ELBOW_Y:    float = 24.0    # must match ElbowL/R position.y in Player.tscn
+const ARM_HAND_Y:     float = 24.0    # must match HandL/R position.y in Player.tscn
 const ELBOW_BEND:     float = 0.25
 const SHOULDER_L_POS: Vector2 = Vector2(-27.0,  0.0)  # must match ShoulderL position in Player.tscn
 const SHOULDER_R_POS: Vector2 = Vector2( 28.0,  0.0)  # must match ShoulderR position in Player.tscn
@@ -201,6 +204,8 @@ func _update_arms(delta: float) -> void:
 	_upper_arm_r.scale = Vector2(-1.0, len_r)
 	_elbow_l.position  = Vector2(0.0, ARM_ELBOW_Y * len_l)
 	_elbow_r.position  = Vector2(0.0, ARM_ELBOW_Y * len_r)
+	_hand_l.position   = Vector2(0.0, ARM_HAND_Y)
+	_hand_r.position   = Vector2(0.0, ARM_HAND_Y)
 
 	# Subtle elbow flex during swing
 	_elbow_l.rotation =  ELBOW_BEND + sin(_walk_phase + PI) * 0.08 * t

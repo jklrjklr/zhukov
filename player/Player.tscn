@@ -50,47 +50,49 @@ texture = ExtResource("11")
 position = Vector2(-27, 0)
 rotation = 3.1415927
 
+[node name="UpperArmL" type="Sprite2D" parent="Sprite2D/ShoulderL"]
+texture_filter = 1
+offset = Vector2(0, 12)
+flip_v = true
+texture = ExtResource("13")
+
 [node name="ElbowL" type="Node2D" parent="Sprite2D/ShoulderL"]
-position = Vector2(0, 30)
+position = Vector2(0, 24)
 
 [node name="LowerArmL" type="Sprite2D" parent="Sprite2D/ShoulderL/ElbowL"]
 texture_filter = 1
-position = Vector2(0, -12)
-texture = ExtResource("14")
-offset = Vector2(0, 24)
+offset = Vector2(0, 12)
 flip_h = true
 flip_v = true
+texture = ExtResource("14")
 
-[node name="UpperArmL" type="Sprite2D" parent="Sprite2D/ShoulderL"]
-texture_filter = 1
-position = Vector2(0, -7)
-texture = ExtResource("13")
-offset = Vector2(0, 24)
-flip_v = true
+[node name="HandL" type="Node2D" parent="Sprite2D/ShoulderL/ElbowL"]
+position = Vector2(0, 24)
 
 [node name="ShoulderR" type="Node2D" parent="Sprite2D"]
 position = Vector2(28, 0)
 rotation = 3.1415927
 
+[node name="UpperArmR" type="Sprite2D" parent="Sprite2D/ShoulderR"]
+texture_filter = 1
+offset = Vector2(0, 12)
+scale = Vector2(-1, 1)
+flip_v = true
+texture = ExtResource("13")
+
 [node name="ElbowR" type="Node2D" parent="Sprite2D/ShoulderR"]
-position = Vector2(0, 30)
+position = Vector2(0, 24)
 
 [node name="LowerArmR" type="Sprite2D" parent="Sprite2D/ShoulderR/ElbowR"]
 texture_filter = 1
-position = Vector2(0, -12)
+offset = Vector2(0, 12)
 scale = Vector2(-1, 1)
-texture = ExtResource("14")
-offset = Vector2(0, 24)
 flip_h = true
 flip_v = true
+texture = ExtResource("14")
 
-[node name="UpperArmR" type="Sprite2D" parent="Sprite2D/ShoulderR"]
-texture_filter = 1
-position = Vector2(0, -7)
-scale = Vector2(-1, 1)
-texture = ExtResource("13")
-offset = Vector2(0, 24)
-flip_v = true
+[node name="HandR" type="Node2D" parent="Sprite2D/ShoulderR/ElbowR"]
+position = Vector2(0, 24)
 
 [node name="Head" type="Sprite2D" parent="Sprite2D"]
 texture_filter = 1
