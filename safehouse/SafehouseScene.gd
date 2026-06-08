@@ -7,18 +7,16 @@ const WALL_T        := 32.0
 const DOOR_W        := 120.0
 const INTERACT_DIST := 110.0
 const WORLD_W       := 1808.0
-const WORLD_H       := 1328.0   # three rows + outer walls
+const WORLD_H       := 896.0    # two rows + outer walls
 
-# 3-col × 3-row layout:
-#  Row 0 (top):    Living | Workshop | Planning
-#  Row 1 (mid):    Stash  | Entry    | Armory
-#  Row 2 (bottom): Shooting Range (full width)
+# 3-col × 2-row layout:
+#  Row 0 (top): Living | Workshop | Planning
+#  Row 1 (mid): Stash  | Entry    | Armory
 const C0X1 := 32.0;   const C0X2 := 592.0
 const C1X1 := 624.0;  const C1X2 := 1184.0
 const C2X1 := 1216.0; const C2X2 := 1776.0
 const R0Y1 := 32.0;   const R0Y2 := 432.0
 const R1Y1 := 464.0;  const R1Y2 := 864.0
-const R2Y1 := 896.0;  const R2Y2 := 1296.0
 
 # ── Scene references ──────────────────────────────────────────────────────────
 
@@ -28,20 +26,20 @@ const R2Y1 := 896.0;  const R2Y2 := 1296.0
 # ── Station definitions ───────────────────────────────────────────────────────
 
 const _STATIONS := [
-	{"id": "exit",     "name": "EXIT",     "pos": Vector2(904, 510),
+	{"id": "shooting_range", "name": "RANGE",    "pos": Vector2(904, 510),
+	 "color": Color(0.30, 0.20, 0.08), "size": Vector2(80, 50),   "active": true},
+	{"id": "exit",           "name": "EXIT",     "pos": Vector2(904, 800),
 	 "color": Color(0.15, 0.48, 0.22), "size": Vector2(60, 50),   "active": true},
-	{"id": "stash",    "name": "STASH",    "pos": Vector2(312, 664),
+	{"id": "stash",          "name": "STASH",    "pos": Vector2(312, 664),
 	 "color": Color(0.10, 0.30, 0.20), "size": Vector2(120, 300), "active": true},
-	{"id": "armory",   "name": "ARMORY",   "pos": Vector2(1496, 664),
+	{"id": "armory",         "name": "ARMORY",   "pos": Vector2(1496, 664),
 	 "color": Color(0.38, 0.18, 0.08), "size": Vector2(260, 120), "active": false},
-	{"id": "workshop", "name": "WORKSHOP", "pos": Vector2(904, 200),
+	{"id": "workshop",       "name": "WORKSHOP", "pos": Vector2(904, 200),
 	 "color": Color(0.14, 0.22, 0.40), "size": Vector2(440, 80),  "active": true},
-	{"id": "bed",      "name": "REST",     "pos": Vector2(312, 180),
+	{"id": "bed",            "name": "REST",     "pos": Vector2(312, 180),
 	 "color": Color(0.28, 0.20, 0.12), "size": Vector2(280, 68),  "active": true},
-	{"id": "planning", "name": "PLANNING", "pos": Vector2(1496, 232),
+	{"id": "planning",       "name": "PLANNING", "pos": Vector2(1496, 232),
 	 "color": Color(0.20, 0.28, 0.38), "size": Vector2(420, 68),  "active": false},
-	{"id": "reset",    "name": "RESET",    "pos": Vector2(904, 960),
-	 "color": Color(0.35, 0.25, 0.10), "size": Vector2(100, 40),  "active": true},
 ]
 
 # ── State ─────────────────────────────────────────────────────────────────────
@@ -50,9 +48,6 @@ var _inv_ui:         CanvasLayer
 var _workshop_panel: CanvasLayer
 var _local_ui:       CanvasLayer
 var _interact_btns:  Dictionary = {}   # station id → Button
-var _range_panel:    Control           # shows hit stats when in range
-var _range_hits_lbl: Label
-var _targets:        Array = []        # ShootingTarget nodes
 var _playtime:       float = 0.0
 var _resting:        bool  = false
 
@@ -64,7 +59,6 @@ func _ready() -> void:
 	_build_floor_tilemap()
 	_build_walls()
 	_build_station_visuals()
-	_build_shooting_range()
 	_build_inventory()
 	_build_local_ui()
 	_build_workshop_panel()
@@ -97,6 +91,9 @@ func _setup_player() -> void:
 	cam.limit_top     = 0
 	cam.limit_right   = int(WORLD_W)
 	cam.limit_bottom  = int(WORLD_H)
+
+	# Block weapon fire in safehouse
+	(_player.get_node("WeaponSystem") as WeaponSystem).fire_blocked = true
 
 	# FOV overlay — needs player reference for world-space tracking
 	_ads_overlay.setup(_player)
@@ -135,7 +132,6 @@ func _build_floor_tilemap() -> void:
 		[C0X1, R1Y1, C0X2, R1Y2, 4],  # stash
 		[C1X1, R1Y1, C1X2, R1Y2, 1],  # entry
 		[C2X1, R1Y1, C2X2, R1Y2, 5],  # armory
-		[C0X1, R2Y1, C2X2, R2Y2, 7],  # range
 	]
 	for room: Array in rooms:
 		var tx1 := int(room[0]) / TILE
@@ -154,17 +150,14 @@ func _build_walls() -> void:
 
 	# Outer perimeter
 	_wall(Vector2(0, 0),    Vector2(WORLD_W, WALL_T), wc)   # north
-	_wall(Vector2(0, R2Y2), Vector2(WORLD_W, WALL_T), wc)   # south
+	_wall(Vector2(0, R1Y2), Vector2(WORLD_W, WALL_T), wc)   # south
 	_wall(Vector2(0, 0),    Vector2(WALL_T, WORLD_H), wc)   # west
 	_wall(Vector2(C2X2, 0), Vector2(WALL_T, WORLD_H), wc)   # east
 
 	# Horizontal row0/row1 divider — 3 doors (one per column)
 	_hwall_with_doors(R0Y2, [_cx(0), _cx(1), _cx(2)], wc)
 
-	# Horizontal row1/row2 divider — 3 doors (range connects to all row-1 rooms)
-	_hwall_with_doors(R1Y2, [_cx(0), _cx(1), _cx(2)], wc)
-
-	# Vertical col0/col1 divider — only rows 0–1, 2 doors (at row centres)
+	# Vertical col0/col1 divider — 2 doors (at row centres)
 	_vwall_with_doors(C0X2, R0Y1, R1Y2, [_cy(0), _cy(1)], wc)
 
 	# Vertical col1/col2 divider — same
@@ -274,51 +267,6 @@ func _build_station_visuals() -> void:
 		lbl.size     = Vector2(sz.x, 18)
 		add_child(lbl)
 
-# ── Shooting range ────────────────────────────────────────────────────────────
-
-func _build_shooting_range() -> void:
-	# Distance lane markers
-	var lc := Color(0.18, 0.18, 0.20)
-	for lane_y: float in [R2Y1 + 104, R2Y1 + 204, R2Y1 + 304]:
-		var line := ColorRect.new()
-		line.position = Vector2(C0X1, lane_y)
-		line.size     = Vector2(C2X2 - C0X1, 2)
-		line.color    = lc
-		add_child(line)
-
-	# Targets: 5 silhouettes at staggered distances
-	var target_data := [
-		Vector2(220,  R2Y1 + 304),
-		Vector2(550,  R2Y1 + 204),
-		Vector2(904,  R2Y1 + 330),
-		Vector2(1258, R2Y1 + 204),
-		Vector2(1588, R2Y1 + 304),
-	]
-	for tp: Vector2 in target_data:
-		var tgt := ShootingTarget.new()
-		tgt.position = tp
-		tgt.hit_registered.connect(_on_target_hit)
-		add_child(tgt)
-		_targets.append(tgt)
-
-func _on_target_hit(_damage: int, _headshot: bool) -> void:
-	_refresh_range_panel()
-
-func _reset_targets() -> void:
-	for t: ShootingTarget in _targets:
-		t.reset()
-	_refresh_range_panel()
-
-func _refresh_range_panel() -> void:
-	if _range_hits_lbl == null:
-		return
-	var total_hits := 0
-	var total_dmg  := 0
-	for t: ShootingTarget in _targets:
-		total_hits += t.hits
-		total_dmg  += t.total_damage
-	_range_hits_lbl.text = "HITS: %d   DAMAGE: %d" % [total_hits, total_dmg]
-
 # ── Inventory ─────────────────────────────────────────────────────────────────
 
 func _build_inventory() -> void:
@@ -372,10 +320,6 @@ func _build_local_ui() -> void:
 		_local_ui.add_child(btn)
 		_interact_btns[s["id"]] = btn
 
-	# Range panel (hidden outside range)
-	_range_panel = _make_range_panel()
-	_local_ui.add_child(_range_panel)
-
 func _make_station_btn(s: Dictionary) -> Button:
 	var active: bool = s["active"]
 	var col: Color   = s["color"]
@@ -403,46 +347,6 @@ func _make_station_btn(s: Dictionary) -> Button:
 		btn.disabled = true
 
 	return btn
-
-func _make_range_panel() -> Control:
-	var pc := PanelContainer.new()
-	pc.visible = false
-	pc.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_LEFT)
-	pc.offset_left   = 8
-	pc.offset_bottom = -8
-	pc.offset_right  = 400
-	pc.offset_top    = -52
-
-	var ps := StyleBoxFlat.new()
-	ps.bg_color = Color(0.06, 0.06, 0.10, 0.85)
-	ps.set_border_width_all(1)
-	ps.border_color = Color(0.22, 0.22, 0.30)
-	ps.set_corner_radius_all(4)
-	pc.add_theme_stylebox_override("panel", ps)
-
-	var m := MarginContainer.new()
-	for side in ["margin_left", "margin_right", "margin_top", "margin_bottom"]:
-		m.add_theme_constant_override(side, 6)
-	pc.add_child(m)
-
-	var hbox := HBoxContainer.new()
-	m.add_child(hbox)
-
-	var title := Label.new()
-	title.text = "RANGE"
-	title.add_theme_font_size_override("font_size", 11)
-	title.add_theme_color_override("font_color", Color(0.65, 0.50, 0.20))
-	title.custom_minimum_size = Vector2(48, 0)
-	hbox.add_child(title)
-
-	_range_hits_lbl = Label.new()
-	_range_hits_lbl.text = "HITS: 0   DAMAGE: 0"
-	_range_hits_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	_range_hits_lbl.add_theme_font_size_override("font_size", 11)
-	_range_hits_lbl.add_theme_color_override("font_color", Color(0.80, 0.80, 0.85))
-	hbox.add_child(_range_hits_lbl)
-
-	return pc
 
 # ── Workshop panel ────────────────────────────────────────────────────────────
 
@@ -594,7 +498,6 @@ func _physics_process(delta: float) -> void:
 	_playtime += delta
 	GameState.playtime = _playtime
 	_update_interaction_buttons()
-	_update_range_panel()
 
 func _update_interaction_buttons() -> void:
 	var any_open := (_workshop_panel != null and _workshop_panel.visible) \
@@ -614,20 +517,15 @@ func _update_interaction_buttons() -> void:
 			var screen_pos: Vector2 = vt * world_pos
 			btn.position = screen_pos + Vector2(-60, -50)
 
-func _update_range_panel() -> void:
-	if _range_panel == null:
-		return
-	_range_panel.visible = _player.global_position.y > R2Y1
-
 # ── Station actions ───────────────────────────────────────────────────────────
 
 func _on_station_action(id: String) -> void:
 	match id:
-		"stash":    _inv_ui.toggle()
-		"exit":     _deploy()
-		"workshop": _workshop_panel.visible = true
-		"bed":      _do_rest()
-		"reset":    _reset_targets()
+		"stash":          _inv_ui.toggle()
+		"exit":           _deploy()
+		"workshop":       _workshop_panel.visible = true
+		"bed":            _do_rest()
+		"shooting_range": get_tree().change_scene_to_file("res://safehouse/ShootingRange.tscn")
 
 func _on_ads_pressed() -> void:
 	var ws := _player.get_node("WeaponSystem") as WeaponSystem

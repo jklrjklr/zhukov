@@ -29,6 +29,8 @@ var _burst_timer: float = 0.0
 
 var _state_machine: CharacterStateMachine = null
 
+var fire_blocked: bool = false
+
 func _ready() -> void:
 	_item_db = get_node_or_null("/root/ItemDB")
 	shot_fired.connect(_on_shot_fired)
@@ -53,8 +55,11 @@ func _physics_process(delta: float) -> void:
 			_finish_reload()
 
 	if _burst_remaining > 0 and _fire_timer <= 0.0:
-		_do_shoot()
-		_burst_remaining -= 1
+		if fire_blocked:
+			_burst_remaining = 0
+		else:
+			_do_shoot()
+			_burst_remaining -= 1
 
 	_decay_recoil(delta)
 
@@ -100,6 +105,8 @@ func switch_slot(slot: int) -> void:
 	weapon_switched.emit(_active_slot)
 
 func shoot() -> void:
+	if fire_blocked:
+		return
 	if _state_machine != null and not _state_machine.can_shoot():
 		return
 	if _is_reloading or _fire_timer > 0.0:
@@ -115,6 +122,8 @@ func shoot() -> void:
 	_do_shoot()
 
 func start_burst(count: int) -> void:
+	if fire_blocked:
+		return
 	if _state_machine != null and not _state_machine.can_shoot():
 		return
 	if _is_reloading or _fire_timer > 0.0:
