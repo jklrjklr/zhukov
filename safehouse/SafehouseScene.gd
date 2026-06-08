@@ -91,6 +91,7 @@ func _setup_player() -> void:
 
 	# Camera world limits
 	var cam := _player.get_node("Camera2D") as PlayerCamera
+	cam.rotation      = 0.0
 	cam.limit_enabled = true
 	cam.limit_left    = 0
 	cam.limit_top     = 0
