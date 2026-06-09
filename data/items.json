@@ -8,7 +8,7 @@
     "damage_falloff_start": 200.0,
     "damage_falloff_end": 500.0,
     "rpm": 950,
-    "muzzle_velocity": 700.0,
+    "muzzle_velocity": 2100.0,
     "fire_modes": ["semi", "auto"],
     "pellet_count": 1,
     "spread": 3.5,

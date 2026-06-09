@@ -53,7 +53,7 @@ static func from_dict(id: String, def: Dictionary) -> WeaponData:
 	w.damage_falloff_start = def.get("damage_falloff_start", 300.0)
 	w.damage_falloff_end = def.get("damage_falloff_end", 800.0)
 	w.rpm = def.get("rpm", 300)
-	w.muzzle_velocity = def.get("muzzle_velocity", 600.0)
+	w.muzzle_velocity = def.get("muzzle_velocity", 1800.0)
 	w.fire_modes = def.get("fire_modes", ["semi"])
 	w.pellet_count = def.get("pellet_count", 1)
 	w.spread = def.get("spread", 2.0)

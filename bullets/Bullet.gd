@@ -1,7 +1,7 @@
 class_name Bullet
 extends Area2D
 
-var speed: float = 1200.0
+var speed: float = 3600.0
 var damage: int = 10
 var headshot_multiplier: float = 3.0
 var direction: Vector2 = Vector2.ZERO
@@ -35,6 +35,38 @@ func init(pos: Vector2, dir: Vector2, dmg: int, spd: float = 1200.0, hs_mult: fl
 
 func _physics_process(delta: float) -> void:
 	var step: Vector2 = direction * speed * delta
+
+	# Raycast along the movement step so fast bullets never tunnel through thin
+	# HurtBoxes. At 3600 px/s the step is ~60px — larger than a head hitbox.
+	var space := get_world_2d().direct_space_state
+	var query := PhysicsRayQueryParameters2D.create(
+			global_position, global_position + step)
+	query.collide_with_areas  = true
+	query.collide_with_bodies = true
+	query.exclude = [self]
+
+	var hit := space.intersect_ray(query)
+	if hit:
+		var col: Object = hit["collider"]
+		if col is HurtBox:
+			var hb := col as HurtBox
+			var char_node := hb.get_character()
+			if hb.hit_type == HurtBox.HitType.HEAD:
+				if char_node != null and char_node.has_method("take_damage"):
+					char_node.take_damage(int(damage * headshot_multiplier), true)
+			else:
+				if char_node != null and char_node.has_method("take_damage"):
+					char_node.take_damage(damage, false)
+			global_position = hit["position"]
+			recycle()
+			return
+		# Wall / world geometry — groups used by the old signal handler
+		var body := col as Node
+		if not (body.is_in_group("player") or body.is_in_group("character")):
+			global_position = hit["position"]
+			recycle()
+			return
+
 	global_position += step
 	traveled += step.length()
 	if traveled >= max_range:

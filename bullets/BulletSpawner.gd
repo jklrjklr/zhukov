@@ -16,7 +16,7 @@ func _ready() -> void:
 		b.visible    = false
 		_pool.append(b)
 
-func spawn(origin: Vector2, direction: Vector2, damage: int, speed: float = 1200.0, hs_mult: float = 3.0) -> void:
+func spawn(origin: Vector2, direction: Vector2, damage: int, speed: float = 3600.0, hs_mult: float = 3.0) -> void:
 	var b: Bullet = _acquire()
 	b.init(origin, direction, damage, speed, hs_mult)
 	b.set_physics_process(true)
