@@ -8,11 +8,11 @@ var direction: Vector2 = Vector2.ZERO
 var max_range: float = 1000.0
 var traveled: float = 0.0
 
-# Deferred-hit state: collect both body and head contacts this frame,
-# then resolve once so head always beats body regardless of callback order.
 var _head_target: Node = null
 var _body_target: Node = null
 var _hit_queued: bool = false
+
+@onready var _cast: ShapeCast2D = $ShapeCast2D
 
 func _ready() -> void:
 	if not area_entered.is_connected(_on_area_entered):
@@ -20,7 +20,7 @@ func _ready() -> void:
 	if not body_entered.is_connected(_on_body_entered):
 		body_entered.connect(_on_body_entered)
 
-func init(pos: Vector2, dir: Vector2, dmg: int, spd: float = 1200.0, hs_mult: float = 3.0) -> void:
+func init(pos: Vector2, dir: Vector2, dmg: int, spd: float = 3600.0, hs_mult: float = 3.0) -> void:
 	global_position = pos
 	direction = dir.normalized()
 	rotation = dir.angle()
@@ -34,45 +34,44 @@ func init(pos: Vector2, dir: Vector2, dmg: int, spd: float = 1200.0, hs_mult: fl
 	_hit_queued = false
 
 func _physics_process(delta: float) -> void:
-	var step: Vector2 = direction * speed * delta
+	var step_len := speed * delta
 
-	# Raycast along the movement step so fast bullets never tunnel through thin
-	# HurtBoxes. At 3600 px/s the step is ~60px — larger than a head hitbox.
-	var space := get_world_2d().direct_space_state
-	var query := PhysicsRayQueryParameters2D.create(
-			global_position, global_position + step)
-	query.collide_with_areas  = true
-	query.collide_with_bodies = true
-	query.exclude = [self]
+	# Sweep the bullet's collision shape along the travel direction before moving.
+	# The bullet's local +X is aligned with direction (set via rotation in init),
+	# so the cast target is simply forward along local X.
+	_cast.target_position = Vector2(step_len, 0)
+	_cast.force_shapecast_update()
 
-	var hit := space.intersect_ray(query)
-	if hit:
-		var col: Object = hit["collider"]
-		if col is HurtBox:
-			var hb := col as HurtBox
-			var char_node := hb.get_character()
-			if hb.hit_type == HurtBox.HitType.HEAD:
-				if char_node != null and char_node.has_method("take_damage"):
-					char_node.take_damage(int(damage * headshot_multiplier), true)
-			else:
-				if char_node != null and char_node.has_method("take_damage"):
-					char_node.take_damage(damage, false)
-			global_position = hit["position"]
-			recycle()
-			return
-		# Wall / world geometry — groups used by the old signal handler
-		var body := col as Node
-		if not (body.is_in_group("player") or body.is_in_group("character")):
-			global_position = hit["position"]
-			recycle()
-			return
+	if _cast.is_colliding():
+		var frac := _cast.get_closest_collision_unsafe_fraction()
+		global_position += direction * step_len * frac
+		traveled += step_len * frac
+		_resolve_cast_hit(_cast.get_collider(0))
+		return
 
-	global_position += step
-	traveled += step.length()
+	global_position += direction * step_len
+	traveled += step_len
 	if traveled >= max_range:
 		recycle()
 
-# HurtBox Area2D hits — collect this frame, resolve deferred so head wins.
+func _resolve_cast_hit(col: Object) -> void:
+	if col is HurtBox:
+		var hb := col as HurtBox
+		var char_node := hb.get_character()
+		if hb.hit_type == HurtBox.HitType.HEAD:
+			if char_node != null and char_node.has_method("take_damage"):
+				char_node.take_damage(int(damage * headshot_multiplier), true)
+		else:
+			if char_node != null and char_node.has_method("take_damage"):
+				char_node.take_damage(damage, false)
+		recycle()
+		return
+	var node := col as Node
+	if node != null and not (node.is_in_group("player") or node.is_in_group("character")):
+		recycle()
+
+# Fallback for targets that move INTO the bullet (ShapeCast only sweeps forward).
+# Preserves head-beats-body priority via deferred resolution.
 func _on_area_entered(area: Area2D) -> void:
 	if not (area is HurtBox):
 		return
@@ -88,8 +87,6 @@ func _on_area_entered(area: Area2D) -> void:
 		_hit_queued = true
 		call_deferred("_resolve_hit")
 
-# Physics body hits — only used for world geometry (walls/floors).
-# Characters that use HurtBoxes are skipped here.
 func _on_body_entered(body: Node) -> void:
 	if body.is_in_group("player") or body.is_in_group("character"):
 		return
@@ -113,9 +110,6 @@ func recycle() -> void:
 	if not is_inside_tree():
 		queue_free()
 		return
-	# Look the pool up by path rather than the autoload identifier so this
-	# script also compiles under the headless `--script` test runner (which
-	# does not register autoloads). Falls back to freeing if the pool is gone.
 	var spawner := get_node_or_null("/root/BulletSpawner")
 	if spawner != null:
 		spawner.return_bullet(self)
