@@ -1,0 +1,9 @@
+{
+  "ammo_45acp_fmj": {
+    "type": "ammo",
+    "display_name": ".45 ACP FMJ",
+    "grid_size": [1, 2],
+    "weight": 0.5,
+    "max_stack": 120
+  }
+}
