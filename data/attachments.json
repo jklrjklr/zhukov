@@ -1,0 +1,198 @@
+{
+  "suppressor_45acp": {
+    "type": "attachment",
+    "attachment_slot": "muzzle",
+    "display_name": ".45 ACP Suppressor",
+    "tags": ["pistol_muzzle"],
+    "compatible_types": ["pistol"],
+    "compatible_ids": [],
+    "grid_size": [1, 3],
+    "weight": 0.35,
+    "stat_mods": {
+      "sound_level": -0.55,
+      "spread": 0.3,
+      "weight": 0.35
+    }
+  },
+  "flash_hider_pistol": {
+    "type": "attachment",
+    "attachment_slot": "muzzle",
+    "display_name": "Pistol Flash Hider",
+    "tags": ["pistol_muzzle"],
+    "compatible_types": ["pistol"],
+    "compatible_ids": [],
+    "grid_size": [1, 1],
+    "weight": 0.05,
+    "stat_mods": {
+      "muzzle_rise": -1.2,
+      "sound_level": -0.05,
+      "weight": 0.05
+    }
+  },
+  "suppressor_9mm": {
+    "type": "attachment",
+    "attachment_slot": "muzzle",
+    "display_name": "9mm Suppressor",
+    "tags": ["smg_muzzle"],
+    "compatible_types": ["smg"],
+    "compatible_ids": [],
+    "grid_size": [1, 3],
+    "weight": 0.38,
+    "stat_mods": {
+      "sound_level": -0.50,
+      "spread": 0.4,
+      "weight": 0.38
+    }
+  },
+  "compensator_9mm": {
+    "type": "attachment",
+    "attachment_slot": "muzzle",
+    "display_name": "9mm Compensator",
+    "tags": ["smg_muzzle"],
+    "compatible_types": ["smg"],
+    "compatible_ids": [],
+    "grid_size": [1, 1],
+    "weight": 0.07,
+    "stat_mods": {
+      "muzzle_rise": -2.5,
+      "lateral_recoil": -0.5,
+      "spread": -0.3,
+      "weight": 0.07
+    }
+  },
+  "flash_hider_9mm": {
+    "type": "attachment",
+    "attachment_slot": "muzzle",
+    "display_name": "9mm Flash Hider",
+    "tags": ["smg_muzzle"],
+    "compatible_types": ["smg"],
+    "compatible_ids": [],
+    "grid_size": [1, 1],
+    "weight": 0.05,
+    "stat_mods": {
+      "muzzle_rise": -1.5,
+      "sound_level": -0.05,
+      "weight": 0.05
+    }
+  },
+  "micro_red_dot": {
+    "type": "attachment",
+    "attachment_slot": "optic",
+    "display_name": "Micro Red Dot",
+    "tags": ["universal_optic"],
+    "compatible_types": [],
+    "compatible_ids": [],
+    "grid_size": [1, 1],
+    "weight": 0.08,
+    "stat_mods": {
+      "ergonomics": 0.05,
+      "weight": 0.08
+    },
+    "sight_override": {
+      "display_name": "Micro Red Dot",
+      "reticle_type": "dot",
+      "ergo_mult": 0.92,
+      "scope_mult": 1.0,
+      "fov_radius": 0.28
+    }
+  },
+  "holographic_sight": {
+    "type": "attachment",
+    "attachment_slot": "optic",
+    "display_name": "Holographic Sight",
+    "tags": ["universal_optic"],
+    "compatible_types": [],
+    "compatible_ids": [],
+    "grid_size": [1, 1],
+    "weight": 0.12,
+    "stat_mods": {
+      "ergonomics": 0.04,
+      "ads_speed": -0.02,
+      "weight": 0.12
+    },
+    "sight_override": {
+      "display_name": "Holographic Sight",
+      "reticle_type": "crosshair",
+      "ergo_mult": 0.90,
+      "scope_mult": 1.0,
+      "fov_radius": 0.25
+    }
+  },
+  "pistol_laser": {
+    "type": "attachment",
+    "attachment_slot": "underbarrel",
+    "display_name": "Pistol Laser",
+    "tags": ["pistol_underbarrel"],
+    "compatible_types": ["pistol"],
+    "compatible_ids": [],
+    "grid_size": [1, 1],
+    "weight": 0.04,
+    "stat_mods": {
+      "spread": -0.4,
+      "ergonomics": 0.04,
+      "weight": 0.04
+    }
+  },
+  "angled_grip": {
+    "type": "attachment",
+    "attachment_slot": "underbarrel",
+    "display_name": "Angled Foregrip",
+    "tags": ["smg_underbarrel"],
+    "compatible_types": ["smg"],
+    "compatible_ids": [],
+    "grid_size": [1, 1],
+    "weight": 0.10,
+    "stat_mods": {
+      "muzzle_rise": -1.0,
+      "lateral_recoil": -0.3,
+      "ergonomics": 0.05,
+      "ads_speed": -0.02,
+      "weight": 0.10
+    }
+  },
+  "vertical_grip": {
+    "type": "attachment",
+    "attachment_slot": "underbarrel",
+    "display_name": "Vertical Grip",
+    "tags": ["smg_underbarrel"],
+    "compatible_types": ["smg"],
+    "compatible_ids": [],
+    "grid_size": [1, 1],
+    "weight": 0.08,
+    "stat_mods": {
+      "muzzle_rise": -2.0,
+      "lateral_recoil": -0.1,
+      "weight": 0.08
+    }
+  },
+  "extended_mag_45acp_13rd": {
+    "type": "attachment",
+    "attachment_slot": "magazine",
+    "display_name": ".45 ACP Extended Mag (13rd)",
+    "tags": ["m1911_magazine"],
+    "compatible_types": [],
+    "compatible_ids": ["m1911"],
+    "grid_size": [1, 2],
+    "weight": 0.22,
+    "stat_mods": {
+      "magazine_size": 5,
+      "reload_time": 0.15,
+      "weight": 0.22
+    }
+  },
+  "drum_mag_9mm_50rd": {
+    "type": "attachment",
+    "attachment_slot": "magazine",
+    "display_name": "9mm Drum Mag (50rd)",
+    "tags": ["uzi_magazine"],
+    "compatible_types": [],
+    "compatible_ids": ["micro_uzi"],
+    "grid_size": [2, 2],
+    "weight": 0.65,
+    "stat_mods": {
+      "magazine_size": 18,
+      "reload_time": 0.55,
+      "weight": 0.65
+    }
+  }
+}

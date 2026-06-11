@@ -9,6 +9,7 @@ signal reload_complete
 signal ammo_changed(current: int, mag_size: int)
 signal weapon_switched(slot: int)
 signal fire_mode_changed(mode: String)
+signal attachments_changed(slot_idx: int)
 
 @onready var slots: Array[WeaponSlot] = [$WeaponSlot0]
 @onready var player: Player = get_parent()
@@ -38,7 +39,7 @@ func _ready() -> void:
 	_state_machine = get_parent().get_node_or_null("CharacterStateMachine")
 
 func _on_shot_fired(origin: Vector2, direction: Vector2, damage: int, data: WeaponData) -> void:
-	BulletSpawner.spawn(origin, direction, damage, data.muzzle_velocity, data.headshot_multiplier)
+	BulletSpawner.spawn(origin, direction, damage, data.get_effective_muzzle_velocity(), data.headshot_multiplier)
 
 func get_active_weapon() -> WeaponData:
 	return slots[_active_slot].data
@@ -63,6 +64,7 @@ func _physics_process(delta: float) -> void:
 
 	_decay_recoil(delta)
 
+# Load weapon by item ID with no attachments (starter loadout / testing).
 func equip(slot: int, item_id: String) -> void:
 	if slot < 0 or slot >= MAX_SLOTS:
 		push_error("WeaponSystem: invalid slot %d" % slot)
@@ -77,7 +79,39 @@ func equip(slot: int, item_id: String) -> void:
 
 	if slot == _active_slot:
 		_apply_ergonomics()
-		ammo_changed.emit(weapon.ammo_current, weapon.magazine_size)
+		ammo_changed.emit(weapon.ammo_current, weapon.get_effective_magazine_size())
+		fire_mode_changed.emit(weapon.active_fire_mode)
+
+# Load weapon from an inventory Item, applying any stored attachments.
+func equip_item(slot: int, item: Item) -> void:
+	if slot < 0 or slot >= MAX_SLOTS:
+		push_error("WeaponSystem: invalid slot %d" % slot)
+		return
+	if item == null:
+		return
+
+	var def: Dictionary = _item_db.get_item(item.item_id)
+	var weapon: WeaponData = WeaponData.from_dict(item.item_id, def)
+	if weapon == null:
+		return
+
+	for att_slot: String in item.attachments:
+		var att_id: String = item.attachments[att_slot]
+		var att_def: Dictionary = _item_db.get_item(att_id)
+		if att_def.is_empty():
+			push_warning("WeaponSystem: attachment '%s' not found in ItemDB" % att_id)
+			continue
+		var att := AttachmentData.from_dict(att_id, att_def)
+		if not weapon.attach(att_slot, att):
+			push_warning("WeaponSystem: attachment '%s' rejected for slot '%s'" % [att_id, att_slot])
+
+	weapon.ammo_current = mini(weapon.ammo_current, weapon.get_effective_magazine_size())
+
+	slots[slot].load_weapon(weapon)
+
+	if slot == _active_slot:
+		_apply_ergonomics()
+		ammo_changed.emit(weapon.ammo_current, weapon.get_effective_magazine_size())
 		fire_mode_changed.emit(weapon.active_fire_mode)
 
 func unequip(slot: int) -> void:
@@ -99,7 +133,7 @@ func switch_slot(slot: int) -> void:
 
 	var w: WeaponData = get_active_weapon()
 	if w:
-		ammo_changed.emit(w.ammo_current, w.magazine_size)
+		ammo_changed.emit(w.ammo_current, w.get_effective_magazine_size())
 		fire_mode_changed.emit(w.active_fire_mode)
 
 	weapon_switched.emit(_active_slot)
@@ -149,37 +183,37 @@ func _do_shoot() -> void:
 	var origin: Vector2 = player.global_position + dir * 28.0
 	var lateral_sign: float = _lateral_sign(w)
 
-	var spread_rad: float = deg_to_rad(w.spread)
+	var spread_rad: float = deg_to_rad(w.get_effective_spread())
 	for i in range(w.pellet_count):
 		var offset: float = randf_range(-spread_rad, spread_rad)
-		shot_fired.emit(origin, dir.rotated(offset), w.damage, w)
+		shot_fired.emit(origin, dir.rotated(offset), int(w.get_effective_damage()), w)
 
 	w.ammo_current -= 1
-	ammo_changed.emit(w.ammo_current, w.magazine_size)
+	ammo_changed.emit(w.ammo_current, w.get_effective_magazine_size())
 
-	_rise_current += w.muzzle_rise
-	camera.add_muzzle_rise_kick(w.muzzle_rise)
-	_lateral_current += w.lateral_recoil * lateral_sign
+	_rise_current += w.get_effective_muzzle_rise()
+	camera.add_muzzle_rise_kick(w.get_effective_muzzle_rise())
+	_lateral_current += w.get_effective_lateral_recoil() * lateral_sign
 	_apply_recoil_to_camera(w, lateral_sign)
 
 func reload() -> void:
 	if _state_machine != null and not _state_machine.can_reload():
 		return
 	var w: WeaponData = get_active_weapon()
-	if w == null or _is_reloading or w.ammo_current == w.magazine_size:
+	if w == null or _is_reloading or w.ammo_current == w.get_effective_magazine_size():
 		return
 
 	_is_reloading = true
-	_reload_timer = w.reload_time
-	reloading.emit(w.reload_time)
+	_reload_timer = w.get_effective_reload_time()
+	reloading.emit(w.get_effective_reload_time())
 
 func _finish_reload() -> void:
 	_is_reloading = false
 
 	var w: WeaponData = get_active_weapon()
 	if w:
-		w.ammo_current = w.magazine_size
-		ammo_changed.emit(w.ammo_current, w.magazine_size)
+		w.ammo_current = w.get_effective_magazine_size()
+		ammo_changed.emit(w.ammo_current, w.get_effective_magazine_size())
 
 	reload_complete.emit()
 
@@ -202,11 +236,11 @@ func _decay_recoil(delta: float) -> void:
 		return
 
 	var z := camera.zoom.x
-	_rise_current = move_toward(_rise_current, 0.0, w.muzzle_rise_recovery * z * z * delta)
-	_lateral_current = move_toward(_lateral_current, 0.0, w.muzzle_rise_recovery * z * z * delta)
+	_rise_current = move_toward(_rise_current, 0.0, w.get_effective_muzzle_rise_recovery() * z * z * delta)
+	_lateral_current = move_toward(_lateral_current, 0.0, w.get_effective_muzzle_rise_recovery() * z * z * delta)
 
 func _apply_recoil_to_camera(w: WeaponData, lateral_sign: float) -> void:
-	var lateral_rad: float = w.lateral_recoil * 0.001 * lateral_sign
+	var lateral_rad: float = w.get_effective_lateral_recoil() * 0.001 * lateral_sign
 	camera.add_lateral_recoil(lateral_rad)
 
 func _lateral_sign(w: WeaponData) -> float:
@@ -215,8 +249,8 @@ func _lateral_sign(w: WeaponData) -> float:
 
 func _apply_ergonomics() -> void:
 	var w: WeaponData = get_active_weapon()
-	player.set_ergonomics(w.ergonomics if w != null else 0.5)
-	camera.set_muzzle_rise_recovery(w.muzzle_rise_recovery if w != null else 0.1)
+	player.set_ergonomics(w.get_effective_ergonomics() if w != null else 0.5)
+	camera.set_muzzle_rise_recovery(w.get_effective_muzzle_rise_recovery() if w != null else 0.1)
 
 func get_is_reloading() -> bool:
 	return _is_reloading
@@ -225,4 +259,38 @@ func get_reload_progress() -> float:
 	var w: WeaponData = get_active_weapon()
 	if not _is_reloading or w == null:
 		return 1.0
-	return 1.0 - _reload_timer / w.reload_time
+	return 1.0 - _reload_timer / w.get_effective_reload_time()
+
+# --- Attachment API ---
+# These operate on the live WeaponData in a given slot.
+# The caller must also update Item.attachments for the change to persist through save/load.
+
+func attach_to_slot(weapon_slot_idx: int, att_slot_name: String, att: AttachmentData) -> bool:
+	if weapon_slot_idx < 0 or weapon_slot_idx >= slots.size():
+		return false
+	var w: WeaponData = slots[weapon_slot_idx].data
+	if w == null:
+		return false
+	var ok := w.attach(att_slot_name, att)
+	if ok:
+		if weapon_slot_idx == _active_slot:
+			_apply_ergonomics()
+			ammo_changed.emit(w.ammo_current, w.get_effective_magazine_size())
+		attachments_changed.emit(weapon_slot_idx)
+	return ok
+
+func detach_from_slot(weapon_slot_idx: int, att_slot_name: String) -> AttachmentData:
+	if weapon_slot_idx < 0 or weapon_slot_idx >= slots.size():
+		return null
+	var w: WeaponData = slots[weapon_slot_idx].data
+	if w == null:
+		return null
+	var att: AttachmentData = w.detach(att_slot_name)
+	if att != null:
+		# Clamp ammo if magazine was removed
+		w.ammo_current = mini(w.ammo_current, w.get_effective_magazine_size())
+		if weapon_slot_idx == _active_slot:
+			_apply_ergonomics()
+			ammo_changed.emit(w.ammo_current, w.get_effective_magazine_size())
+		attachments_changed.emit(weapon_slot_idx)
+	return att

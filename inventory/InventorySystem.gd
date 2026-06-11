@@ -166,6 +166,74 @@ func _apply_dict(data: Dictionary) -> void:
 
 	inventory_changed.emit()
 
+# --- Attachment helpers ---
+# These update the weapon Item's attachments dict so the change persists.
+# You must also call WeaponSystem.attach_to_slot / detach_from_slot to apply
+# the change to the live WeaponData if the weapon is currently equipped.
+
+# Move an attachment item from backpack into a weapon's attachment slot.
+# Returns false if the weapon slot is empty, the attachment isn't in backpack,
+# or ItemDB says they're incompatible.
+func attach_to_weapon(weapon_slot_name: String, att_slot_name: String, att_item_id: String) -> bool:
+	var weapon_slot := _get_slot(weapon_slot_name)
+	if weapon_slot == null or weapon_slot.is_empty():
+		return false
+	var weapon_item: Item = weapon_slot.item
+
+	# Find the attachment item in backpack and remove it.
+	var att_item: Item = null
+	var att_compartment_idx := -1
+	for i in backpack_compartments.size():
+		var found := backpack_compartments[i].get_item_by_id(att_item_id)
+		if found != null:
+			att_item = found
+			att_compartment_idx = i
+			break
+	if att_item == null:
+		return false
+
+	# Validate via ItemDB if available.
+	var db: Node = get_node_or_null("/root/ItemDB")
+	if db != null:
+		var att_def: Dictionary = db.get_item(att_item_id)
+		if att_def.is_empty():
+			return false
+		var weapon_def: Dictionary = db.get_item(weapon_item.item_id)
+		var weapon_data := WeaponData.from_dict(weapon_item.item_id, weapon_def)
+		if weapon_data == null:
+			return false
+		var att_data := AttachmentData.from_dict(att_item_id, att_def)
+		if not weapon_data.can_attach(att_slot_name, att_data):
+			return false
+
+	backpack_compartments[att_compartment_idx].remove_item(att_item_id)
+	weapon_item.attachments[att_slot_name] = att_item_id
+	inventory_changed.emit()
+	return true
+
+# Remove an attachment from a weapon slot and place it in backpack.
+# Returns the attachment item_id, or "" if nothing was attached there.
+func detach_from_weapon(weapon_slot_name: String, att_slot_name: String) -> String:
+	var weapon_slot := _get_slot(weapon_slot_name)
+	if weapon_slot == null or weapon_slot.is_empty():
+		return ""
+	var weapon_item: Item = weapon_slot.item
+	if not weapon_item.attachments.has(att_slot_name):
+		return ""
+
+	var att_id: String = weapon_item.attachments[att_slot_name]
+	weapon_item.attachments.erase(att_slot_name)
+
+	var db: Node = get_node_or_null("/root/ItemDB")
+	if db != null:
+		var att_def: Dictionary = db.get_item(att_id)
+		if not att_def.is_empty():
+			var att_item := Item.from_dict(att_id, att_def)
+			auto_add_to_backpack(att_item)
+
+	inventory_changed.emit()
+	return att_id
+
 func _get_slot(name: String) -> InventorySlot:
 	match name:
 		"helmet":       return helmet

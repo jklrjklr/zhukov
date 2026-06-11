@@ -33,6 +33,12 @@
       "ergo_mult": 0.9,
       "scope_mult": 1.0,
       "fov_radius": 0.40
+    },
+    "attachment_slots": {
+      "muzzle":      { "accepts_tags": ["pistol_muzzle"],      "accepts_ids": [] },
+      "optic":       { "accepts_tags": ["universal_optic"],    "accepts_ids": [] },
+      "underbarrel": { "accepts_tags": ["pistol_underbarrel"], "accepts_ids": [] },
+      "magazine":    { "accepts_tags": ["m1911_magazine"],     "accepts_ids": [] }
     }
   },
   "micro_uzi": {
@@ -69,6 +75,12 @@
       "ergo_mult": 0.85,
       "scope_mult": 1.0,
       "fov_radius": 0.40
+    },
+    "attachment_slots": {
+      "muzzle":      { "accepts_tags": ["smg_muzzle"],      "accepts_ids": [] },
+      "optic":       { "accepts_tags": ["universal_optic"], "accepts_ids": [] },
+      "underbarrel": { "accepts_tags": ["smg_underbarrel"], "accepts_ids": [] },
+      "magazine":    { "accepts_tags": ["uzi_magazine"],    "accepts_ids": [] }
     }
   }
 }

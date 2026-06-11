@@ -62,6 +62,11 @@ func get_item_at(pos: Vector2i) -> Item:
 		return null
 	return (_placed[id] as Dictionary)["item"] as Item
 
+func get_item_by_id(item_id: String) -> Item:
+	if not _placed.has(item_id):
+		return null
+	return (_placed[item_id] as Dictionary)["item"] as Item
+
 func get_placement(item_id: String) -> Dictionary:
 	return _placed.get(item_id, {})
 

@@ -8,6 +8,9 @@ var grid_size: Vector2i = Vector2i(1, 1)
 var weight: float = 0.0
 var max_stack: int = 1
 var quantity: int = 1
+# For weapon items: maps attachment slot name → attachment item_id.
+# Persisted in save data so loadouts survive between sessions.
+var attachments: Dictionary = {}
 
 static func from_dict(id: String, def: Dictionary) -> Item:
 	var item := Item.new()
@@ -22,7 +25,7 @@ static func from_dict(id: String, def: Dictionary) -> Item:
 	return item
 
 func to_dict() -> Dictionary:
-	return {
+	var d: Dictionary = {
 		"id": item_id,
 		"display_name": display_name,
 		"type": type,
@@ -31,6 +34,9 @@ func to_dict() -> Dictionary:
 		"max_stack": max_stack,
 		"quantity": quantity,
 	}
+	if not attachments.is_empty():
+		d["attachments"] = attachments.duplicate()
+	return d
 
 static func from_save(d: Dictionary) -> Item:
 	var item := Item.new()
@@ -42,4 +48,6 @@ static func from_save(d: Dictionary) -> Item:
 	item.weight      = d.get("weight", 0.0)
 	item.max_stack   = d.get("max_stack", 1)
 	item.quantity    = d.get("quantity", 1)
+	if d.has("attachments"):
+		item.attachments = (d["attachments"] as Dictionary).duplicate()
 	return item
