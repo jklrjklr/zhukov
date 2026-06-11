@@ -4,6 +4,7 @@ const _PATHS: Array[String] = [
 	"res://data/weapons.json",
 	"res://data/ammo.json",
 	"res://data/attachments.json",
+	"res://data/parts.json",
 	"res://data/backpack.json",
 	"res://data/rig.json",
 	"res://data/headgear.json",

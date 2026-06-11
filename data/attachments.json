@@ -1,26 +1,20 @@
 {
   "suppressor_45acp": {
     "type": "attachment",
-    "attachment_slot": "muzzle",
     "display_name": ".45 ACP Suppressor",
-    "tags": ["pistol_muzzle"],
-    "compatible_types": ["pistol"],
-    "compatible_ids": [],
+    "tags": ["45acp_muzzle"],
     "grid_size": [1, 3],
     "weight": 0.35,
     "stat_mods": {
       "sound_level": -0.55,
-      "spread": 0.3,
+      "spread": 0.30,
       "weight": 0.35
     }
   },
-  "flash_hider_pistol": {
+  "flash_hider_45acp": {
     "type": "attachment",
-    "attachment_slot": "muzzle",
-    "display_name": "Pistol Flash Hider",
-    "tags": ["pistol_muzzle"],
-    "compatible_types": ["pistol"],
-    "compatible_ids": [],
+    "display_name": ".45 ACP Flash Hider",
+    "tags": ["45acp_muzzle"],
     "grid_size": [1, 1],
     "weight": 0.05,
     "stat_mods": {
@@ -29,28 +23,35 @@
       "weight": 0.05
     }
   },
+  "comp_45acp": {
+    "type": "attachment",
+    "display_name": ".45 ACP Compensator",
+    "tags": ["45acp_muzzle"],
+    "grid_size": [1, 1],
+    "weight": 0.07,
+    "stat_mods": {
+      "muzzle_rise": -2.2,
+      "lateral_recoil": -0.4,
+      "spread": -0.2,
+      "weight": 0.07
+    }
+  },
   "suppressor_9mm": {
     "type": "attachment",
-    "attachment_slot": "muzzle",
     "display_name": "9mm Suppressor",
-    "tags": ["smg_muzzle"],
-    "compatible_types": ["smg"],
-    "compatible_ids": [],
+    "tags": ["9mm_muzzle"],
     "grid_size": [1, 3],
     "weight": 0.38,
     "stat_mods": {
       "sound_level": -0.50,
-      "spread": 0.4,
+      "spread": 0.40,
       "weight": 0.38
     }
   },
   "compensator_9mm": {
     "type": "attachment",
-    "attachment_slot": "muzzle",
     "display_name": "9mm Compensator",
-    "tags": ["smg_muzzle"],
-    "compatible_types": ["smg"],
-    "compatible_ids": [],
+    "tags": ["9mm_muzzle"],
     "grid_size": [1, 1],
     "weight": 0.07,
     "stat_mods": {
@@ -62,11 +63,8 @@
   },
   "flash_hider_9mm": {
     "type": "attachment",
-    "attachment_slot": "muzzle",
     "display_name": "9mm Flash Hider",
-    "tags": ["smg_muzzle"],
-    "compatible_types": ["smg"],
-    "compatible_ids": [],
+    "tags": ["9mm_muzzle"],
     "grid_size": [1, 1],
     "weight": 0.05,
     "stat_mods": {
@@ -77,11 +75,8 @@
   },
   "micro_red_dot": {
     "type": "attachment",
-    "attachment_slot": "optic",
     "display_name": "Micro Red Dot",
     "tags": ["universal_optic"],
-    "compatible_types": [],
-    "compatible_ids": [],
     "grid_size": [1, 1],
     "weight": 0.08,
     "stat_mods": {
@@ -98,11 +93,8 @@
   },
   "holographic_sight": {
     "type": "attachment",
-    "attachment_slot": "optic",
     "display_name": "Holographic Sight",
     "tags": ["universal_optic"],
-    "compatible_types": [],
-    "compatible_ids": [],
     "grid_size": [1, 1],
     "weight": 0.12,
     "stat_mods": {
@@ -120,26 +112,20 @@
   },
   "pistol_laser": {
     "type": "attachment",
-    "attachment_slot": "underbarrel",
     "display_name": "Pistol Laser",
     "tags": ["pistol_underbarrel"],
-    "compatible_types": ["pistol"],
-    "compatible_ids": [],
     "grid_size": [1, 1],
     "weight": 0.04,
     "stat_mods": {
-      "spread": -0.4,
+      "spread": -0.40,
       "ergonomics": 0.04,
       "weight": 0.04
     }
   },
   "angled_grip": {
     "type": "attachment",
-    "attachment_slot": "underbarrel",
     "display_name": "Angled Foregrip",
     "tags": ["smg_underbarrel"],
-    "compatible_types": ["smg"],
-    "compatible_ids": [],
     "grid_size": [1, 1],
     "weight": 0.10,
     "stat_mods": {
@@ -152,11 +138,8 @@
   },
   "vertical_grip": {
     "type": "attachment",
-    "attachment_slot": "underbarrel",
     "display_name": "Vertical Grip",
     "tags": ["smg_underbarrel"],
-    "compatible_types": ["smg"],
-    "compatible_ids": [],
     "grid_size": [1, 1],
     "weight": 0.08,
     "stat_mods": {
@@ -167,11 +150,8 @@
   },
   "extended_mag_45acp_13rd": {
     "type": "attachment",
-    "attachment_slot": "magazine",
     "display_name": ".45 ACP Extended Mag (13rd)",
     "tags": ["m1911_magazine"],
-    "compatible_types": [],
-    "compatible_ids": ["m1911"],
     "grid_size": [1, 2],
     "weight": 0.22,
     "stat_mods": {
@@ -182,11 +162,8 @@
   },
   "drum_mag_9mm_50rd": {
     "type": "attachment",
-    "attachment_slot": "magazine",
     "display_name": "9mm Drum Mag (50rd)",
     "tags": ["uzi_magazine"],
-    "compatible_types": [],
-    "compatible_ids": ["micro_uzi"],
     "grid_size": [2, 2],
     "weight": 0.65,
     "stat_mods": {

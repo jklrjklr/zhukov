@@ -32,9 +32,16 @@ var sprite_path: String = ""
 var ammo_current: int = 0
 var fire_mode_index: int = 0
 
-# Attachment slot registry: slot_name → { "accepts_tags": [], "accepts_ids": [] }
+# Slot definitions: slot_name → {
+#   "display_name": String,
+#   "accepts_tag":  String,   # attachment's tags[] must contain this
+#   "vital":        bool,     # gun non-functional if empty
+#   "default_part": String,   # item_id pre-installed by WeaponSystem; "" = none
+#   "ui_pos":       Vector2,  # 0-1 normalized position on weapon sprite for visual UI
+# }
 var _attachment_slots: Dictionary = {}
-# Currently fitted attachments: slot_name → AttachmentData
+
+# Fitted parts/attachments: slot_name → AttachmentData
 var _attachments: Dictionary = {}
 
 var _sight: SightData = null
@@ -81,16 +88,20 @@ static func from_dict(id: String, def: Dictionary) -> WeaponData:
 	w.ammo_current = w.magazine_size
 	if def.has("sight"):
 		w._sight = SightData.from_dict(def["sight"])
-	if def.has("attachment_slots"):
-		w._load_attachment_slots(def["attachment_slots"])
+	if def.has("slots"):
+		w._load_slots(def["slots"])
 	return w
 
-func _load_attachment_slots(slots_def: Dictionary) -> void:
+func _load_slots(slots_def: Dictionary) -> void:
 	for slot_name: String in slots_def:
-		var entry: Dictionary = slots_def[slot_name]
+		var s: Dictionary = slots_def[slot_name]
+		var raw_pos: Array = s.get("ui_pos", [0.5, 0.5])
 		_attachment_slots[slot_name] = {
-			"accepts_tags": entry.get("accepts_tags", []),
-			"accepts_ids": entry.get("accepts_ids", []),
+			"display_name": s.get("display_name", slot_name),
+			"accepts_tag":  s.get("accepts_tag", ""),
+			"vital":        s.get("vital", false),
+			"default_part": s.get("default_part", ""),
+			"ui_pos":       Vector2(raw_pos[0], raw_pos[1]),
 		}
 
 # --- Slot queries ---
@@ -101,23 +112,30 @@ func has_slot(slot_name: String) -> bool:
 func get_slot_names() -> Array:
 	return _attachment_slots.keys()
 
-func can_attach(slot_name: String, att: AttachmentData) -> bool:
-	if not _attachment_slots.has(slot_name):
-		return false
-	var slot: Dictionary = _attachment_slots[slot_name]
-	var tag_ok := false
-	for t: String in att.tags:
-		if (slot["accepts_tags"] as Array).has(t):
-			tag_ok = true
-			break
-	var id_ok: bool = (slot["accepts_ids"] as Array).has(att.item_id)
-	if not (tag_ok or id_ok):
-		return false
-	if att.compatible_types.size() > 0 and not (att.compatible_types as Array).has(type):
-		return false
-	if att.compatible_ids.size() > 0 and not (att.compatible_ids as Array).has(item_id):
-		return false
+func get_slot_def(slot_name: String) -> Dictionary:
+	return _attachment_slots.get(slot_name, {})
+
+func is_vital(slot_name: String) -> bool:
+	return (_attachment_slots.get(slot_name, {}) as Dictionary).get("vital", false)
+
+# Returns false if any vital slot is empty (gun cannot fire).
+func is_functional() -> bool:
+	for slot_name: String in _attachment_slots:
+		var slot: Dictionary = _attachment_slots[slot_name]
+		if slot.get("vital", false) and not _attachments.has(slot_name):
+			return false
 	return true
+
+# --- Compatibility ---
+
+func can_attach(slot_name: String, att: AttachmentData) -> bool:
+	var slot: Dictionary = _attachment_slots.get(slot_name, {})
+	if slot.is_empty():
+		return false
+	var required_tag: String = slot.get("accepts_tag", "")
+	return (att.tags as Array).has(required_tag)
+
+# --- Attach / Detach ---
 
 func attach(slot_name: String, att: AttachmentData) -> bool:
 	if not can_attach(slot_name, att):
@@ -138,7 +156,7 @@ func get_attachment(slot_name: String) -> AttachmentData:
 func get_all_attachments() -> Dictionary:
 	return _attachments.duplicate()
 
-# --- Effective stat computation ---
+# --- Effective stat helpers ---
 
 func _sum_mod(stat: String) -> float:
 	var total := 0.0
@@ -191,7 +209,7 @@ func get_effective_sight() -> SightData:
 		return optic.sight_override
 	return _sight if _sight != null else SightData.iron_sights()
 
-# --- Legacy alias (used by Player ADS) ---
+# Legacy alias used by Player ADS.
 func get_sight() -> SightData:
 	return get_effective_sight()
 

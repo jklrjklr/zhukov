@@ -3,23 +3,19 @@ extends RefCounted
 
 var item_id: String = ""
 var display_name: String = ""
-var attachment_slot: String = ""
+# Which slot accepts_tag values this part fits (weapon slot must have one of these).
 var tags: Array = []
-var compatible_ids: Array = []
-var compatible_types: Array = []
 var grid_size: Vector2i = Vector2i(1, 1)
 var weight: float = 0.0
 var stat_mods: Dictionary = {}
+# Non-null only for optics — replaces the weapon's built-in sight data.
 var sight_override: SightData = null
 
 static func from_dict(id: String, def: Dictionary) -> AttachmentData:
 	var a := AttachmentData.new()
 	a.item_id = id
 	a.display_name = def.get("display_name", id)
-	a.attachment_slot = def.get("attachment_slot", "")
 	a.tags = def.get("tags", [])
-	a.compatible_ids = def.get("compatible_ids", [])
-	a.compatible_types = def.get("compatible_types", [])
 	var sz: Array = def.get("grid_size", [1, 1])
 	a.grid_size = Vector2i(sz[0], sz[1])
 	a.weight = def.get("weight", 0.0)
@@ -32,10 +28,7 @@ func to_dict() -> Dictionary:
 	var d: Dictionary = {
 		"id": item_id,
 		"display_name": display_name,
-		"attachment_slot": attachment_slot,
 		"tags": tags,
-		"compatible_ids": compatible_ids,
-		"compatible_types": compatible_types,
 		"grid_size": [grid_size.x, grid_size.y],
 		"weight": weight,
 		"stat_mods": stat_mods,

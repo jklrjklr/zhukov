@@ -64,7 +64,7 @@ func _physics_process(delta: float) -> void:
 
 	_decay_recoil(delta)
 
-# Load weapon by item ID with no attachments (starter loadout / testing).
+# Load weapon by item ID; default parts are applied automatically.
 func equip(slot: int, item_id: String) -> void:
 	if slot < 0 or slot >= MAX_SLOTS:
 		push_error("WeaponSystem: invalid slot %d" % slot)
@@ -75,6 +75,7 @@ func equip(slot: int, item_id: String) -> void:
 	if weapon == null:
 		return
 
+	_apply_default_parts(weapon)
 	slots[slot].load_weapon(weapon)
 
 	if slot == _active_slot:
@@ -82,7 +83,7 @@ func equip(slot: int, item_id: String) -> void:
 		ammo_changed.emit(weapon.ammo_current, weapon.get_effective_magazine_size())
 		fire_mode_changed.emit(weapon.active_fire_mode)
 
-# Load weapon from an inventory Item, applying any stored attachments.
+# Load weapon from an inventory Item, applying stored attachments then default parts for empty slots.
 func equip_item(slot: int, item: Item) -> void:
 	if slot < 0 or slot >= MAX_SLOTS:
 		push_error("WeaponSystem: invalid slot %d" % slot)
@@ -99,12 +100,13 @@ func equip_item(slot: int, item: Item) -> void:
 		var att_id: String = item.attachments[att_slot]
 		var att_def: Dictionary = _item_db.get_item(att_id)
 		if att_def.is_empty():
-			push_warning("WeaponSystem: attachment '%s' not found in ItemDB" % att_id)
+			push_warning("WeaponSystem: attachment '%s' not found" % att_id)
 			continue
 		var att := AttachmentData.from_dict(att_id, att_def)
 		if not weapon.attach(att_slot, att):
-			push_warning("WeaponSystem: attachment '%s' rejected for slot '%s'" % [att_id, att_slot])
+			push_warning("WeaponSystem: '%s' rejected for slot '%s'" % [att_id, att_slot])
 
+	_apply_default_parts(weapon)
 	weapon.ammo_current = mini(weapon.ammo_current, weapon.get_effective_magazine_size())
 
 	slots[slot].load_weapon(weapon)
@@ -113,6 +115,22 @@ func equip_item(slot: int, item: Item) -> void:
 		_apply_ergonomics()
 		ammo_changed.emit(weapon.ammo_current, weapon.get_effective_magazine_size())
 		fire_mode_changed.emit(weapon.active_fire_mode)
+
+# Install default parts into any slot that is currently empty.
+func _apply_default_parts(weapon: WeaponData) -> void:
+	for slot_name: String in weapon.get_slot_names():
+		if weapon.get_attachment(slot_name) != null:
+			continue
+		var slot_def := weapon.get_slot_def(slot_name)
+		var default_id: String = slot_def.get("default_part", "")
+		if default_id.is_empty():
+			continue
+		var part_def: Dictionary = _item_db.get_item(default_id)
+		if part_def.is_empty():
+			push_warning("WeaponSystem: default part '%s' not in ItemDB" % default_id)
+			continue
+		var att := AttachmentData.from_dict(default_id, part_def)
+		weapon.attach(slot_name, att)
 
 func unequip(slot: int) -> void:
 	slots[slot].clear()
@@ -149,6 +167,8 @@ func shoot() -> void:
 	var w: WeaponData = get_active_weapon()
 	if w == null:
 		return
+	if not w.is_functional():
+		return
 	if w.ammo_current <= 0:
 		reload()
 		return
@@ -164,7 +184,7 @@ func start_burst(count: int) -> void:
 		return
 
 	var w: WeaponData = get_active_weapon()
-	if w == null or w.ammo_current <= 0:
+	if w == null or not w.is_functional() or w.ammo_current <= 0:
 		return
 
 	_burst_remaining = count
@@ -261,9 +281,8 @@ func get_reload_progress() -> float:
 		return 1.0
 	return 1.0 - _reload_timer / w.get_effective_reload_time()
 
-# --- Attachment API ---
-# These operate on the live WeaponData in a given slot.
-# The caller must also update Item.attachments for the change to persist through save/load.
+# --- Live attachment API ---
+# Modifies WeaponData in-place. Caller handles inventory side (add/remove items).
 
 func attach_to_slot(weapon_slot_idx: int, att_slot_name: String, att: AttachmentData) -> bool:
 	if weapon_slot_idx < 0 or weapon_slot_idx >= slots.size():
@@ -287,7 +306,6 @@ func detach_from_slot(weapon_slot_idx: int, att_slot_name: String) -> Attachment
 		return null
 	var att: AttachmentData = w.detach(att_slot_name)
 	if att != null:
-		# Clamp ammo if magazine was removed
 		w.ammo_current = mini(w.ammo_current, w.get_effective_magazine_size())
 		if weapon_slot_idx == _active_slot:
 			_apply_ergonomics()
