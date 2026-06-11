@@ -3,6 +3,7 @@
     "type": "rig",
     "display_name": "Hipsack",
     "grid_size": [1, 2],
-    "weight": 0.4
+    "weight": 0.4,
+    "rarity": "uncommon"
   }
 }

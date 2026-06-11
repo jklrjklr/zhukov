@@ -5,7 +5,8 @@
     "tags": ["m1911_barrel"],
     "grid_size": [1, 2],
     "weight": 0.18,
-    "stat_mods": {}
+    "rarity": "common",
+    "stat_mods": { "barrel_length": 0.127 }
   },
   "m1911_barrel_threaded": {
     "type": "part",
@@ -13,7 +14,9 @@
     "tags": ["m1911_barrel", "45acp_muzzle_host"],
     "grid_size": [1, 2],
     "weight": 0.20,
+    "rarity": "uncommon",
     "stat_mods": {
+      "barrel_length": 0.127,
       "muzzle_velocity": 30.0,
       "weight": 0.02
     }
@@ -24,7 +27,9 @@
     "tags": ["m1911_barrel"],
     "grid_size": [1, 2],
     "weight": 0.14,
+    "rarity": "uncommon",
     "stat_mods": {
+      "barrel_length": 0.108,
       "muzzle_velocity": -80.0,
       "weight": -0.04,
       "ergonomics": 0.03,
@@ -37,6 +42,7 @@
     "tags": ["m1911_slide"],
     "grid_size": [1, 2],
     "weight": 0.22,
+    "rarity": "common",
     "stat_mods": {}
   },
   "m1911_slide_match": {
@@ -45,6 +51,7 @@
     "tags": ["m1911_slide"],
     "grid_size": [1, 2],
     "weight": 0.24,
+    "rarity": "uncommon",
     "stat_mods": {
       "spread": -0.30,
       "weight": 0.02
@@ -56,6 +63,7 @@
     "tags": ["m1911_trigger"],
     "grid_size": [1, 1],
     "weight": 0.04,
+    "rarity": "common",
     "stat_mods": {}
   },
   "m1911_trigger_match": {
@@ -64,6 +72,7 @@
     "tags": ["m1911_trigger"],
     "grid_size": [1, 1],
     "weight": 0.04,
+    "rarity": "uncommon",
     "stat_mods": {
       "ergonomics": 0.05,
       "ads_speed": -0.03
@@ -75,6 +84,7 @@
     "tags": ["m1911_trigger"],
     "grid_size": [1, 1],
     "weight": 0.03,
+    "rarity": "uncommon",
     "stat_mods": {
       "ergonomics": 0.03,
       "ads_speed": -0.02,
@@ -87,6 +97,7 @@
     "tags": ["m1911_hammer"],
     "grid_size": [1, 1],
     "weight": 0.03,
+    "rarity": "common",
     "stat_mods": {}
   },
   "m1911_hammer_skeletonized": {
@@ -95,6 +106,7 @@
     "tags": ["m1911_hammer"],
     "grid_size": [1, 1],
     "weight": 0.02,
+    "rarity": "uncommon",
     "stat_mods": {
       "weight": -0.01
     }
@@ -105,6 +117,7 @@
     "tags": ["m1911_hammer"],
     "grid_size": [1, 1],
     "weight": 0.02,
+    "rarity": "uncommon",
     "stat_mods": {
       "ergonomics": 0.02,
       "weight": -0.01
@@ -116,6 +129,7 @@
     "tags": ["m1911_grip"],
     "grid_size": [1, 1],
     "weight": 0.08,
+    "rarity": "common",
     "stat_mods": {}
   },
   "m1911_grip_rubber": {
@@ -124,6 +138,7 @@
     "tags": ["m1911_grip"],
     "grid_size": [1, 1],
     "weight": 0.09,
+    "rarity": "common",
     "stat_mods": {
       "ergonomics": 0.05,
       "lateral_recoil": -0.20
@@ -135,6 +150,7 @@
     "tags": ["m1911_grip"],
     "grid_size": [1, 1],
     "weight": 0.07,
+    "rarity": "uncommon",
     "stat_mods": {
       "ergonomics": 0.03,
       "weight": -0.01
@@ -146,6 +162,7 @@
     "tags": ["m1911_magazine"],
     "grid_size": [1, 2],
     "weight": 0.14,
+    "rarity": "common",
     "stat_mods": {}
   },
   "m1911_mag_8rd_officer": {
@@ -154,6 +171,7 @@
     "tags": ["m1911_magazine"],
     "grid_size": [1, 1],
     "weight": 0.11,
+    "rarity": "common",
     "stat_mods": {
       "reload_time": -0.10,
       "weight": -0.03
@@ -166,7 +184,8 @@
     "tags": ["uzi_barrel"],
     "grid_size": [1, 2],
     "weight": 0.20,
-    "stat_mods": {}
+    "rarity": "common",
+    "stat_mods": { "barrel_length": 0.135 }
   },
   "uzi_barrel_long": {
     "type": "part",
@@ -174,7 +193,9 @@
     "tags": ["uzi_barrel"],
     "grid_size": [1, 3],
     "weight": 0.30,
+    "rarity": "uncommon",
     "stat_mods": {
+      "barrel_length": 0.200,
       "muzzle_velocity": 120.0,
       "spread": -0.4,
       "weight": 0.10,
@@ -188,6 +209,7 @@
     "tags": ["uzi_bolt"],
     "grid_size": [1, 2],
     "weight": 0.18,
+    "rarity": "common",
     "stat_mods": {}
   },
   "uzi_bolt_heavy": {
@@ -196,6 +218,7 @@
     "tags": ["uzi_bolt"],
     "grid_size": [1, 2],
     "weight": 0.28,
+    "rarity": "uncommon",
     "stat_mods": {
       "muzzle_rise": -2.0,
       "lateral_recoil": -0.4,
@@ -208,6 +231,7 @@
     "tags": ["uzi_trigger"],
     "grid_size": [1, 1],
     "weight": 0.06,
+    "rarity": "common",
     "stat_mods": {}
   },
   "uzi_trigger_match": {
@@ -216,6 +240,7 @@
     "tags": ["uzi_trigger"],
     "grid_size": [1, 1],
     "weight": 0.06,
+    "rarity": "uncommon",
     "stat_mods": {
       "ergonomics": 0.04,
       "ads_speed": -0.02
@@ -227,6 +252,7 @@
     "tags": ["uzi_stock"],
     "grid_size": [1, 2],
     "weight": 0.22,
+    "rarity": "common",
     "stat_mods": {}
   },
   "uzi_stock_wire": {
@@ -235,6 +261,7 @@
     "tags": ["uzi_stock"],
     "grid_size": [1, 1],
     "weight": 0.10,
+    "rarity": "common",
     "stat_mods": {
       "weight": -0.12,
       "ergonomics": -0.05
@@ -246,6 +273,7 @@
     "tags": ["uzi_stock"],
     "grid_size": [1, 1],
     "weight": 0.01,
+    "rarity": "common",
     "stat_mods": {
       "weight": -0.21,
       "ergonomics": -0.15,
@@ -259,6 +287,7 @@
     "tags": ["uzi_grip"],
     "grid_size": [1, 1],
     "weight": 0.07,
+    "rarity": "common",
     "stat_mods": {}
   },
   "uzi_grip_ergo": {
@@ -267,6 +296,7 @@
     "tags": ["uzi_grip"],
     "grid_size": [1, 1],
     "weight": 0.09,
+    "rarity": "uncommon",
     "stat_mods": {
       "ergonomics": 0.06,
       "ads_speed": -0.02,
@@ -279,6 +309,7 @@
     "tags": ["uzi_magazine"],
     "grid_size": [1, 2],
     "weight": 0.38,
+    "rarity": "common",
     "stat_mods": {}
   },
   "uzi_mag_20rd": {
@@ -287,6 +318,7 @@
     "tags": ["uzi_magazine"],
     "grid_size": [1, 2],
     "weight": 0.26,
+    "rarity": "common",
     "stat_mods": {
       "magazine_size": -12,
       "reload_time": -0.20,

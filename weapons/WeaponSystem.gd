@@ -3,7 +3,7 @@ extends Node
 
 const MAX_SLOTS := 3
 
-signal shot_fired(origin: Vector2, direction: Vector2, damage: int, data: WeaponData)
+signal shot_fired(origin: Vector2, direction: Vector2, hitpower: float, data: WeaponData)
 signal reloading(duration: float)
 signal reload_complete
 signal ammo_changed(current: int, mag_size: int)
@@ -38,8 +38,14 @@ func _ready() -> void:
 	await get_tree().process_frame
 	_state_machine = get_parent().get_node_or_null("CharacterStateMachine")
 
-func _on_shot_fired(origin: Vector2, direction: Vector2, damage: int, data: WeaponData) -> void:
-	BulletSpawner.spawn(origin, direction, damage, data.get_effective_muzzle_velocity(), data.headshot_multiplier)
+func _on_shot_fired(origin: Vector2, direction: Vector2, hitpower: float, data: WeaponData) -> void:
+	BulletSpawner.spawn(origin, direction, hitpower, data, data.get_effective_muzzle_velocity())
+
+func _get_ammo_hitpower(w: WeaponData) -> float:
+	if _item_db == null or w.ammo_type.is_empty():
+		return 30.0
+	var def := _item_db.get_item(w.ammo_type)
+	return float(def.get("hitpower", 30.0))
 
 func get_active_weapon() -> WeaponData:
 	return slots[_active_slot].data
@@ -203,10 +209,11 @@ func _do_shoot() -> void:
 	var origin: Vector2 = player.global_position + dir * 28.0
 	var lateral_sign: float = _lateral_sign(w)
 
+	var hitpower := _get_ammo_hitpower(w)
 	var spread_rad: float = deg_to_rad(w.get_effective_spread())
 	for i in range(w.pellet_count):
 		var offset: float = randf_range(-spread_rad, spread_rad)
-		shot_fired.emit(origin, dir.rotated(offset), int(w.get_effective_damage()), w)
+		shot_fired.emit(origin, dir.rotated(offset), hitpower, w)
 
 	w.ammo_current -= 1
 	ammo_changed.emit(w.ammo_current, w.get_effective_magazine_size())

@@ -4,7 +4,9 @@ extends Resource
 var item_id: String = ""
 var display_name: String = ""
 var type: String = ""
-var damage: int = 0
+var damage_multiplier: float = 1.0
+var barrel_length: float = 0.0
+var ammo_type: String = ""
 var armor_penetration: int = 0
 var stagger_power: float = 0.0
 var damage_falloff_start: float = 0.0
@@ -60,7 +62,9 @@ static func from_dict(id: String, def: Dictionary) -> WeaponData:
 	w.item_id = id
 	w.display_name = def.get("display_name", id)
 	w.type = def.get("type", "")
-	w.damage = def.get("damage", 30)
+	w.damage_multiplier = def.get("damage_multiplier", 1.0)
+	w.barrel_length = def.get("barrel_length", 0.0)
+	w.ammo_type = def.get("ammo_type", "")
 	w.armor_penetration = def.get("armor_penetration", 20)
 	w.stagger_power = def.get("stagger_power", 0.0)
 	w.damage_falloff_start = def.get("damage_falloff_start", 300.0)
@@ -164,8 +168,11 @@ func _sum_mod(stat: String) -> float:
 		total += float(att.stat_mods.get(stat, 0))
 	return total
 
-func get_effective_damage() -> float:
-	return float(damage) + _sum_mod("damage")
+func get_effective_damage_multiplier() -> float:
+	return clampf(damage_multiplier + _sum_mod("damage_multiplier"), 0.0, 2.0)
+
+func get_effective_barrel_length() -> float:
+	return maxf(0.0, barrel_length + _sum_mod("barrel_length"))
 
 func get_effective_armor_penetration() -> float:
 	return float(armor_penetration) + _sum_mod("armor_penetration")
@@ -218,11 +225,15 @@ func cycle_fire_mode() -> void:
 		return
 	fire_mode_index = (fire_mode_index + 1) % fire_modes.size()
 
-func calc_damage(distance: float) -> int:
-	var eff := get_effective_damage()
+func _falloff_mult(distance: float) -> float:
 	if distance <= damage_falloff_start:
-		return int(eff)
+		return 1.0
 	if distance >= damage_falloff_end:
-		return int(eff * 0.2)
+		return 0.2
 	var t := (distance - damage_falloff_start) / (damage_falloff_end - damage_falloff_start)
-	return int(lerpf(eff, eff * 0.2, t))
+	return lerpf(1.0, 0.2, t)
+
+func calc_damage(ammo_hitpower: float, distance: float) -> int:
+	var barrel_factor := 1.0 + get_effective_barrel_length()
+	var base := ammo_hitpower * get_effective_damage_multiplier() * barrel_factor
+	return int(base * _falloff_mult(distance))

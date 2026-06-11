@@ -8,6 +8,9 @@ var direction: Vector2 = Vector2.ZERO
 var max_range: float = 1000.0
 var traveled: float = 0.0
 
+var _ammo_hitpower: float = 0.0
+var _weapon_data: WeaponData = null
+
 var _head_target: Node = null
 var _body_target: Node = null
 var _hit_queued: bool = false
@@ -20,13 +23,14 @@ func _ready() -> void:
 	if not body_entered.is_connected(_on_body_entered):
 		body_entered.connect(_on_body_entered)
 
-func init(pos: Vector2, dir: Vector2, dmg: int, spd: float = 3600.0, hs_mult: float = 3.0) -> void:
+func init(pos: Vector2, dir: Vector2, ammo_hitpower: float, weapon_data: WeaponData, spd: float = 3600.0) -> void:
 	global_position = pos
 	direction = dir.normalized()
 	rotation = dir.angle()
-	damage = dmg
+	_ammo_hitpower = ammo_hitpower
+	_weapon_data = weapon_data
+	headshot_multiplier = weapon_data.headshot_multiplier if weapon_data != null else 3.0
 	speed = spd
-	headshot_multiplier = hs_mult
 	traveled = 0.0
 	z_index = 10
 	_head_target = null
@@ -54,16 +58,24 @@ func _physics_process(delta: float) -> void:
 	if traveled >= max_range:
 		recycle()
 
+func _calc_body_damage() -> int:
+	if _weapon_data != null and _ammo_hitpower > 0.0:
+		return _weapon_data.calc_damage(_ammo_hitpower, traveled)
+	return damage
+
+func _calc_head_damage() -> int:
+	return int(_calc_body_damage() * headshot_multiplier)
+
 func _resolve_cast_hit(col: Object) -> void:
 	if col is HurtBox:
 		var hb := col as HurtBox
 		var char_node := hb.get_character()
 		if hb.hit_type == HurtBox.HitType.HEAD:
 			if char_node != null and char_node.has_method("take_damage"):
-				char_node.take_damage(int(damage * headshot_multiplier), true)
+				char_node.take_damage(_calc_head_damage(), true)
 		else:
 			if char_node != null and char_node.has_method("take_damage"):
-				char_node.take_damage(damage, false)
+				char_node.take_damage(_calc_body_damage(), false)
 		recycle()
 		return
 	var node := col as Node
@@ -95,13 +107,12 @@ func _on_body_entered(body: Node) -> void:
 func _resolve_hit() -> void:
 	_hit_queued = false
 	if _head_target != null:
-		var dmg := int(damage * headshot_multiplier)
 		if _head_target.has_method("take_damage"):
-			_head_target.take_damage(dmg, true)
+			_head_target.take_damage(_calc_head_damage(), true)
 		recycle()
 	elif _body_target != null:
 		if _body_target.has_method("take_damage"):
-			_body_target.take_damage(damage, false)
+			_body_target.take_damage(_calc_body_damage(), false)
 		recycle()
 	_head_target = null
 	_body_target = null

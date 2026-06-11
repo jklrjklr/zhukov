@@ -142,9 +142,12 @@ func _refresh_stats() -> void:
 	_functional_label.add_theme_color_override("font_color",
 		Color(0.3, 1.0, 0.4) if functional else Color(1.0, 0.3, 0.3))
 
+	var ammo_def := _item_db.get_item(_weapon.ammo_type) if _item_db != null and not _weapon.ammo_type.is_empty() else {}
+	var hitpower: float = float(ammo_def.get("hitpower", 30.0))
+	var est_damage := _weapon.calc_damage(hitpower, 0.0)
 	_stats_label.text = (
-		"DMG  %.0f\nRPM  %d\nSPRD %.2f°\nERGO %.0f%%\nWT   %.2fkg\nRDS  %d/%d" % [
-		_weapon.get_effective_damage(),
+		"DMG  %d\nRPM  %d\nSPRD %.2f°\nERGO %.0f%%\nWT   %.2fkg\nRDS  %d/%d" % [
+		est_damage,
 		_weapon.rpm,
 		_weapon.get_effective_spread(),
 		_weapon.get_effective_ergonomics() * 100.0,

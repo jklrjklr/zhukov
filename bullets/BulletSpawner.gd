@@ -16,9 +16,9 @@ func _ready() -> void:
 		b.visible    = false
 		_pool.append(b)
 
-func spawn(origin: Vector2, direction: Vector2, damage: int, speed: float = 3600.0, hs_mult: float = 3.0) -> void:
+func spawn(origin: Vector2, direction: Vector2, ammo_hitpower: float, weapon_data: WeaponData, speed: float = 3600.0) -> void:
 	var b: Bullet = _acquire()
-	b.init(origin, direction, damage, speed, hs_mult)
+	b.init(origin, direction, ammo_hitpower, weapon_data, speed)
 	b.set_physics_process(true)
 	b.monitoring = true
 	b.visible    = true

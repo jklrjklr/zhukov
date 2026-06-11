@@ -2,7 +2,10 @@
   "m1911": {
     "type": "pistol",
     "display_name": "M1911",
-    "damage": 38,
+    "rarity": "uncommon",
+    "damage_multiplier": 1.0,
+    "barrel_length": 0.0,
+    "ammo_type": "ammo_45acp_fmj",
     "armor_penetration": 12,
     "stagger_power": 0.5,
     "damage_falloff_start": 150.0,
@@ -35,75 +38,24 @@
       "fov_radius": 0.40
     },
     "slots": {
-      "barrel": {
-        "display_name": "Barrel",
-        "accepts_tag": "m1911_barrel",
-        "vital": true,
-        "default_part": "m1911_barrel_standard",
-        "ui_pos": [0.50, 0.18]
-      },
-      "slide": {
-        "display_name": "Slide",
-        "accepts_tag": "m1911_slide",
-        "vital": true,
-        "default_part": "m1911_slide_standard",
-        "ui_pos": [0.50, 0.32]
-      },
-      "trigger_group": {
-        "display_name": "Trigger Group",
-        "accepts_tag": "m1911_trigger",
-        "vital": true,
-        "default_part": "m1911_trigger_standard",
-        "ui_pos": [0.70, 0.58]
-      },
-      "hammer": {
-        "display_name": "Hammer",
-        "accepts_tag": "m1911_hammer",
-        "vital": false,
-        "default_part": "m1911_hammer_standard",
-        "ui_pos": [0.52, 0.48]
-      },
-      "grip": {
-        "display_name": "Grip Panels",
-        "accepts_tag": "m1911_grip",
-        "vital": false,
-        "default_part": "m1911_grip_standard",
-        "ui_pos": [0.50, 0.82]
-      },
-      "muzzle": {
-        "display_name": "Muzzle Device",
-        "accepts_tag": "45acp_muzzle",
-        "vital": false,
-        "default_part": "",
-        "ui_pos": [0.50, 0.04]
-      },
-      "magazine": {
-        "display_name": "Magazine",
-        "accepts_tag": "m1911_magazine",
-        "vital": false,
-        "default_part": "m1911_mag_standard",
-        "ui_pos": [0.38, 0.72]
-      },
-      "optic": {
-        "display_name": "Optic",
-        "accepts_tag": "universal_optic",
-        "vital": false,
-        "default_part": "",
-        "ui_pos": [0.50, 0.22]
-      },
-      "underbarrel": {
-        "display_name": "Underbarrel",
-        "accepts_tag": "pistol_underbarrel",
-        "vital": false,
-        "default_part": "",
-        "ui_pos": [0.65, 0.38]
-      }
+      "barrel":       { "display_name": "Barrel",        "accepts_tag": "m1911_barrel",      "vital": true,  "default_part": "m1911_barrel_standard",  "ui_pos": [0.50, 0.18] },
+      "slide":        { "display_name": "Slide",         "accepts_tag": "m1911_slide",       "vital": true,  "default_part": "m1911_slide_standard",   "ui_pos": [0.50, 0.32] },
+      "trigger_group":{ "display_name": "Trigger Group", "accepts_tag": "m1911_trigger",     "vital": true,  "default_part": "m1911_trigger_standard", "ui_pos": [0.70, 0.58] },
+      "hammer":       { "display_name": "Hammer",        "accepts_tag": "m1911_hammer",      "vital": false, "default_part": "m1911_hammer_standard",  "ui_pos": [0.52, 0.48] },
+      "grip":         { "display_name": "Grip Panels",   "accepts_tag": "m1911_grip",        "vital": false, "default_part": "m1911_grip_standard",    "ui_pos": [0.50, 0.82] },
+      "muzzle":       { "display_name": "Muzzle Device", "accepts_tag": "45acp_muzzle",      "vital": false, "default_part": "",                       "ui_pos": [0.50, 0.04] },
+      "magazine":     { "display_name": "Magazine",      "accepts_tag": "m1911_magazine",    "vital": false, "default_part": "m1911_mag_standard",     "ui_pos": [0.38, 0.72] },
+      "optic":        { "display_name": "Optic",         "accepts_tag": "universal_optic",   "vital": false, "default_part": "",                       "ui_pos": [0.50, 0.22] },
+      "underbarrel":  { "display_name": "Underbarrel",   "accepts_tag": "pistol_underbarrel","vital": false, "default_part": "",                       "ui_pos": [0.65, 0.38] }
     }
   },
   "micro_uzi": {
     "type": "smg",
     "display_name": "Micro Uzi",
-    "damage": 25,
+    "rarity": "rare",
+    "damage_multiplier": 0.85,
+    "barrel_length": 0.0,
+    "ammo_type": "ammo_9mm_fmj",
     "armor_penetration": 15,
     "stagger_power": 0.2,
     "damage_falloff_start": 200.0,
@@ -136,69 +88,15 @@
       "fov_radius": 0.40
     },
     "slots": {
-      "barrel": {
-        "display_name": "Barrel",
-        "accepts_tag": "uzi_barrel",
-        "vital": true,
-        "default_part": "uzi_barrel_standard",
-        "ui_pos": [0.22, 0.50]
-      },
-      "bolt": {
-        "display_name": "Bolt",
-        "accepts_tag": "uzi_bolt",
-        "vital": true,
-        "default_part": "uzi_bolt_standard",
-        "ui_pos": [0.50, 0.30]
-      },
-      "trigger_group": {
-        "display_name": "Trigger Group",
-        "accepts_tag": "uzi_trigger",
-        "vital": true,
-        "default_part": "uzi_trigger_standard",
-        "ui_pos": [0.56, 0.68]
-      },
-      "stock": {
-        "display_name": "Stock",
-        "accepts_tag": "uzi_stock",
-        "vital": false,
-        "default_part": "uzi_stock_folding",
-        "ui_pos": [0.88, 0.50]
-      },
-      "grip": {
-        "display_name": "Grip",
-        "accepts_tag": "uzi_grip",
-        "vital": false,
-        "default_part": "uzi_grip_standard",
-        "ui_pos": [0.60, 0.82]
-      },
-      "muzzle": {
-        "display_name": "Muzzle Device",
-        "accepts_tag": "9mm_muzzle",
-        "vital": false,
-        "default_part": "",
-        "ui_pos": [0.08, 0.50]
-      },
-      "magazine": {
-        "display_name": "Magazine",
-        "accepts_tag": "uzi_magazine",
-        "vital": false,
-        "default_part": "uzi_mag_32rd_standard",
-        "ui_pos": [0.45, 0.90]
-      },
-      "optic": {
-        "display_name": "Optic",
-        "accepts_tag": "universal_optic",
-        "vital": false,
-        "default_part": "",
-        "ui_pos": [0.40, 0.18]
-      },
-      "underbarrel": {
-        "display_name": "Underbarrel",
-        "accepts_tag": "smg_underbarrel",
-        "vital": false,
-        "default_part": "",
-        "ui_pos": [0.32, 0.72]
-      }
+      "barrel":       { "display_name": "Barrel",        "accepts_tag": "uzi_barrel",        "vital": true,  "default_part": "uzi_barrel_standard",    "ui_pos": [0.22, 0.50] },
+      "bolt":         { "display_name": "Bolt",          "accepts_tag": "uzi_bolt",          "vital": true,  "default_part": "uzi_bolt_standard",      "ui_pos": [0.50, 0.30] },
+      "trigger_group":{ "display_name": "Trigger Group", "accepts_tag": "uzi_trigger",       "vital": true,  "default_part": "uzi_trigger_standard",   "ui_pos": [0.56, 0.68] },
+      "stock":        { "display_name": "Stock",         "accepts_tag": "uzi_stock",         "vital": false, "default_part": "uzi_stock_folding",      "ui_pos": [0.88, 0.50] },
+      "grip":         { "display_name": "Grip",          "accepts_tag": "uzi_grip",          "vital": false, "default_part": "uzi_grip_standard",      "ui_pos": [0.60, 0.82] },
+      "muzzle":       { "display_name": "Muzzle Device", "accepts_tag": "9mm_muzzle",        "vital": false, "default_part": "",                       "ui_pos": [0.08, 0.50] },
+      "magazine":     { "display_name": "Magazine",      "accepts_tag": "uzi_magazine",      "vital": false, "default_part": "uzi_mag_32rd_standard",  "ui_pos": [0.45, 0.90] },
+      "optic":        { "display_name": "Optic",         "accepts_tag": "universal_optic",   "vital": false, "default_part": "",                       "ui_pos": [0.40, 0.18] },
+      "underbarrel":  { "display_name": "Underbarrel",   "accepts_tag": "smg_underbarrel",   "vital": false, "default_part": "",                       "ui_pos": [0.32, 0.72] }
     }
   }
 }

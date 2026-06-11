@@ -4,6 +4,17 @@
     "display_name": ".45 ACP FMJ",
     "grid_size": [1, 2],
     "weight": 0.5,
-    "max_stack": 120
+    "max_stack": 120,
+    "hitpower": 34.0,
+    "rarity": "common"
+  },
+  "ammo_9mm_fmj": {
+    "type": "ammo",
+    "display_name": "9mm FMJ",
+    "grid_size": [1, 2],
+    "weight": 0.3,
+    "max_stack": 120,
+    "hitpower": 26.0,
+    "rarity": "common"
   }
 }
