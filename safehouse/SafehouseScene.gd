@@ -284,20 +284,20 @@ func _build_inventory() -> void:
 	$HUD.inventory_requested.connect(_inv_ui.toggle)
 
 func _seed_items() -> void:
-	var helmet := Item.new()
-	helmet.item_id = "helmet_basic"; helmet.display_name = "Basic Helmet"
-	helmet.type = "helmet"; helmet.grid_size = Vector2i(1, 1)
-	_player.inventory.equip("helmet", helmet)
-
-	var ammo := Item.new()
-	ammo.item_id = "ammo_9mm"; ammo.display_name = "9mm x60"
-	ammo.type = "consumable"; ammo.grid_size = Vector2i(1, 2); ammo.quantity = 60
-	_player.inventory.auto_add_to_backpack(ammo)
-
-	var medkit := Item.new()
-	medkit.item_id = "medkit"; medkit.display_name = "Medkit"
-	medkit.type = "consumable"; medkit.grid_size = Vector2i(2, 2)
-	_player.inventory.auto_add_to_backpack(medkit)
+	var inv := _player.inventory
+	inv.reset_to_empty()
+	inv.set_backpack_layout("{(2,3)}")
+	var db: Node = get_node_or_null("/root/ItemDB")
+	if db == null:
+		return
+	var hs_def: Dictionary = db.get_item("hipsack")
+	if not hs_def.is_empty():
+		inv.equip("chest_rig", Item.from_dict("hipsack", hs_def))
+	var ammo_def: Dictionary = db.get_item("ammo_45acp_fmj")
+	if not ammo_def.is_empty():
+		var ammo := Item.from_dict("ammo_45acp_fmj", ammo_def)
+		ammo.quantity = 60
+		inv.auto_add_to_backpack(ammo)
 
 # ── Local UI layer ────────────────────────────────────────────────────────────
 

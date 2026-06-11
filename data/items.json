@@ -1,4 +1,53 @@
 {
+  "m1911": {
+    "type": "pistol",
+    "display_name": "M1911",
+    "damage": 38,
+    "armor_penetration": 12,
+    "stagger_power": 0.5,
+    "damage_falloff_start": 150.0,
+    "damage_falloff_end": 400.0,
+    "rpm": 180,
+    "muzzle_velocity": 1500.0,
+    "fire_modes": ["semi"],
+    "pellet_count": 1,
+    "spread": 1.5,
+    "muzzle_rise": 9.0,
+    "muzzle_rise_recovery": 6.0,
+    "lateral_recoil": 3.5,
+    "lateral_recoil_left_chance": 0.5,
+    "ergonomics": 0.65,
+    "ads_speed": 0.2,
+    "reload_time": 1.6,
+    "reload_type": "magazine",
+    "magazine_size": 8,
+    "weight": 1.1,
+    "sound_level": 0.75,
+    "muzzle_flash_scale": 0.85,
+    "headshot_multiplier": 3.0,
+    "slot_size": [1, 2],
+    "sprite": "res://assets/weapons/m1911.png",
+    "sight": {
+      "display_name": "Iron Sights",
+      "reticle_type": "dot",
+      "ergo_mult": 0.9,
+      "scope_mult": 1.0,
+      "fov_radius": 0.40
+    }
+  },
+  "ammo_45acp_fmj": {
+    "type": "consumable",
+    "display_name": ".45 ACP FMJ",
+    "grid_size": [1, 2],
+    "weight": 0.5,
+    "max_stack": 120
+  },
+  "hipsack": {
+    "type": "rig",
+    "display_name": "Hipsack",
+    "grid_size": [1, 2],
+    "weight": 0.4
+  },
   "micro_uzi": {
     "type": "smg",
     "display_name": "Micro Uzi",

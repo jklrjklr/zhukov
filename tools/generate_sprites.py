@@ -144,6 +144,39 @@ def make_foot() -> tuple:
     return W, H, rows
 
 
+# ── M1911 pistol sprite ────────────────────────────────────────────────────────
+# 5 × 11 px, muzzle at top (row 0), grip base at bottom (row 10).
+# Narrower barrel than the uzi; open trigger guard at row 6.
+
+_M1911 = [
+    #  0 1 2 3 4
+    "..SS.",  # row  0 – barrel tip
+    "..SS.",  # row  1 – barrel
+    ".SSSS",  # row  2 – slide widens
+    "LSSSS",  # row  3 – slide (L = left highlight)
+    "LSSSS",  # row  4 – slide
+    ".SSSS",  # row  5 – frame / trigger guard top
+    ".SS..",  # row  6 – trigger guard (open on right)
+    ".SSS.",  # row  7 – grip top
+    ".SSS.",  # row  8 – grip
+    ".SSS.",  # row  9 – grip
+    "..SS.",  # row 10 – mag / grip base
+]
+
+def make_m1911() -> tuple:
+    W, H = 5, len(_M1911)
+    rows = []
+    for row_str in _M1911:
+        row = []
+        for ch in row_str:
+            if   ch == 'S': row.append(UZ_M)
+            elif ch == 'L': row.append(UZ_L)
+            elif ch == '*': row.append(UZ_D)
+            else:           row.append(T)
+        rows.append(row)
+    return W, H, rows
+
+
 # ── Micro Uzi weapon sprite ────────────────────────────────────────────────────
 # Reconstructed from the uploaded pixel art (5 × 11 px).
 # Orientation: muzzle at top (row 0), stock at bottom (row 10).
@@ -188,6 +221,7 @@ if __name__ == "__main__":
         ("lower_arm", make_lower_arm, "assets/player/lower_arm.png"),
         ("foot",      make_foot,      "assets/player/foot.png"),
         ("micro_uzi", make_uzi,       "assets/weapons/micro_uzi.png"),
+        ("m1911",     make_m1911,     "assets/weapons/m1911.png"),
     ]
     for label, fn, rel in parts:
         W, H, rows = fn()

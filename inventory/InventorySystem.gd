@@ -87,6 +87,16 @@ func auto_add_to_backpack(item: Item) -> bool:
 				return add_to_backpack(item, i, pos, rotated)
 	return false
 
+func reset_to_empty() -> void:
+	for slot_name: String in ["helmet", "body_armor", "chest_rig",
+			"quick_use_1", "quick_use_2", "main_weapon_1", "main_weapon_2", "sub_weapon"]:
+		var slot := _get_slot(slot_name)
+		if slot != null:
+			slot.unequip()
+	for grid: InventoryGrid in backpack_compartments:
+		grid.clear()
+	inventory_changed.emit()
+
 func get_slot(slot_name: String) -> InventorySlot:
 	return _get_slot(slot_name)
 

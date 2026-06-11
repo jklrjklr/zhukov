@@ -3,6 +3,7 @@ extends Node2D
 var _playtime:    float = 0.0
 var _game_active: bool  = false
 var _pause_menu:  PauseMenu = null
+var _player:      Player = null
 
 func _ready() -> void:
 	var slot      := GameState.save_slot
@@ -14,14 +15,14 @@ func _ready() -> void:
 
 	_playtime = GameState.playtime
 
-	var player:        Player            = $Player
-	var inventory_sys: InventorySystem   = $Player/InventorySystem
-	var inventory_ui:  CanvasLayer       = $InventoryUI
+	_player = $Player
+	var inventory_sys: InventorySystem = $Player/InventorySystem
+	var inventory_ui:  CanvasLayer     = $InventoryUI
 
 	if save_data.has("inventory"):
 		inventory_sys.load_from_dict(save_data["inventory"])
 	else:
-		_seed_demo_items(inventory_sys)
+		_apply_starter_loadout()
 
 	inventory_ui.setup(inventory_sys)
 	inventory_ui.visibility_changed.connect(func():
@@ -29,29 +30,30 @@ func _ready() -> void:
 	$HUD.inventory_requested.connect(inventory_ui.toggle)
 
 	if save_data.has("health"):
-		player.health     = int(save_data["health"])
-		player.max_health = int(save_data.get("max_health", 100))
+		_player.health     = int(save_data["health"])
+		_player.max_health = int(save_data.get("max_health", 100))
 	if save_data.has("position"):
 		var pos: Array = save_data["position"]
-		player.global_position = Vector2(float(pos[0]), float(pos[1]))
+		_player.global_position = Vector2(float(pos[0]), float(pos[1]))
 	if save_data.has("survival"):
 		var sv: Dictionary = save_data["survival"]
-		player.survival.stamina = float(sv.get("stamina", 100.0))
-		player.survival.hunger  = float(sv.get("hunger",  100.0))
-		player.survival.thirst  = float(sv.get("thirst",  100.0))
+		_player.survival.stamina = float(sv.get("stamina", 100.0))
+		_player.survival.hunger  = float(sv.get("hunger",  100.0))
+		_player.survival.thirst  = float(sv.get("thirst",  100.0))
 
 	var ads_overlay: CanvasLayer = $AdsOverlay
-	ads_overlay.setup(player)
-	player.entered_ads.connect(ads_overlay.show_ads)
-	player.exited_ads.connect(ads_overlay.hide_ads)
+	ads_overlay.setup(_player)
+	_player.entered_ads.connect(ads_overlay.show_ads)
+	_player.exited_ads.connect(ads_overlay.hide_ads)
+	_player.player_died.connect(_on_player_died)
 	$HUD.ads_pressed.connect(_on_ads_pressed)
-	$HUD.ads_released.connect(player.on_ads_released)
+	$HUD.ads_released.connect(_player.on_ads_released)
 
 	var screen_fx := ScreenEffects.new()
 	add_child(screen_fx)
 
 	_pause_menu = PauseMenu.new()
-	_pause_menu.setup(player, inventory_sys, screen_fx)
+	_pause_menu.setup(_player, inventory_sys, screen_fx)
 	_pause_menu.save_slot = slot
 	_pause_menu.playtime  = _playtime
 	add_child(_pause_menu)
@@ -70,32 +72,29 @@ func _process(delta: float) -> void:
 
 
 func _on_ads_pressed() -> void:
-	var player: Player = $Player
-	var weapon_sys: WeaponSystem = player.get_node("WeaponSystem")
+	var weapon_sys: WeaponSystem = _player.get_node("WeaponSystem")
 	var sight: SightData = weapon_sys.get_active_weapon().get_sight() \
 		if weapon_sys.get_active_weapon() != null else SightData.iron_sights()
-	player.on_ads_pressed(sight)
+	_player.on_ads_pressed(sight)
 
+func _on_player_died() -> void:
+	_player.health = _player.max_health
+	_player.health_changed.emit(_player.health)
+	_apply_starter_loadout()
+	_player.get_node("WeaponSystem").equip(0, "m1911")
 
-func _seed_demo_items(inv: InventorySystem) -> void:
-	var helmet := Item.new()
-	helmet.item_id      = "helmet_basic"
-	helmet.display_name = "Basic Helmet"
-	helmet.type         = "helmet"
-	helmet.grid_size    = Vector2i(1, 1)
-	inv.equip("helmet", helmet)
-
-	var ammo := Item.new()
-	ammo.item_id      = "ammo_9mm"
-	ammo.display_name = "9mm x60"
-	ammo.type         = "consumable"
-	ammo.grid_size    = Vector2i(1, 2)
-	ammo.quantity     = 60
-	inv.auto_add_to_backpack(ammo)
-
-	var medkit := Item.new()
-	medkit.item_id      = "medkit"
-	medkit.display_name = "Medkit"
-	medkit.type         = "consumable"
-	medkit.grid_size    = Vector2i(2, 2)
-	inv.auto_add_to_backpack(medkit)
+func _apply_starter_loadout() -> void:
+	var inv := _player.inventory
+	inv.reset_to_empty()
+	inv.set_backpack_layout("{(2,3)}")
+	var db: Node = get_node_or_null("/root/ItemDB")
+	if db == null:
+		return
+	var hs_def: Dictionary = db.get_item("hipsack")
+	if not hs_def.is_empty():
+		inv.equip("chest_rig", Item.from_dict("hipsack", hs_def))
+	var ammo_def: Dictionary = db.get_item("ammo_45acp_fmj")
+	if not ammo_def.is_empty():
+		var ammo := Item.from_dict("ammo_45acp_fmj", ammo_def)
+		ammo.quantity = 60
+		inv.auto_add_to_backpack(ammo)

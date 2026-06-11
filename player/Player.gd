@@ -95,7 +95,7 @@ func _ready() -> void:
 	_elbow_l.rotation =  ELBOW_BEND
 	_elbow_r.rotation = -ELBOW_BEND
 	await get_tree().process_frame
-	$WeaponSystem.equip(0, "micro_uzi")
+	$WeaponSystem.equip(0, "m1911")
 	add_to_group("player")
 
 func _physics_process(delta: float) -> void:

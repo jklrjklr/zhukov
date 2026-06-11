@@ -87,6 +87,11 @@ func to_dict() -> Dictionary:
 		items_list.append(item_data)
 	return {"size": [cols, rows], "items": items_list}
 
+func clear() -> void:
+	for i in rows:
+		_cells[i].fill("")
+	_placed.clear()
+
 func _effective_size(item: Item, rotated: bool) -> Vector2i:
 	if rotated:
 		return Vector2i(item.grid_size.y, item.grid_size.x)
