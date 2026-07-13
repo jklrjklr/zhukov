@@ -1,7 +1,0 @@
-[gd_scene format=3 uid="uid://ads_overlay_scene"]
-
-[ext_resource type="Script" path="res://player/AdsOverlay.gd" id="1_adsoverlay"]
-
-[node name="AdsOverlay" type="CanvasLayer"]
-layer = 4
-script = ExtResource("1_adsoverlay")
