@@ -65,8 +65,8 @@ func _draw() -> void:
 	var bob := absf(cos(_walk_phase)) * _walk_amount
 
 	# Feet (alternate forward/back while walking)
-	_shape_ellipse(Vector2(-10, 3 - swing * 9), Vector2(4.5, 6.5), BOOT)
-	_shape_ellipse(Vector2(10, 3 + swing * 9), Vector2(4.5, 6.5), BOOT)
+	_shape_ellipse(Vector2(-9, -6 - swing * 9), Vector2(4.5, 6.5), BOOT)
+	_shape_ellipse(Vector2(9, -6 + swing * 9), Vector2(4.5, 6.5), BOOT)
 
 	# Torso (wide shoulders, sways slightly opposite to feet)
 	var torso_rot := -swing * 0.12
