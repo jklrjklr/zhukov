@@ -13,7 +13,9 @@ extends CharacterBody2D
 enum State { WANDER, STALK, WINDUP, CHARGE, SKID, STUNNED, SWIPE, DEAD }
 
 const PX := Firearm.PX_PER_M
-const RADIUS := 28.0
+## Drawing scale (art is authored at 1x) and matching collision radius.
+const ART_SCALE := 1.6
+const RADIUS := 28.0 * ART_SCALE
 const FRONT_AC := 5
 const SIDE_AC := 3
 const REAR_AC := 1
@@ -339,6 +341,7 @@ func _draw() -> void:
 		var p: Vector2 = to_local(d.pos)
 		draw_circle(p, 8.0 + k * 14.0, Color(0.55, 0.48, 0.38, 0.4 * (1.0 - k)))
 
+	draw_set_transform(Vector2.ZERO, 0.0, Vector2(ART_SCALE, ART_SCALE))
 	var charging := state == State.CHARGE
 	var rear := state == State.WINDUP
 	var stride := sin(_walk_phase)
@@ -374,6 +377,7 @@ func _draw() -> void:
 		for i in 3:
 			var a := Time.get_ticks_msec() * 0.005 + i * TAU / 3.0
 			draw_circle(Vector2(0, -30) + Vector2.from_angle(a) * 16.0, 3.0, UiStyle.YELLOW)
+	draw_set_transform(Vector2.ZERO)
 
 	if not _numbers.is_empty():
 		var font := ThemeDB.fallback_font
@@ -381,7 +385,7 @@ func _draw() -> void:
 		for n in _numbers:
 			var a: float = 1.0 - n.t / 0.9
 			var col := Color(1, 0.55, 0.15, a) if n.crit else Color(1, 0.95, 0.5, a)
-			draw_string(font, Vector2(n.x - 50, -50 - n.t * 40.0), n.text, HORIZONTAL_ALIGNMENT_CENTER, 100, 22 if n.crit else 18, col)
+			draw_string(font, Vector2(n.x - 50, -80 - n.t * 40.0), n.text, HORIZONTAL_ALIGNMENT_CENTER, 100, 22 if n.crit else 18, col)
 		draw_set_transform(Vector2.ZERO)
 
 

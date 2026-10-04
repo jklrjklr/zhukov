@@ -181,17 +181,23 @@ func _draw_compass(vp: Vector2) -> void:
 			draw_line(Vector2(x, y + 8), Vector2(x, y + 16), UiStyle.TEXT_DIM, 2.0)
 	draw_colored_polygon(PackedVector2Array([Vector2(cx - 6, y + 44), Vector2(cx + 6, y + 44), Vector2(cx, y + 36)]), UiStyle.YELLOW)
 	# Objective markers
+	# Objective markers: a diamond per target, distance only for the nearest one.
 	for o in _mission.objectives:
-		if o.done or not o.active:
+		if o.done or not o.active or o.targets.is_empty():
 			continue
+		var col := UiStyle.YELLOW if not o.optional else UiStyle.TEXT_DIM
+		var nearest := INF
+		var nearest_x := 0.0
 		for t in o.targets:
 			var to: Vector2 = (t as Vector2) - _player.global_position
 			var bearing := rad_to_deg(Vector2.UP.angle_to(to))
 			var d := clampf(wrapf(bearing - heading, -180.0, 180.0), -span / 2, span / 2)
 			var x := cx + d * ppd
-			var col := UiStyle.YELLOW if not o.optional else UiStyle.TEXT_DIM
 			UiStyle.diamond(self, Vector2(x, y + 33), 6.0, col)
-			UiStyle.text(self, Vector2(x - 30, y + 62), "%dm" % roundi(to.length() / Firearm.PX_PER_M), 13, col, HORIZONTAL_ALIGNMENT_CENTER, 60)
+			if to.length() < nearest:
+				nearest = to.length()
+				nearest_x = x
+		UiStyle.text(self, Vector2(nearest_x - 30, y + 62), "%dm" % roundi(nearest / Firearm.PX_PER_M), 13, col, HORIZONTAL_ALIGNMENT_CENTER, 60)
 
 
 func _draw_clock(vp: Vector2) -> void:
