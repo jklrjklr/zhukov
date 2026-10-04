@@ -16,6 +16,12 @@ extends CharacterBody2D
 @export var deceleration := 1400.0
 
 @export var max_hp := 100.0
+@export var max_stims := 4
+@export var max_grenades := 4
+## s for a stim to heal to full.
+@export var stim_time := 1.2
+## m: hip throw distance (ADS throws to the aim circle).
+@export var throw_distance := 10.0
 
 ## Where the camera looks (radians). Body rotation chases it.
 var look_angle := 0.0
@@ -23,6 +29,13 @@ var hp := 100.0
 var dead := false
 ## 0..1 flash after taking damage (HUD vignette).
 var hurt := 0.0
+var stims := 4
+var grenades := 4
+## Held by the INTERACT button.
+var interacting := false
+## Interactable currently in reach (or null).
+var interact_target: Interactable = null
+var _heal_left := 0.0
 
 ## Movement input in screen/local space, set by TouchControls.
 ## Length 0..1, (0, -1) = forward.
@@ -54,8 +67,51 @@ var _walk_amount := 0.0 # 0 idle .. 1 full stride, eased
 func _ready() -> void:
 	add_to_group("player")
 	hp = max_hp
+	stims = max_stims
+	grenades = max_grenades
 	_head.draw.connect(_draw_head)
 	look_angle = rotation
+
+
+func use_stim() -> void:
+	if dead or stims <= 0 or hp >= max_hp or _heal_left > 0.0:
+		return
+	stims -= 1
+	_heal_left = max_hp
+	Game.add_stat("stims")
+
+
+func throw_grenade() -> void:
+	if dead or grenades <= 0:
+		return
+	grenades -= 1
+	Game.add_stat("grenades")
+	var forward := Vector2.UP.rotated(rotation)
+	var target := global_position + forward * throw_distance * Firearm.PX_PER_M
+	if weapon.ads_amount() >= 0.5:
+		target = weapon.aim_overlay().center
+	var projectiles := get_tree().get_first_node_in_group("projectiles")
+	projectiles.spawn_grenade(global_position + forward * 22.0, target, self)
+
+
+## Ammo box: spare mags full, +2 grenades, +1 stim.
+func resupply() -> void:
+	weapon.refill()
+	grenades = mini(grenades + 2, max_grenades)
+	stims = mini(stims + 1, max_stims)
+
+
+## Reinforced: back to full health and default loadout at pos.
+func revive(pos: Vector2) -> void:
+	dead = false
+	hp = max_hp
+	hurt = 0.0
+	_heal_left = 0.0
+	stims = max_stims
+	grenades = max_grenades
+	global_position = pos
+	velocity = Vector2.ZERO
+	weapon.reset_loadout()
 
 
 func take_damage(amount: float, from: Vector2) -> void:
@@ -67,13 +123,20 @@ func take_damage(amount: float, from: Vector2) -> void:
 	kick(randf_range(-0.06, 0.06))
 	if hp <= 0.0:
 		dead = true
+		Game.add_stat("deaths")
 		move_input = Vector2.ZERO
+		interacting = false
 		weapon.trigger = false
 		weapon.ads = false
 
 
 func _physics_process(delta: float) -> void:
 	hurt = maxf(hurt - delta * 1.5, 0.0)
+	if _heal_left > 0.0 and not dead:
+		var h := minf(_heal_left, max_hp / stim_time * delta)
+		hp = minf(hp + h, max_hp)
+		_heal_left -= h
+	_update_interact(delta)
 	var input := Vector2.ZERO if dead else move_input
 	var kb := _keyboard_move()
 	if kb != Vector2.ZERO and not dead:
@@ -100,6 +163,33 @@ func _physics_process(delta: float) -> void:
 	velocity = velocity.move_toward(target, rate * delta)
 	move_and_slide()
 	_animate(delta)
+
+
+func is_healing() -> bool:
+	return _heal_left > 0.0
+
+
+## Nearest usable interactable in reach; holding INTERACT fills its progress.
+func _update_interact(delta: float) -> void:
+	var best: Interactable = null
+	var best_d := INF
+	if not dead:
+		for n in get_tree().get_nodes_in_group("interactables"):
+			var it := n as Interactable
+			if not it.usable():
+				continue
+			var d := global_position.distance_to(it.global_position)
+			if d <= it.reach_m * Firearm.PX_PER_M and d < best_d:
+				best = it
+				best_d = d
+	if interact_target and interact_target != best:
+		interact_target.progress = 0.0
+	interact_target = best
+	if best:
+		if interacting:
+			best.hold(delta, self)
+		else:
+			best.progress = maxf(best.progress - delta * 2.0, 0.0)
 
 
 ## Swipe / keyboard turning: moves the camera; the body follows.

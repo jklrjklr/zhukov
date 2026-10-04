@@ -25,6 +25,8 @@ extends CharacterBody2D
 enum State { WANDER, CHASE, SEARCH, ATTACK, RECOVER, DEAD }
 
 const LOD_FAR_M := 30.0
+const SLEEP_M := 55.0
+const SLEEP_EVERY := 4
 const KNOCKBACK := 450.0
 const SLOW_PER_IMPACT := 1.2
 const INTERRUPT_IMPACT := 0.25
@@ -116,6 +118,7 @@ func _ready() -> void:
 	hp = max_hp
 	hearing_now = hearing
 	add_to_group("zombies")
+	add_to_group("enemies")
 	add_to_group("concealable")
 	motion_mode = CharacterBody2D.MOTION_MODE_FLOATING
 	collision_layer = 2 # actors: block bullets and movement, not sight
@@ -137,6 +140,37 @@ func _ready() -> void:
 
 func is_dead() -> bool:
 	return state == State.DEAD
+
+
+## Send it somewhere: chase=true runs straight at the player, else it investigates pos.
+func alert_to(pos: Vector2, chase := false) -> void:
+	if state == State.DEAD or _engaged():
+		return
+	if chase and _player:
+		_engage(_player.global_position)
+	else:
+		state = State.SEARCH
+		_goal = pos
+
+
+## Spawn a pack of `size` zombies around `center` under `parent`. `is_free(p)` checks spots.
+static func spawn_pack(parent: Node, center: Vector2, size: int, pack: int, is_free: Callable) -> Array[Zombie]:
+	var out: Array[Zombie] = []
+	var lead: Zombie = null
+	for attempt in size * 6:
+		if out.size() >= size:
+			break
+		var p := center if out.is_empty() else center + Vector2.from_angle(randf() * TAU) * randf_range(40.0, 140.0)
+		if not is_free.call(p):
+			continue
+		var z := Zombie.new()
+		z.position = p
+		parent.add_child(z)
+		if lead == null:
+			lead = z
+		z.join_pack(pack, lead)
+		out.append(z)
+	return out
 
 
 ## A sound at pos: loudness at the source, % lost per meter.
@@ -215,6 +249,11 @@ func _physics_process(delta: float) -> void:
 	hearing_now = minf(hearing_now + hearing_recovery * delta, hearing)
 	_tick += 1
 	var far := _player != null and global_position.distance_squared_to(_player.global_position) > pow(LOD_FAR_M * PX, 2)
+	# Very far and idle: think and move only every SLEEP_EVERY ticks (performance).
+	if state == State.WANDER and _player != null \
+			and global_position.distance_squared_to(_player.global_position) > pow(SLEEP_M * PX, 2) \
+			and _tick % SLEEP_EVERY != 0:
+		return
 	if _tick % (15 if far else 5) == 0:
 		_perceive()
 		_follow_leader()
@@ -438,7 +477,9 @@ func _update_attack(delta: float) -> void:
 
 func _die(dir: Vector2) -> void:
 	state = State.DEAD
+	Game.add_stat("kills")
 	remove_from_group("zombies")
+	remove_from_group("enemies")
 	_col.set_deferred("disabled", true)
 	z_index = -1
 	velocity = Vector2.ZERO

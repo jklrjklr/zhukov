@@ -1,12 +1,12 @@
 ; Engine configuration file.
-; Target: HTML5 export played in mobile browsers (see export_presets.cfg).
+; Target: Android APK (GL Compatibility / GLES3); HTML5 export kept for quick tests.
 
 config_version=5
 
 [application]
 
 config/name="Zhukov"
-run/main_scene="res://scenes/main.tscn"
+run/main_scene="res://scenes/main_menu.tscn"
 config/features=PackedStringArray("4.6", "GL Compatibility")
 
 [display]
@@ -33,3 +33,7 @@ renderer/rendering_method="gl_compatibility"
 renderer/rendering_method.mobile="gl_compatibility"
 textures/vram_compression/import_etc2_astc=true
 environment/defaults/default_clear_color=Color(0.08, 0.09, 0.08, 1)
+
+[autoload]
+
+Game="*res://scripts/game.gd"

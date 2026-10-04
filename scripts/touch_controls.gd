@@ -2,12 +2,16 @@ extends Control
 ## Mobile controls, multi-touch:
 ## - Left half: floating joystick (appears where the finger lands) -> move.
 ## - Right half: horizontal swipe -> turn (camera rotates with the player).
-## - FIRE button (hold; dragging it also turns), RELOAD and fire MODE buttons.
-## - ADS button: tap toggles aim down sights; press and swipe up/down sets aim distance.
+## - FIRE (hold; dragging it also turns), RELOAD, fire MODE, GRENADE, STIM.
+## - ADS: tap toggles aim down sights; press and swipe up/down sets aim distance.
 ##   While aiming, any right-side swipe (and dragging FIRE) also moves aim distance
 ##   with its vertical motion.
-## Top-right corner toggles fullscreen.
-## On desktop, mouse is emulated as touch index 0 (plus WASD / Q,E, Space, R, B, F, Z/X).
+## - INTERACT (hold) appears next to terminals, consoles and ammo boxes.
+## On web, the top-right corner toggles fullscreen.
+## Info (health, ammo, objectives...) is drawn by the HUD; this node only draws the
+## controls and the aim overlay.
+## Desktop: mouse is emulated as touch index 0 (plus WASD / Q,E, Space, R, B, F, Z/X,
+## G grenade, H stim, hold V interact).
 
 @export var player_path: NodePath
 @export var joystick_radius := 110.0
@@ -17,8 +21,9 @@ extends Control
 
 const FULLSCREEN_SIZE := Vector2(90, 90)
 const FIRE_RADIUS := 80.0
-const SMALL_RADIUS := 44.0
+const SMALL_RADIUS := 42.0
 const ADS_RADIUS := 50.0
+const INTERACT_RADIUS := 52.0
 ## Meters of aim distance per full-screen-height vertical swipe.
 const AIM_M_PER_SCREEN := 16.0
 ## Turn sensitivity while fully aimed.
@@ -43,6 +48,7 @@ var _ads_last := Vector2.ZERO
 var _ads_start := Vector2.ZERO
 var _ads_press_ms := 0
 var _ads_was_on := false
+var _interact_index := -1
 
 
 func _ready() -> void:
@@ -51,17 +57,29 @@ func _ready() -> void:
 
 
 func _process(_delta: float) -> void:
+	_player.interacting = _interact_index != -1 or Input.is_physical_key_pressed(KEY_V)
 	queue_redraw()
 
 
 func _notification(what: int) -> void:
 	if what == NOTIFICATION_APPLICATION_FOCUS_OUT or what == NOTIFICATION_WM_WINDOW_FOCUS_OUT:
-		_release_joystick()
-		_look_index = -1
-		_release_fire()
+		_release_all()
+
+
+func _unhandled_key_input(event: InputEvent) -> void:
+	var k := event as InputEventKey
+	if k.pressed and not k.echo:
+		match k.physical_keycode:
+			KEY_G:
+				_player.throw_grenade()
+			KEY_H:
+				_player.use_stim()
 
 
 func _input(event: InputEvent) -> void:
+	if _player.dead:
+		_release_all()
+		return
 	if event is InputEventScreenTouch:
 		_on_touch(event)
 	elif event is InputEventScreenDrag:
@@ -70,11 +88,8 @@ func _input(event: InputEvent) -> void:
 
 func _on_touch(e: InputEventScreenTouch) -> void:
 	var vp := get_viewport_rect().size
-	if e.pressed and _player.dead:
-		get_tree().reload_current_scene()
-		return
 	if e.pressed:
-		if _fullscreen_rect().has_point(e.position):
+		if OS.has_feature("web") and _fullscreen_rect().has_point(e.position):
 			_toggle_fullscreen()
 		elif e.position.distance_to(_fire_center()) < FIRE_RADIUS and _fire_index == -1:
 			_fire_index = e.index
@@ -87,10 +102,16 @@ func _on_touch(e: InputEventScreenTouch) -> void:
 			_ads_press_ms = Time.get_ticks_msec()
 			_ads_was_on = _weapon.ads
 			_weapon.ads = true
+		elif _interact_visible() and e.position.distance_to(_interact_center()) < INTERACT_RADIUS:
+			_interact_index = e.index
 		elif e.position.distance_to(_reload_center()) < SMALL_RADIUS:
 			_weapon.reload()
 		elif e.position.distance_to(_mode_center()) < SMALL_RADIUS:
 			_weapon.cycle_fire_mode()
+		elif e.position.distance_to(_grenade_center()) < SMALL_RADIUS:
+			_player.throw_grenade()
+		elif e.position.distance_to(_stim_center()) < SMALL_RADIUS:
+			_player.use_stim()
 		elif e.position.x < vp.x * 0.5:
 			if _joy_index == -1:
 				_joy_index = e.index
@@ -106,6 +127,8 @@ func _on_touch(e: InputEventScreenTouch) -> void:
 			_look_index = -1
 		elif e.index == _fire_index:
 			_release_fire()
+		elif e.index == _interact_index:
+			_interact_index = -1
 		elif e.index == _ads_index:
 			_ads_index = -1
 			var tap := Time.get_ticks_msec() - _ads_press_ms < TAP_MS and e.position.distance_to(_ads_start) < TAP_PX
@@ -140,6 +163,14 @@ func _aim_drag(d: Vector2, adjust_distance: bool) -> void:
 		_weapon.adjust_aim(-d.y / vp.y * AIM_M_PER_SCREEN)
 
 
+func _release_all() -> void:
+	_release_joystick()
+	_release_fire()
+	_look_index = -1
+	_interact_index = -1
+	_ads_index = -1
+
+
 func _release_joystick() -> void:
 	_joy_index = -1
 	if _player:
@@ -150,6 +181,10 @@ func _release_fire() -> void:
 	_fire_index = -1
 	if _weapon:
 		_weapon.trigger = false
+
+
+func _interact_visible() -> bool:
+	return _player.interact_target != null
 
 
 func _fire_center() -> Vector2:
@@ -169,7 +204,22 @@ func _ads_center() -> Vector2:
 
 func _mode_center() -> Vector2:
 	var vp := get_viewport_rect().size
-	return Vector2(vp.x - 70, vp.y - 330)
+	return Vector2(vp.x - 60, vp.y - 330)
+
+
+func _grenade_center() -> Vector2:
+	var vp := get_viewport_rect().size
+	return Vector2(vp.x - 175, vp.y - 335)
+
+
+func _stim_center() -> Vector2:
+	var vp := get_viewport_rect().size
+	return Vector2(vp.x - 460, vp.y - 90)
+
+
+func _interact_center() -> Vector2:
+	var vp := get_viewport_rect().size
+	return Vector2(vp.x - 490, vp.y - 250)
 
 
 func _fullscreen_rect() -> Rect2:
@@ -185,94 +235,61 @@ func _toggle_fullscreen() -> void:
 
 
 func _draw() -> void:
+	if _player.dead:
+		return
 	var vp := get_viewport_rect().size
-	var font := ThemeDB.fallback_font
-	var white := Color(1, 1, 1, 0.8)
-	var faint := Color(1, 1, 1, 0.3)
-
 	_draw_aim_overlay()
-
-	# Hurt vignette
-	if _player.hurt > 0.0:
-		var a: float = _player.hurt * 0.35
-		var edge := 60.0
-		draw_rect(Rect2(0, 0, vp.x, edge), Color(0.8, 0, 0, a))
-		draw_rect(Rect2(0, vp.y - edge, vp.x, edge), Color(0.8, 0, 0, a))
-		draw_rect(Rect2(0, 0, edge, vp.y), Color(0.8, 0, 0, a))
-		draw_rect(Rect2(vp.x - edge, 0, edge, vp.y), Color(0.8, 0, 0, a))
 
 	# Joystick
 	if _joy_index != -1:
-		draw_circle(_joy_origin, joystick_radius, Color(1, 1, 1, 0.08))
-		draw_arc(_joy_origin, joystick_radius, 0, TAU, 48, Color(1, 1, 1, 0.35), 3.0)
-		draw_circle(_joy_knob, 42.0, Color(1, 1, 1, 0.45))
+		draw_circle(_joy_origin, joystick_radius, Color(0, 0, 0, 0.25))
+		draw_arc(_joy_origin, joystick_radius, 0, TAU, 48, UiStyle.YELLOW_DIM, 3.0)
+		draw_circle(_joy_knob, 40.0, Color(1, 0.9, 0.06, 0.4))
 	else:
 		var hint := Vector2(180, vp.y - 180)
-		draw_arc(hint, joystick_radius, 0, TAU, 48, Color(1, 1, 1, 0.15), 3.0)
-		draw_string(font, hint + Vector2(-60, 6), "MOVE", HORIZONTAL_ALIGNMENT_CENTER, 120, 20, faint)
+		draw_arc(hint, joystick_radius, 0, TAU, 48, Color(1, 1, 1, 0.12), 3.0)
+		UiStyle.text(self, hint + Vector2(-60, 6), "move", 18, Color(1, 1, 1, 0.25), HORIZONTAL_ALIGNMENT_CENTER, 120)
 
-	# Look zone hint
-	if _look_index == -1 and _fire_index == -1:
-		draw_string(font, Vector2(vp.x * 0.75 - 160, vp.y * 0.35), "<  SWIPE TO TURN  >", HORIZONTAL_ALIGNMENT_CENTER, 240, 20, faint)
-
-	# Fire button
-	var fc := _fire_center()
-	draw_circle(fc, FIRE_RADIUS, Color(1, 0.3, 0.2, 0.28 if _fire_index != -1 else 0.14))
-	draw_arc(fc, FIRE_RADIUS, 0, TAU, 48, Color(1, 0.4, 0.3, 0.6), 3.0)
-	draw_string(font, fc + Vector2(-60, 7), "FIRE", HORIZONTAL_ALIGNMENT_CENTER, 120, 22, white)
-
-	# Reload button with progress ring
-	var rc := _reload_center()
-	draw_circle(rc, SMALL_RADIUS, Color(1, 1, 1, 0.1))
-	draw_arc(rc, SMALL_RADIUS, 0, TAU, 32, faint, 2.0)
-	var busy := _weapon.state == Firearm.State.RELOADING or _weapon.state == Firearm.State.CLEARING
+	_button(_fire_center(), FIRE_RADIUS, "FIRE", _fire_index != -1, 24, UiStyle.RED)
+	var w := _weapon
+	var busy := w.state == Firearm.State.RELOADING or w.state == Firearm.State.CLEARING
+	_button(_reload_center(), SMALL_RADIUS, "CLEAR" if w.jammed else "RELOAD", false, 14)
 	if busy:
-		draw_arc(rc, SMALL_RADIUS - 4, -PI / 2, -PI / 2 + TAU * _weapon.state_progress(), 32, Color(0.5, 0.9, 1.0, 0.9), 5.0)
-	draw_string(font, rc + Vector2(-40, 6), "CLEAR" if _weapon.jammed else "R", HORIZONTAL_ALIGNMENT_CENTER, 80, 18, white)
+		draw_arc(_reload_center(), SMALL_RADIUS - 5, -PI / 2, -PI / 2 + TAU * w.state_progress(), 32, UiStyle.BLUE, 5.0)
+	_button(_mode_center(), SMALL_RADIUS, w.fire_mode_name(), false, 14)
+	_button(_grenade_center(), SMALL_RADIUS, "NADE %d" % _player.grenades, false, 14, Color.WHITE, _player.grenades == 0)
+	_button(_stim_center(), SMALL_RADIUS, "STIM %d" % _player.stims, _player.is_healing(), 14, UiStyle.GREEN, _player.stims == 0)
 
-	# Fire mode button
-	var mc := _mode_center()
-	draw_circle(mc, SMALL_RADIUS, Color(1, 1, 1, 0.1))
-	draw_arc(mc, SMALL_RADIUS, 0, TAU, 32, faint, 2.0)
-	draw_string(font, mc + Vector2(-40, 6), _weapon.fire_mode_name(), HORIZONTAL_ALIGNMENT_CENTER, 80, 16, white)
-
-	# ADS button: shows aim distance while aiming
 	var ac := _ads_center()
-	var on := _weapon.ads
-	draw_circle(ac, ADS_RADIUS, Color(1, 0.9, 0.3, 0.22) if on else Color(1, 1, 1, 0.1))
-	draw_arc(ac, ADS_RADIUS, 0, TAU, 40, Color(1, 0.9, 0.3, 0.7) if on else faint, 2.0)
-	draw_string(font, ac + Vector2(-40, -2 if on else 6), "ADS", HORIZONTAL_ALIGNMENT_CENTER, 80, 18, white)
-	if on:
-		draw_string(font, ac + Vector2(-40, 18), "%d m" % roundi(_weapon.aim_distance), HORIZONTAL_ALIGNMENT_CENTER, 80, 14, white)
-		draw_string(font, ac + Vector2(-40, -ADS_RADIUS - 6), "^", HORIZONTAL_ALIGNMENT_CENTER, 80, 14, faint)
-		draw_string(font, ac + Vector2(-40, ADS_RADIUS + 16), "v", HORIZONTAL_ALIGNMENT_CENTER, 80, 14, faint)
+	_button(ac, ADS_RADIUS, "ADS", w.ads, 18)
+	if w.ads:
+		UiStyle.text(self, ac + Vector2(-50, 22), "%d m" % roundi(w.aim_distance), 14, Color(0.05, 0.05, 0.05), HORIZONTAL_ALIGNMENT_CENTER, 100)
+		UiStyle.text(self, ac + Vector2(-50, -ADS_RADIUS - 6), "^", 14, UiStyle.YELLOW_DIM, HORIZONTAL_ALIGNMENT_CENTER, 100)
+		UiStyle.text(self, ac + Vector2(-50, ADS_RADIUS + 18), "v", 14, UiStyle.YELLOW_DIM, HORIZONTAL_ALIGNMENT_CENTER, 100)
 
-	_draw_ammo(font, Vector2(vp.x - 290, 130))
+	if _interact_visible():
+		var ic := _interact_center()
+		var it: Interactable = _player.interact_target
+		_button(ic, INTERACT_RADIUS, "HOLD", _interact_index != -1, 18)
+		draw_arc(ic, INTERACT_RADIUS + 6, -PI / 2, -PI / 2 + TAU * it.progress / it.hold_time, 40, UiStyle.YELLOW, 6.0)
 
-	# Fullscreen button (corner brackets)
-	var r := _fullscreen_rect().grow(-28)
-	var l := 12.0
-	for c in [r.position, Vector2(r.end.x, r.position.y), r.end, Vector2(r.position.x, r.end.y)]:
-		var sx := 1.0 if c.x == r.position.x else -1.0
-		var sy := 1.0 if c.y == r.position.y else -1.0
-		draw_line(c, c + Vector2(l * sx, 0), white, 3.0)
-		draw_line(c, c + Vector2(0, l * sy), white, 3.0)
+	if OS.has_feature("web"):
+		var r := _fullscreen_rect().grow(-30)
+		var l := 10.0
+		for c in [r.position, Vector2(r.end.x, r.position.y), r.end, Vector2(r.position.x, r.end.y)]:
+			var sx := 1.0 if c.x == r.position.x else -1.0
+			var sy := 1.0 if c.y == r.position.y else -1.0
+			draw_line(c, c + Vector2(l * sx, 0), UiStyle.TEXT_DIM, 3.0)
+			draw_line(c, c + Vector2(0, l * sy), UiStyle.TEXT_DIM, 3.0)
 
-	# FPS + CPU time per frame (script/process, physics) for perf reports.
-	var proc_ms := Performance.get_monitor(Performance.TIME_PROCESS) * 1000.0
-	var phys_ms := Performance.get_monitor(Performance.TIME_PHYSICS_PROCESS) * 1000.0
-	draw_string(font, Vector2(16, 30), "%d FPS  proc %.1fms  phys %.1fms" % [Engine.get_frames_per_second(), proc_ms, phys_ms], HORIZONTAL_ALIGNMENT_LEFT, -1, 18, white)
 
-	# Health
-	var hp_frac: float = _player.hp / _player.max_hp
-	draw_rect(Rect2(16, 44, 220, 14), Color(0, 0, 0, 0.5))
-	draw_rect(Rect2(16, 44, 220 * hp_frac, 14), Color(0.85, 0.2, 0.15).lerp(Color(0.4, 0.85, 0.4), hp_frac))
-	draw_string(font, Vector2(244, 57), "%d" % roundi(_player.hp), HORIZONTAL_ALIGNMENT_LEFT, -1, 16, white)
-
-	if _player.dead:
-		draw_rect(Rect2(Vector2.ZERO, vp), Color(0, 0, 0, 0.55))
-		draw_string(font, Vector2(0, vp.y * 0.45), "YOU DIED", HORIZONTAL_ALIGNMENT_CENTER, vp.x, 56, Color(0.9, 0.2, 0.15))
-		draw_string(font, Vector2(0, vp.y * 0.45 + 50), "tap to restart", HORIZONTAL_ALIGNMENT_CENTER, vp.x, 22, white)
+## Round control: dark glass, accent ring, label; filled with the accent when active.
+func _button(c: Vector2, r: float, label: String, active: bool, size: int, accent := UiStyle.YELLOW, empty := false) -> void:
+	var ring := accent if not empty else Color(0.5, 0.5, 0.5)
+	draw_circle(c, r, Color(ring.r, ring.g, ring.b, 0.55) if active else Color(0, 0, 0, 0.45))
+	draw_arc(c, r, 0, TAU, 40, Color(ring.r, ring.g, ring.b, 0.8), 2.5)
+	var tc := Color(0.05, 0.05, 0.05) if active else (Color(0.6, 0.6, 0.6) if empty else UiStyle.TEXT)
+	UiStyle.text(self, c + Vector2(-r, size * 0.35), label, size, tc, HORIZONTAL_ALIGNMENT_CENTER, r * 2.0)
 
 
 ## Hip: spread cone lines from the muzzle. ADS: aim circle + reticle where bullets land.
@@ -300,40 +317,3 @@ func _draw_aim_overlay() -> void:
 		for i in 4:
 			var t := fwd.rotated(i * PI / 2.0)
 			draw_line(c + t * (r + 4.0), c + t * (r + 12.0), col, 2.0)
-
-
-## Weapon name, rounds loaded, spare mags as fill bars, status line.
-func _draw_ammo(font: Font, at: Vector2) -> void:
-	var w := _weapon
-	var white := Color(1, 1, 1, 0.85)
-	draw_string(font, at, "%s  %s" % [w.stats.display_name, w.stats.caliber], HORIZONTAL_ALIGNMENT_LEFT, -1, 16, Color(1, 1, 1, 0.6))
-	# One number for rounds ready; "+1" only when a tactical reload put a full mag
-	# behind a chambered round (more than the mag holds).
-	var total := w.rounds_loaded()
-	var rounds := "%d+1" % w.stats.mag_size if total > w.stats.mag_size else "%d" % total
-	draw_string(font, at + Vector2(0, 30), rounds, HORIZONTAL_ALIGNMENT_LEFT, -1, 28, white)
-	for i in w.mags.size():
-		var x := at.x + 90 + i * 12
-		var h := 26.0
-		var fill := h * w.mags[i] / float(w.stats.mag_size)
-		draw_rect(Rect2(x, at.y + 6, 8, h), Color(1, 1, 1, 0.15))
-		draw_rect(Rect2(x, at.y + 6 + h - fill, 8, fill), Color(1, 1, 1, 0.7))
-
-	var status := ""
-	var col := Color(1, 0.8, 0.3)
-	if w.jammed:
-		status = "JAMMED - CLEAR (R)"
-		col = Color(1, 0.4, 0.3)
-	elif w.state == Firearm.State.RELOADING:
-		status = "RELOADING"
-	elif w.state == Firearm.State.CLEARING:
-		status = "CLEARING"
-	elif w.state == Firearm.State.DRAWING:
-		status = "READYING"
-	elif w.blocked > 0.0:
-		status = "BLOCKED"
-	elif w.dry_flash > 0.0:
-		status = "EMPTY - RELOAD" if not w.mags.is_empty() else "OUT OF AMMO"
-		col = Color(1, 0.4, 0.3)
-	if status != "":
-		draw_string(font, at + Vector2(0, 56), status, HORIZONTAL_ALIGNMENT_LEFT, -1, 16, col)

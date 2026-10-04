@@ -3,8 +3,11 @@ extends StaticBody2D
 ## Destructible prop. Takes damage only from weapons whose destruction_level is at or
 ## above this prop's level, and then always the weapon's flat base damage.
 ## Destroyed props lose collision and leave debris.
+## NEST: enemy burrow (mission objective); needs explosives (level 20).
 
-enum Kind { CRATE, TREE }
+signal destroyed(d: Destructible)
+
+enum Kind { CRATE, TREE, NEST }
 
 @export var kind := Kind.CRATE
 @export_range(0, 100) var destruction_level := 3
@@ -28,6 +31,9 @@ static func make(k: Kind) -> StaticBody2D:
 		Kind.CRATE:
 			d.destruction_level = 3
 			d.max_hp = 150.0
+		Kind.NEST:
+			d.destruction_level = 20
+			d.max_hp = 250.0
 		Kind.TREE:
 			d.destruction_level = 30
 			d.max_hp = 400.0
@@ -42,6 +48,11 @@ func _ready() -> void:
 			var r := RectangleShape2D.new()
 			r.size = Vector2(40, 40)
 			_col.shape = r
+		Kind.NEST:
+			var nc := CircleShape2D.new()
+			nc.radius = 30.0
+			_col.shape = nc
+			add_to_group("nests")
 		Kind.TREE:
 			var c := CircleShape2D.new()
 			c.radius = 12.0 # trunk; bullets fly under the canopy
@@ -72,7 +83,13 @@ func take_hit(hit: Dictionary) -> void:
 		_destroy(hit.dir)
 
 
+func is_destroyed() -> bool:
+	return hp <= 0.0
+
+
 func _destroy(dir: Vector2) -> void:
+	destroyed.emit(self)
+	remove_from_group("nests")
 	_col.set_deferred("disabled", true)
 	z_index = 0
 	for i in 10:
@@ -117,6 +134,17 @@ func _draw() -> void:
 			if dmg > 0.6:
 				draw_line(Vector2(4, 14), Vector2(12, -8), outline, 1.5)
 			draw_rect(Rect2(-20, -20, 40, 40), hit_tint)
+		Kind.NEST:
+			# Fleshy mound with a dark burrow mouth.
+			draw_circle(Vector2.ZERO, 34.0, outline)
+			draw_circle(Vector2.ZERO, 32.0, Color(0.42, 0.3, 0.32))
+			draw_circle(Vector2(-6, -4), 22.0, Color(0.5, 0.36, 0.38))
+			draw_circle(Vector2(3, 2), 13.0, Color(0.12, 0.05, 0.06))
+			draw_circle(Vector2(3, 2), 7.0, Color(0.05, 0.02, 0.02))
+			for i in 6:
+				var a := TAU * i / 6.0 + 0.3
+				draw_circle(Vector2.from_angle(a) * 27.0, 4.0, Color(0.6, 0.45, 0.4))
+			draw_circle(Vector2.ZERO, 32.0, hit_tint)
 		Kind.TREE:
 			draw_circle(Vector2.ZERO, 13.5, outline)
 			draw_circle(Vector2.ZERO, 12.0, Color(0.4, 0.28, 0.15))

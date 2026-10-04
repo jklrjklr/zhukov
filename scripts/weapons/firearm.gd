@@ -98,15 +98,30 @@ func _ready() -> void:
 		_cam_base = _camera.position
 		_cam_offset = _cam_base
 	_projectiles = get_tree().get_first_node_in_group("projectiles")
+	reset_loadout()
+	fire_mode_index = stats.fire_modes.size() - 1 # start on the most automatic mode
+
+
+## Full mag (+1 chambered on closed bolts) and full spare mags; weapon comes up again.
+func reset_loadout() -> void:
 	if stats.closed_bolt:
 		mag = stats.mag_size - 1
 		chambered = true
 	else:
 		mag = stats.mag_size
+	jammed = false
+	refill()
+	trigger = false
+	ads = false
+	recoil_stack = 0.0
+	_set_state(State.DRAWING, stats.swap_time())
+
+
+## Resupply: spare mags back to full.
+func refill() -> void:
+	mags.clear()
 	for i in stats.spare_mags:
 		mags.append(stats.mag_size)
-	fire_mode_index = stats.fire_modes.size() - 1 # start on the most automatic mode
-	_set_state(State.DRAWING, stats.swap_time())
 
 
 func fire_mode() -> int:
@@ -334,6 +349,7 @@ func _update_trigger(delta: float) -> void:
 func _try_fire() -> bool:
 	if state != State.READY or jammed or blocked > 0.0 or not _has_round() or _player.dead:
 		return false
+	Game.add_stat("shots")
 	if stats.closed_bolt:
 		chambered = mag > 0
 		if chambered:
@@ -359,7 +375,7 @@ func _try_fire() -> bool:
 			var dir := Vector2.UP.rotated(global_rotation + deg_to_rad(off))
 			_projectiles.spawn_bullet(muzzle, dir * speed, stats, _player)
 	_projectiles.spawn_casing(to_global(Vector2(3, -12)), global_rotation)
-	get_tree().call_group("zombies", "hear", global_position, stats.sound, stats.sound_falloff)
+	get_tree().call_group("enemies", "hear", global_position, stats.sound, stats.sound_falloff)
 
 	# Vertical: eased stacking, each shot adds less the closer the stack is to 1.
 	recoil_stack = minf(1.0, recoil_stack + stats.vertical_recoil * pow(1.0 - recoil_stack, 1.5))

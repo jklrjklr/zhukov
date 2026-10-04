@@ -115,32 +115,12 @@ func _physics_process(delta: float) -> void:
 ## A pack of `size` zombies around a random free spot at least ZOMBIE_MIN_SPAWN_M
 ## from `away_from`. Returns how many were spawned.
 func _spawn_pack(away_from: Vector2, size: int) -> int:
-	var center := Vector2.INF
 	for attempt in 30:
 		var p := Vector2(randf_range(-HALF_SIZE + 300, HALF_SIZE - 300), randf_range(-HALF_SIZE + 300, HALF_SIZE - 300))
 		if p.distance_to(away_from) >= ZOMBIE_MIN_SPAWN_M * Firearm.PX_PER_M and _is_free(p):
-			center = p
-			break
-	if center == Vector2.INF:
-		return 1 # give up this round; count it so the loop ends
-	var id := _next_pack
-	_next_pack += 1
-	var lead: Zombie = null
-	var spawned := 0
-	for attempt in size * 6:
-		if spawned >= size:
-			break
-		var p := center if spawned == 0 else center + Vector2.from_angle(randf() * TAU) * randf_range(40.0, 140.0)
-		if spawned > 0 and not _is_free(p):
-			continue
-		var z := Zombie.new()
-		z.position = p
-		add_child(z)
-		if lead == null:
-			lead = z
-		z.join_pack(id, lead)
-		spawned += 1
-	return maxi(spawned, 1)
+			_next_pack += 1
+			return maxi(Zombie.spawn_pack(self, p, size, _next_pack, _is_free).size(), 1)
+	return 1 # give up this round; count it so the loop ends
 
 
 func _is_free(p: Vector2) -> bool:
