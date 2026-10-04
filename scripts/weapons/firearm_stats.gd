@@ -17,8 +17,13 @@ enum BulletType { NORMAL, PELLETS, FLECHETTE, INCENDIARY, ROCKET }
 ## Projectiles per shot (pellets).
 @export var bullet_count := 1
 @export var bullet_type := BulletType.NORMAL
-## Armor class it defeats (for armored enemies later).
-@export var penetration := 1
+## 0..10. At or above the target's armor class: full damage. Each level below: -25%.
+@export_range(0, 10) var armor_penetration := 1
+## Durability removed from armor per hit, scaled by the same penetration factor.
+@export var armor_damage := 10.0
+## 0..100. Objects (crates 3, trees 30, ...) only take damage from weapons at or above
+## their level, and then always take the flat base damage (no falloff, no armor).
+@export_range(0, 100) var destruction_level := 0
 ## m: damage falloff starts.
 @export var range_min := 25.0
 ## m: projectile expires.
@@ -107,6 +112,13 @@ func move_multiplier() -> float:
 
 func shot_interval() -> float:
 	return 60.0 / rpm
+
+
+## Damage multiplier vs an armor class: 1.0 when ap >= armor, -25% per level short.
+static func armor_factor(ap: int, armor_class: int) -> float:
+	if ap >= armor_class:
+		return 1.0
+	return maxf(0.0, 1.0 - 0.25 * (armor_class - ap))
 
 
 func damage_at(meters: float) -> float:

@@ -1,6 +1,8 @@
 extends Node2D
 ## Simulates and draws all bullets, ejected casings and impact puffs in one node
 ## (cheap on web). Bullets are ray-stepped each physics tick, so fast rounds never tunnel.
+## Targets implement take_hit(hit: Dictionary): damage (after falloff), base_damage,
+## armor_penetration, armor_damage, destruction_level, dir, meters.
 
 const PX := Firearm.PX_PER_M
 const TRACER_LEN := 140.0
@@ -55,7 +57,12 @@ func _physics_process(delta: float) -> void:
 		var meters: float = (b.dist + pos.distance_to(hit_pos)) / PX
 		var collider: Object = hit.collider
 		if collider.has_method("take_hit"):
-			collider.take_hit(st.damage_at(meters), b.vel.normalized(), meters)
+			collider.take_hit({
+				"damage": st.damage_at(meters), "base_damage": st.damage,
+				"armor_penetration": st.armor_penetration, "armor_damage": st.armor_damage,
+				"destruction_level": st.destruction_level,
+				"dir": (b.vel as Vector2).normalized(), "meters": meters,
+			})
 		_puffs.append({"pos": hit_pos, "t": 0.0})
 		b.pos = hit_pos
 		b.dead = true
