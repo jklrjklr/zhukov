@@ -458,6 +458,11 @@ func _draw() -> void:
 			draw_line(m + Vector2(0, -20), c + Vector2(0, aim_radius_px() + 4.0), Color(1, 0.9, 0.3, 0.12 * _ads), w)
 			draw_arc(c, maxf(aim_radius_px(), 2.0), 0.0, TAU, 40, col, w)
 			draw_circle(c, 1.5 / _cam_zoom, col)
+			# Reticle ticks so the circle reads even when spread is tiny.
+			var r0 := maxf(aim_radius_px(), 2.0) + 4.0 / _cam_zoom
+			for i in 4:
+				var t := Vector2.UP.rotated(i * PI / 2.0)
+				draw_line(c + t * r0, c + t * (r0 + 10.0 / _cam_zoom), col, w)
 
 	draw_set_transform_matrix(_hold_transform())
 	WeaponArt.draw(self, stats.model, _bolt_pull() * BOLT_TRAVEL)
