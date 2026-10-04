@@ -187,6 +187,8 @@ func _draw() -> void:
 	var white := Color(1, 1, 1, 0.8)
 	var faint := Color(1, 1, 1, 0.3)
 
+	_draw_aim_overlay()
+
 	# Joystick
 	if _joy_index != -1:
 		draw_circle(_joy_origin, joystick_radius, Color(1, 1, 1, 0.08))
@@ -245,6 +247,33 @@ func _draw() -> void:
 		draw_line(c, c + Vector2(0, l * sy), white, 3.0)
 
 	draw_string(font, Vector2(16, 30), "%d FPS" % Engine.get_frames_per_second(), HORIZONTAL_ALIGNMENT_LEFT, -1, 18, white)
+
+
+## Hip: spread cone lines from the muzzle. ADS: aim circle + reticle where bullets land.
+func _draw_aim_overlay() -> void:
+	var o := _weapon.aim_overlay()
+	if not o.show:
+		return
+	var xf := get_viewport().get_canvas_transform()
+	var scale := xf.get_scale().x
+	var muzzle: Vector2 = xf * (o.muzzle as Vector2)
+	var fwd: Vector2 = xf.basis_xform(o.forward).normalized()
+	var ads: float = o.ads
+	var hip := 1.0 - ads
+	if hip > 0.0:
+		for s in [-1.0, 1.0]:
+			var d := fwd.rotated(o.half_spread * s)
+			draw_line(muzzle + d * 20.0 * scale, muzzle + d * 420.0 * scale, Color(1, 0.9, 0.3, 0.25 * hip), 1.5)
+	if ads > 0.0:
+		var c: Vector2 = xf * (o.center as Vector2)
+		var r := maxf((o.radius as float) * scale, 2.0)
+		var col := Color(1, 0.9, 0.3, 0.9 * ads)
+		draw_line(muzzle + fwd * 20.0 * scale, c - fwd * (r + 4.0), Color(1, 0.9, 0.3, 0.15 * ads), 1.5)
+		draw_arc(c, r, 0.0, TAU, 40, col, 2.0)
+		draw_circle(c, 1.5, col)
+		for i in 4:
+			var t := fwd.rotated(i * PI / 2.0)
+			draw_line(c + t * (r + 4.0), c + t * (r + 12.0), col, 2.0)
 
 
 ## Weapon name, rounds loaded, spare mags as fill bars, status line.

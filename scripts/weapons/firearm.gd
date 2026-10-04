@@ -160,6 +160,20 @@ func adjust_aim(meters: float) -> void:
 	aim_distance = clampf(aim_distance + meters, ADS_MIN, stats.ads_range)
 
 
+## What the HUD needs to draw the aim overlay (global space). Drawn on the HUD
+## layer so world lighting does not dim it.
+func aim_overlay() -> Dictionary:
+	return {
+		"show": state == State.READY and blocked <= 0.0,
+		"muzzle": to_global(muzzle_local()),
+		"forward": Vector2.UP.rotated(global_rotation),
+		"half_spread": deg_to_rad(current_spread_deg() / 2.0),
+		"ads": _ads,
+		"center": to_global(muzzle_local() + Vector2(0, -aim_distance * PX_PER_M)),
+		"radius": aim_radius_px(),
+	}
+
+
 ## Aim circle radius in px at the current aim distance.
 func aim_radius_px() -> float:
 	return aim_distance * PX_PER_M * tan(deg_to_rad(current_spread_deg() / 2.0))
@@ -442,28 +456,6 @@ func _hold_transform() -> Transform2D:
 
 
 func _draw() -> void:
-	# Hip: spread cone from the muzzle. ADS: aim circle where bullets will land.
-	if state == State.READY and blocked <= 0.0:
-		var m := muzzle_local()
-		var hip := 1.0 - _ads
-		if hip > 0.0:
-			var half := deg_to_rad(current_spread_deg() / 2.0)
-			for s in [-1.0, 1.0]:
-				var d := Vector2.UP.rotated(half * s)
-				draw_line(m + d * 20.0, m + d * 420.0, Color(1, 0.9, 0.3, 0.18 * hip), 1.5)
-		if _ads > 0.0:
-			var c := m + Vector2(0, -aim_distance * PX_PER_M)
-			var col := Color(1, 0.9, 0.3, 0.85 * _ads)
-			var w := 2.0 / _cam_zoom
-			draw_line(m + Vector2(0, -20), c + Vector2(0, aim_radius_px() + 4.0), Color(1, 0.9, 0.3, 0.12 * _ads), w)
-			draw_arc(c, maxf(aim_radius_px(), 2.0), 0.0, TAU, 40, col, w)
-			draw_circle(c, 1.5 / _cam_zoom, col)
-			# Reticle ticks so the circle reads even when spread is tiny.
-			var r0 := maxf(aim_radius_px(), 2.0) + 4.0 / _cam_zoom
-			for i in 4:
-				var t := Vector2.UP.rotated(i * PI / 2.0)
-				draw_line(c + t * r0, c + t * (r0 + 10.0 / _cam_zoom), col, w)
-
 	draw_set_transform_matrix(_hold_transform())
 	WeaponArt.draw(self, stats.model, _bolt_pull() * BOLT_TRAVEL)
 	if _flash > 0.0:
