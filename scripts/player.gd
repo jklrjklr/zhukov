@@ -16,7 +16,9 @@ const ARMOR := Color(0.95, 0.75, 0.15)
 const HELMET := Color(0.3, 0.32, 0.3)
 const BOOT := Color(0.22, 0.2, 0.18)
 const OUTLINE := Color(0.08, 0.08, 0.08)
-const STRIDE := 34.0 # px travelled per full step cycle
+## Full step cycles (left+right foot) per second at full speed. Decoupled from
+## distance on purpose: feet may "skip" ground, the pace just reads calmer.
+const STEP_CYCLES_PER_SEC := 1.5
 ## Speed multipliers by direction (relative to facing).
 const FORWARD_SPEED := 1.0
 const STRAFE_SPEED := 0.6
@@ -71,7 +73,7 @@ func _keyboard_move() -> Vector2:
 
 func _animate(delta: float) -> void:
 	var speed := get_real_velocity().length()
-	_walk_phase = fmod(_walk_phase + speed * delta / STRIDE * TAU, TAU)
+	_walk_phase = fmod(_walk_phase + clampf(speed / move_speed, 0.0, 1.0) * STEP_CYCLES_PER_SEC * TAU * delta, TAU)
 	_walk_amount = move_toward(_walk_amount, clampf(speed / move_speed, 0.0, 1.0), delta * 6.0)
 	# Walking swings the weapon left/right (aim only, camera stays).
 	weapon.sway = sin(_walk_phase) * _walk_amount
