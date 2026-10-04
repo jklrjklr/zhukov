@@ -36,9 +36,9 @@ func _ready() -> void:
 		dummy.position = Vector2((i % 2 * 2 - 1) * 40.0, -DUMMY_METERS[i] * Firearm.PX_PER_M)
 		add_child(dummy)
 
-	var wall := RectangleShape2D.new()
-	wall.size = TEST_WALL.size
-	_add_static_body(TEST_WALL.get_center(), wall)
+	var test_wall := RectangleShape2D.new()
+	test_wall.size = TEST_WALL.size
+	_add_static_body(TEST_WALL.get_center(), test_wall)
 
 	var t := 50.0
 	var s := HALF_SIZE * 2 + t * 2
