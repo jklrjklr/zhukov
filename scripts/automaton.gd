@@ -350,7 +350,7 @@ func _update_blaster(delta: float, dist_m: float, to_player: Vector2) -> void:
 	if _burst_t <= 0.0:
 		_burst_t = _cfg.burst_gap
 		_burst_left -= 1
-		var dir := Vector2.UP.rotated(rotation + deg_to_rad(randf_range(-1.0, 1.0) * _cfg.spread))
+		var dir := to_player.normalized().rotated(deg_to_rad(randf_range(-1.0, 1.0) * _cfg.spread))
 		var muzzle := global_position + Vector2.UP.rotated(rotation) * (radius + 6.0) + Vector2.RIGHT.rotated(rotation) * radius * 0.5
 		var proj := get_tree().get_first_node_in_group("projectiles")
 		proj.spawn_bolt(muzzle, dir * _cfg.bolt_speed * PX, _cfg.bolt_damage, self)
