@@ -101,18 +101,26 @@ func _update_concealment(delta: float) -> void:
 func _draw() -> void:
 	if _ends.is_empty():
 		return
-	# Darkness outside the cone: one big fan from the head around the back.
-	var back := PackedVector2Array([_origin])
+	# One triangle batch (no triangulation, one draw call):
+	# - a fan from the head around the back (outside the cone),
+	# - inside the cone, the strip between each ray's visible end and FAR.
+	var pts := PackedVector2Array()
 	var steps := 24
-	for i in steps + 1:
+	var prev := _origin + _forward.rotated(_half_fov) * FAR
+	for i in range(1, steps + 1):
 		var a := lerpf(_half_fov, TAU - _half_fov, float(i) / steps)
-		back.append(_origin + _forward.rotated(a) * FAR)
-	draw_colored_polygon(back, DARK)
-	# Darkness beyond each ray's visible end, inside the cone.
+		var cur := _origin + _forward.rotated(a) * FAR
+		pts.append_array([_origin, prev, cur])
+		prev = cur
 	for i in RAYS:
-		var a0 := lerpf(-_half_fov, _half_fov, float(i) / RAYS)
-		var a1 := lerpf(-_half_fov, _half_fov, float(i + 1) / RAYS)
-		draw_colored_polygon(PackedVector2Array([
-			_ends[i], _ends[i + 1],
-			_origin + _forward.rotated(a1) * FAR, _origin + _forward.rotated(a0) * FAR,
-		]), DARK)
+		var f0 := _origin + _forward.rotated(lerpf(-_half_fov, _half_fov, float(i) / RAYS)) * FAR
+		var f1 := _origin + _forward.rotated(lerpf(-_half_fov, _half_fov, float(i + 1) / RAYS)) * FAR
+		pts.append_array([_ends[i], _ends[i + 1], f1, _ends[i], f1, f0])
+	var indices := PackedInt32Array()
+	indices.resize(pts.size())
+	for i in pts.size():
+		indices[i] = i
+	var colors := PackedColorArray()
+	colors.resize(pts.size())
+	colors.fill(DARK)
+	RenderingServer.canvas_item_add_triangle_array(get_canvas_item(), indices, pts, colors)
