@@ -17,6 +17,10 @@ const HELMET := Color(0.3, 0.32, 0.3)
 const BOOT := Color(0.22, 0.2, 0.18)
 const OUTLINE := Color(0.08, 0.08, 0.08)
 const STRIDE := 34.0 # px travelled per full step cycle
+## Speed multipliers by direction (relative to facing).
+const FORWARD_SPEED := 1.0
+const STRAFE_SPEED := 0.6
+const BACK_SPEED := 0.7
 
 var _walk_phase := 0.0 # radians, advances with distance moved
 var _walk_amount := 0.0 # 0 idle .. 1 full stride, eased
@@ -34,7 +38,8 @@ func _physics_process(delta: float) -> void:
 	var kb := _keyboard_move()
 	if kb != Vector2.ZERO:
 		input = kb
-	velocity = input.limit_length(1.0).rotated(rotation) * move_speed * weapon.stats.move_multiplier()
+	input = input.limit_length(1.0)
+	velocity = input.rotated(rotation) * move_speed * _direction_multiplier(input) * weapon.stats.move_multiplier()
 	move_and_slide()
 	_animate(delta)
 
@@ -48,6 +53,15 @@ func turn(radians: float) -> void:
 	rotation = wrapf(rotation + radians, -PI, PI)
 
 
+## Blend forward/strafe/back multipliers by direction (squared components sum to 1).
+func _direction_multiplier(input: Vector2) -> float:
+	if input == Vector2.ZERO:
+		return 1.0
+	var d := input.normalized()
+	var fb := FORWARD_SPEED if d.y < 0.0 else BACK_SPEED
+	return d.x * d.x * STRAFE_SPEED + d.y * d.y * fb
+
+
 func _keyboard_move() -> Vector2:
 	var v := Vector2(
 		float(Input.is_physical_key_pressed(KEY_D)) - float(Input.is_physical_key_pressed(KEY_A)),
@@ -59,6 +73,8 @@ func _animate(delta: float) -> void:
 	var speed := get_real_velocity().length()
 	_walk_phase = fmod(_walk_phase + speed * delta / STRIDE * TAU, TAU)
 	_walk_amount = move_toward(_walk_amount, clampf(speed / move_speed, 0.0, 1.0), delta * 6.0)
+	# Walking swings the weapon left/right (aim only, camera stays).
+	weapon.sway = sin(_walk_phase) * _walk_amount
 	queue_redraw()
 
 

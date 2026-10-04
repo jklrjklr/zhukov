@@ -16,6 +16,7 @@ var _since_hit := 99.0
 func _ready() -> void:
 	hp = max_hp
 	armor = max_armor if armor_class > 0 else 0.0
+	add_to_group("concealable")
 	var col := CollisionShape2D.new()
 	var shape := CircleShape2D.new()
 	shape.radius = 16.0

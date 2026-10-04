@@ -67,7 +67,7 @@ enum BulletType { NORMAL, PELLETS, FLECHETTE, INCENDIARY, ROCKET }
 @export var recoil_spread := 3.0
 
 @export_group("Handling")
-## 0..100: swap speed, recoil roll back, vertical recovery, turn speed.
+## 0..100: swap speed, recoil roll back, vertical recovery, turn speed, walk sway.
 @export_range(0.0, 100.0) var ergonomics := 50.0
 ## kg, slows movement.
 @export var weight := 3.0
@@ -100,6 +100,11 @@ func vertical_recovery_rate() -> float:
 ## How fast the horizontal roll back happens (1/s).
 func roll_back_rate() -> float:
 	return lerpf(3.0, 12.0, ergo())
+
+
+## Peak weapon swing (degrees) while walking at full speed.
+func move_sway_deg() -> float:
+	return lerpf(6.0, 2.0, ergo())
 
 
 func turn_multiplier() -> float:

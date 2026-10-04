@@ -30,6 +30,8 @@ var blocked := 0.0
 var recoil_stack := 0.0
 ## >0 shows "EMPTY" after a dry trigger pull.
 var dry_flash := 0.0
+## -1..1 walk swing, set by Player. Rotates the weapon (and its shots) around the grip.
+var sway := 0.0
 
 var _state_left := 0.0
 var _state_total := 1.0
@@ -135,6 +137,7 @@ func _physics_process(delta: float) -> void:
 	_kick = move_toward(_kick, 0.0, delta * 40.0)
 	var reloading := state == State.RELOADING or state == State.CLEARING
 	_tilt = move_toward(_tilt, -0.45 if reloading else 0.0, delta * 4.0)
+	rotation = deg_to_rad(stats.move_sway_deg()) * sway
 	_update_state(delta)
 	_update_block()
 	_update_trigger(delta)
