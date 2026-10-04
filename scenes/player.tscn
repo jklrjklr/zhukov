@@ -9,6 +9,8 @@
 radius = 16.0
 
 [node name="Player" type="CharacterBody2D"]
+z_index = 11
+collision_mask = 3
 motion_mode = 1
 script = ExtResource("1_player")
 
@@ -22,7 +24,7 @@ stats = ExtResource("3_smg5")
 
 [node name="Head" type="Node2D" parent="."]
 
-[node name="Vision" type="PointLight2D" parent="."]
+[node name="Vision" type="Node2D" parent="."]
 script = ExtResource("4_vision")
 
 [node name="CameraRig" type="Node2D" parent="."]

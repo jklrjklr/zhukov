@@ -42,7 +42,6 @@ func _ready() -> void:
 		var col := CollisionPolygon2D.new()
 		col.polygon = poly
 		body.add_child(col)
-		body.add_child(Vision.make_occluder(poly))
 		add_child(body)
 		var world_poly := PackedVector2Array()
 		for v in poly:
@@ -78,10 +77,7 @@ func _ready() -> void:
 
 	var test_wall := RectangleShape2D.new()
 	test_wall.size = TEST_WALL.size
-	var wall_body := _add_static_body(TEST_WALL.get_center(), test_wall)
-	var h := TEST_WALL.size / 2.0
-	wall_body.add_child(Vision.make_occluder(PackedVector2Array([
-		Vector2(-h.x, -h.y), Vector2(h.x, -h.y), Vector2(h.x, h.y), Vector2(-h.x, h.y)])))
+	_add_static_body(TEST_WALL.get_center(), test_wall)
 
 	var t := 50.0
 	var s := HALF_SIZE * 2 + t * 2

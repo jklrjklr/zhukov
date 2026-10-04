@@ -83,6 +83,8 @@ func _ready() -> void:
 	add_to_group("zombies")
 	add_to_group("concealable")
 	motion_mode = CharacterBody2D.MOTION_MODE_FLOATING
+	collision_layer = 2 # actors: block bullets and movement, not sight
+	collision_mask = 3
 	_col = CollisionShape2D.new()
 	var shape := CircleShape2D.new()
 	shape.radius = RADIUS
@@ -220,7 +222,8 @@ func _perceive() -> void:
 
 
 func _line_of_sight(target: CollisionObject2D) -> bool:
-	var q := PhysicsRayQueryParameters2D.create(global_position, target.global_position)
+	# Layer 1 only: other zombies don't block its view.
+	var q := PhysicsRayQueryParameters2D.create(global_position, target.global_position, 1)
 	q.exclude = [get_rid()]
 	var hit := get_world_2d().direct_space_state.intersect_ray(q)
 	return not hit.is_empty() and hit.collider == target

@@ -16,6 +16,8 @@ window/size/viewport_height=720
 window/stretch/mode="canvas_items"
 window/stretch/aspect="expand"
 window/handheld/orientation=4
+; Render at CSS pixel size on high-DPI phones (up to 9x fewer pixels).
+window/dpi/allow_hidpi=false
 
 [input_devices]
 

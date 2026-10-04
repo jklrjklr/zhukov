@@ -14,7 +14,6 @@ var hp := 150.0
 var _flash := 0.0
 var _debris: Array[Dictionary] = []
 var _col: CollisionShape2D
-var _occluder: LightOccluder2D
 ## Spiky canopy outline (trees), built once.
 var _canopy := PackedVector2Array()
 var _canopy_inner := PackedVector2Array()
@@ -43,22 +42,15 @@ func _ready() -> void:
 			var r := RectangleShape2D.new()
 			r.size = Vector2(40, 40)
 			_col.shape = r
-			_occluder = Vision.make_occluder(PackedVector2Array([
-				Vector2(-20, -20), Vector2(20, -20), Vector2(20, 20), Vector2(-20, 20)]))
 		Kind.TREE:
 			var c := CircleShape2D.new()
 			c.radius = 12.0 # trunk; bullets fly under the canopy
 			_col.shape = c
 			z_index = 2 # canopy over player
-			var trunk := PackedVector2Array()
-			for i in 10:
-				trunk.append(Vector2.from_angle(TAU * i / 10.0) * 12.0)
-			_occluder = Vision.make_occluder(trunk)
 			var spin := fmod(position.x * 0.013 + position.y * 0.007, TAU)
 			_canopy = _star(18, 60.0, 40.0, spin)
 			_canopy_inner = _star(12, 38.0, 24.0, spin + 0.2)
 	add_child(_col)
-	add_child(_occluder)
 
 
 func _star(spikes: int, outer: float, inner: float, spin: float) -> PackedVector2Array:
@@ -82,7 +74,6 @@ func take_hit(hit: Dictionary) -> void:
 
 func _destroy(dir: Vector2) -> void:
 	_col.set_deferred("disabled", true)
-	_occluder.queue_free()
 	z_index = 0
 	for i in 10:
 		_debris.append({

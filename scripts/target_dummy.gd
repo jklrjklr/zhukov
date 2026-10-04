@@ -23,6 +23,7 @@ func _ready() -> void:
 	hp = max_hp
 	armor = max_armor if armor_class > 0 else 0.0
 	add_to_group("concealable")
+	collision_layer = 2 # actors: block bullets and movement, not sight
 	var col := CollisionShape2D.new()
 	var shape := CircleShape2D.new()
 	shape.radius = 16.0
