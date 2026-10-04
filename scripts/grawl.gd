@@ -113,7 +113,7 @@ func take_hit(hit: Dictionary) -> void:
 	if hit.get("explosive", false):
 		ac = SIDE_AC # blasts wrap around the plates
 	var f := FirearmStats.armor_factor(hit.armor_penetration, ac)
-	var crit := zone == "rear" and not hit.get("explosive", false)
+	var crit: bool = zone == "rear" and not hit.get("explosive", false)
 	var dmg: float = hit.damage * f * (REAR_CRIT_MULT if crit else 1.0)
 	hp -= dmg
 	_flash = 0.08
