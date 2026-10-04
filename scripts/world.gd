@@ -1,0 +1,62 @@
+extends Node2D
+## Placeholder test arena: a gridded ground, random rocks and border walls.
+## Gives visual reference so movement and rotation can be judged.
+
+const HALF_SIZE := 2000.0
+const GRID := 100.0
+const ROCK_COUNT := 70
+
+var _rocks: Array[Dictionary] = []
+
+
+func _ready() -> void:
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 1337
+	while _rocks.size() < ROCK_COUNT:
+		var pos := Vector2(
+			rng.randf_range(-HALF_SIZE + 100, HALF_SIZE - 100),
+			rng.randf_range(-HALF_SIZE + 100, HALF_SIZE - 100))
+		if pos.length() < 300.0:
+			continue # keep spawn clear
+		var radius := rng.randf_range(25.0, 80.0)
+		var shape := CircleShape2D.new()
+		shape.radius = radius
+		_add_static_body(pos, shape)
+		_rocks.append({"pos": pos, "radius": radius, "shade": rng.randf_range(0.3, 0.45)})
+
+	var t := 50.0
+	var s := HALF_SIZE * 2 + t * 2
+	for wall in [
+		[Vector2(0, -HALF_SIZE - t / 2), Vector2(s, t)],
+		[Vector2(0, HALF_SIZE + t / 2), Vector2(s, t)],
+		[Vector2(-HALF_SIZE - t / 2, 0), Vector2(t, s)],
+		[Vector2(HALF_SIZE + t / 2, 0), Vector2(t, s)],
+	]:
+		var rect := RectangleShape2D.new()
+		rect.size = wall[1]
+		_add_static_body(wall[0], rect)
+	queue_redraw()
+
+
+func _add_static_body(pos: Vector2, shape: Shape2D) -> void:
+	var body := StaticBody2D.new()
+	body.position = pos
+	var col := CollisionShape2D.new()
+	col.shape = shape
+	body.add_child(col)
+	add_child(body)
+
+
+func _draw() -> void:
+	draw_rect(Rect2(-HALF_SIZE, -HALF_SIZE, HALF_SIZE * 2, HALF_SIZE * 2), Color(0.2, 0.26, 0.18))
+	var x := -HALF_SIZE
+	while x <= HALF_SIZE:
+		var c := Color(1, 1, 1, 0.12 if int(x) % 500 == 0 else 0.05)
+		draw_line(Vector2(x, -HALF_SIZE), Vector2(x, HALF_SIZE), c, 2.0)
+		draw_line(Vector2(-HALF_SIZE, x), Vector2(HALF_SIZE, x), c, 2.0)
+		x += GRID
+	for r in _rocks:
+		var shade: float = r.shade
+		draw_circle(r.pos, r.radius, Color(shade, shade * 0.95, shade * 0.85))
+		draw_circle(r.pos + Vector2(-r.radius * 0.25, -r.radius * 0.25), r.radius * 0.5, Color(shade + 0.1, shade + 0.1, shade + 0.05))
+	draw_rect(Rect2(-HALF_SIZE, -HALF_SIZE, HALF_SIZE * 2, HALF_SIZE * 2), Color(0.6, 0.15, 0.1), false, 12.0)
