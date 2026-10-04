@@ -149,7 +149,7 @@ func _update_trigger(delta: float) -> void:
 	var mode := fire_mode()
 	if pressed and mode != FirearmStats.FireMode.AUTO:
 		_burst_left = stats.burst_count if mode == FirearmStats.FireMode.BURST else 1
-	if pressed and state == State.READY and not jammed and not _has_round():
+	if held and state == State.READY and not jammed and not _has_round():
 		dry_flash = 0.8
 
 	_cooldown -= delta
