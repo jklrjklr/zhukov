@@ -18,6 +18,9 @@ var _joy_index := -1
 var _joy_origin := Vector2.ZERO
 var _joy_knob := Vector2.ZERO
 var _look_index := -1
+## Tracked manually: on Web, InputEventScreenDrag.relative is measured from the
+## last drag of *any* finger, so it jumps wildly with two fingers down.
+var _look_last := Vector2.ZERO
 
 
 func _ready() -> void:
@@ -53,6 +56,7 @@ func _on_touch(e: InputEventScreenTouch) -> void:
 				_joy_knob = e.position
 		elif _look_index == -1:
 			_look_index = e.index
+			_look_last = e.position
 	else:
 		if e.index == _joy_index:
 			_release_joystick()
@@ -68,7 +72,9 @@ func _on_drag(e: InputEventScreenDrag) -> void:
 		var strength := inverse_lerp(dead_zone, 1.0, v.length())
 		_player.move_input = v.normalized() * clampf(strength, 0.0, 1.0)
 	elif e.index == _look_index:
-		_player.turn(e.relative.x / get_viewport_rect().size.x * turn_per_screen_width)
+		var dx := e.position.x - _look_last.x
+		_look_last = e.position
+		_player.turn(dx / get_viewport_rect().size.x * turn_per_screen_width)
 
 
 func _release_joystick() -> void:
