@@ -33,7 +33,7 @@ func _ready() -> void:
 	for i in DUMMY_METERS.size():
 		var dummy := StaticBody2D.new()
 		dummy.set_script(_dummy_script)
-		dummy.position = Vector2((i % 2 * 2 - 1) * 40.0, -DUMMY_METERS[i] * Firearm.PX_PER_M)
+		dummy.position = Vector2((i % 2 * 2 - 1) * 8.0, -DUMMY_METERS[i] * Firearm.PX_PER_M)
 		add_child(dummy)
 
 	var test_wall := RectangleShape2D.new()

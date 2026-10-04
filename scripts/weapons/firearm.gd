@@ -61,6 +61,7 @@ func _ready() -> void:
 		mag = stats.mag_size
 	for i in stats.spare_mags:
 		mags.append(stats.mag_size)
+	fire_mode_index = stats.fire_modes.size() - 1 # start on the most automatic mode
 	_set_state(State.DRAWING, stats.swap_time())
 
 
