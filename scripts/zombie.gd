@@ -92,7 +92,7 @@ func _ready() -> void:
 	_walk_phase = randf() * TAU
 	rotation = randf() * TAU
 	_player = get_tree().get_first_node_in_group("player")
-	var walk: float = (_player.move_speed if _player else 260.0) / PX
+	var walk: float = (_player.move_speed if _player else 180.0) / PX
 	wander_speed = walk * wander_ratio
 	run_speed = walk * run_ratio
 	_new_wander()

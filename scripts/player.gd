@@ -6,14 +6,14 @@ extends CharacterBody2D
 ## Movement has light inertia (accel/decel).
 ## Draw order: feet, torso, hands (this node) -> Firearm -> Head (children).
 
-@export var move_speed := 260.0
+@export var move_speed := 180.0 # px/s base walk (3 m/s); zombies scale from this
 @export var keyboard_turn_speed := 2.8 # rad/s, desktop testing only
 ## Body turn rate (deg/s) at hip; scaled by weapon turn_multiplier and ADS.
 @export var body_turn_speed := 300.0
 @export_range(0.0, 1.0) var ads_body_turn := 0.5
 ## px/s^2
-@export var acceleration := 1600.0
-@export var deceleration := 2000.0
+@export var acceleration := 1100.0
+@export var deceleration := 1400.0
 
 @export var max_hp := 100.0
 
