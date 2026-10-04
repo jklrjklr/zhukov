@@ -27,9 +27,9 @@ const CLOTH := Color(0.36, 0.31, 0.4)
 const OUTLINE := Color(0.08, 0.08, 0.08)
 
 @export var max_hp := 120.0
-## m/s
-@export var wander_speed := 0.7
-@export var run_speed := 3.3
+## Speeds as a fraction of the player's base walk speed (Player.move_speed).
+@export var wander_ratio := 0.25
+@export var run_ratio := 1.1
 @export var fov_deg := 70.0
 @export var sight_m := 20.0
 ## m from body edge to body edge.
@@ -52,6 +52,9 @@ const MIN_HEARING := 10.0
 
 var hp := 120.0
 var state := State.WANDER
+## m/s, derived from the player's walk speed in _ready.
+var wander_speed := 1.0
+var run_speed := 4.5
 ## Current hearing (drops when deafened, recovers to `hearing`).
 var hearing_now := 90.0
 
@@ -89,6 +92,9 @@ func _ready() -> void:
 	_walk_phase = randf() * TAU
 	rotation = randf() * TAU
 	_player = get_tree().get_first_node_in_group("player")
+	var walk: float = (_player.move_speed if _player else 260.0) / PX
+	wander_speed = walk * wander_ratio
+	run_speed = walk * run_ratio
 	_new_wander()
 
 
