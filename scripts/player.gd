@@ -65,13 +65,13 @@ func _draw() -> void:
 	var bob := absf(cos(_walk_phase)) * _walk_amount
 
 	# Feet (alternate forward/back while walking)
-	_shape_ellipse(Vector2(-7, 2 - swing * 9), Vector2(4.5, 7), BOOT)
-	_shape_ellipse(Vector2(7, 2 + swing * 9), Vector2(4.5, 7), BOOT)
+	_shape_ellipse(Vector2(-10, 3 - swing * 9), Vector2(4.5, 6.5), BOOT)
+	_shape_ellipse(Vector2(10, 3 + swing * 9), Vector2(4.5, 6.5), BOOT)
 
 	# Torso (wide shoulders, sways slightly opposite to feet)
 	var torso_rot := -swing * 0.12
 	draw_set_transform(Vector2.ZERO, torso_rot)
-	_shape_ellipse(Vector2(0, 1), Vector2(15, 9), ARMOR)
+	_shape_ellipse(Vector2(0, 1), Vector2(16, 10), ARMOR)
 	draw_set_transform(Vector2.ZERO)
 
 	# Gun held forward along the aim line
@@ -84,8 +84,8 @@ func _draw() -> void:
 	_shape_circle(Vector2(-3, -31) + hand_bob, 4.0, SKIN)
 
 	# Head (helmet with visor facing forward)
-	_shape_circle(Vector2(0, -1), 8.5, HELMET)
-	draw_arc(Vector2(0, -1), 5.5, -PI * 0.8, -PI * 0.2, 10, Color(0.55, 0.85, 1.0), 2.5)
+	_shape_circle(Vector2(0, 0), 7.0, HELMET)
+	draw_arc(Vector2(0, 0), 4.5, -PI * 0.8, -PI * 0.2, 10, Color(0.55, 0.85, 1.0), 2.5)
 
 
 func _shape_circle(c: Vector2, r: float, col: Color) -> void:
