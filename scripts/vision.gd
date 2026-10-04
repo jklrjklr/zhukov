@@ -12,8 +12,8 @@ extends Node2D
 ## below the player (z_index).
 
 const PX := Firearm.PX_PER_M
-## Rays across the cone.
-const RAYS := 96
+## Rays across the cone (recast every other physics tick).
+const RAYS := 64
 ## px; far edge of the darkness fan (must cover the screen at the widest zoom).
 const FAR := 4000.0
 ## Collision layer that blocks sight (world geometry).
@@ -39,6 +39,7 @@ var _ends := PackedVector2Array()
 var _origin := Vector2.ZERO
 var _forward := Vector2.UP
 var _half_fov := 0.0
+var _tick := 0
 
 
 func _ready() -> void:
@@ -55,7 +56,9 @@ func _physics_process(delta: float) -> void:
 	_origin = _player.global_position
 	_forward = Vector2.UP.rotated(_player.global_rotation)
 	_half_fov = deg_to_rad(lerpf(fov_degrees, _weapon.stats.ads_fov, _weapon.ads_amount()) / 2.0)
-	_cast_rays()
+	_tick += 1
+	if _tick % 2 == 0 or _ends.is_empty():
+		_cast_rays()
 	_update_concealment(delta)
 	queue_redraw()
 

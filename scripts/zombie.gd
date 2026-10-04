@@ -11,8 +11,16 @@ extends CharacterBody2D
 ##   direct way is blocked it commits to one side for a while, so it walks around
 ##   walls instead of dithering in front of them.
 ## - In reach: winds up and swings an arm; damage lands if the player is still there.
+##   Then stands still for recover_time (a window to act).
+## - Packs: zombies spawn in groups that wander after a leader; when one spots the
+##   player or gets shot, the rest of the pack nearby joins the chase.
+## - Far from the player (> LOD_FAR_M) it thinks and steers less often (performance).
 
-enum State { WANDER, CHASE, SEARCH, ATTACK, DEAD }
+enum State { WANDER, CHASE, SEARCH, ATTACK, RECOVER, DEAD }
+
+const LOD_FAR_M := 30.0
+## m: pack members this close get alerted together.
+const PACK_ALERT_M := 20.0
 
 const PX := Firearm.PX_PER_M
 const RADIUS := 15.0
@@ -31,13 +39,15 @@ const OUTLINE := Color(0.08, 0.08, 0.08)
 @export var wander_ratio := 0.25
 @export var run_ratio := 1.1
 @export var fov_deg := 70.0
-@export var sight_m := 20.0
+@export var sight_m := 12.0
 ## m from body edge to body edge.
 @export var reach_m := 0.7
 @export var attack_damage := 18.0
 ## s from starting the swing to the hit.
 @export var windup := 0.45
 @export var attack_cooldown := 0.9
+## s standing still after a swing.
+@export var recover_time := 1.4
 @export var turn_speed_deg := 240.0
 ## 0..100 hearing sensitivity: hears sounds of at least (100 - hearing) loudness.
 @export var hearing := 90.0
@@ -52,6 +62,11 @@ const MIN_HEARING := 10.0
 
 var hp := 120.0
 var state := State.WANDER
+## Pack membership (set by the spawner). Followers wander after their leader.
+var pack_id := -1
+var leader: Zombie = null
+var _pack_offset := Vector2.ZERO
+var _recover_t := 0.0
 ## m/s, derived from the player's walk speed in _ready.
 var wander_speed := 1.0
 var run_speed := 4.5
@@ -112,7 +127,7 @@ func hear(pos: Vector2, loudness: float, falloff_pct: float) -> void:
 	var heard := level >= 100.0 - hearing_now
 	if level > DEAFEN_LEVEL:
 		hearing_now = maxf(hearing_now - (level - DEAFEN_LEVEL) * DEAFEN_RATE, MIN_HEARING)
-	if not heard or state == State.CHASE or state == State.ATTACK:
+	if not heard or _engaged():
 		return
 	state = State.SEARCH
 	# Quieter = vaguer idea of where it came from.
@@ -133,10 +148,9 @@ func take_hit(hit: Dictionary) -> void:
 	if hp <= 0.0:
 		_die(hit.dir)
 		return
-	# Shot: turn on the shooter.
-	if state != State.ATTACK and _player:
-		state = State.CHASE
-		_goal = _player.global_position
+	# Shot: turn on the shooter (and bring the pack).
+	if not _engaged() and _player:
+		_engage(_player.global_position)
 
 
 func _physics_process(delta: float) -> void:
@@ -155,8 +169,10 @@ func _physics_process(delta: float) -> void:
 	_stagger = maxf(_stagger - delta, 0.0)
 	hearing_now = minf(hearing_now + hearing_recovery * delta, hearing)
 	_tick += 1
-	if _tick % 5 == 0:
+	var far := _player != null and global_position.distance_squared_to(_player.global_position) > pow(LOD_FAR_M * PX, 2)
+	if _tick % (15 if far else 5) == 0:
 		_perceive()
+		_follow_leader()
 
 	var speed := 0.0
 	var face := _steer
@@ -166,6 +182,8 @@ func _physics_process(delta: float) -> void:
 			if _wander_time <= 0.0 or global_position.distance_to(_goal) < 20.0:
 				_new_wander()
 			speed = wander_speed
+			if _is_follower() and global_position.distance_to(_goal) > 3.0 * PX:
+				speed *= 1.6 # catch up with the pack
 		State.CHASE:
 			speed = run_speed
 			if _player and _can_reach_player():
@@ -179,8 +197,13 @@ func _physics_process(delta: float) -> void:
 			_update_attack(delta)
 			if _player:
 				face = (_player.global_position - global_position).normalized()
+		State.RECOVER:
+			speed = 0.0
+			_recover_t -= delta
+			if _recover_t <= 0.0:
+				state = State.CHASE
 
-	if state != State.ATTACK and _tick % 3 == 0:
+	if state != State.ATTACK and state != State.RECOVER and _tick % (9 if far else 3) == 0:
 		var desired := (_goal - global_position).normalized()
 		_steer = _steer.lerp(_steer_dir(desired), 0.5).normalized()
 		face = _steer
@@ -193,8 +216,8 @@ func _physics_process(delta: float) -> void:
 	var along := clampf(forward.dot(_steer), 0.2, 1.0) if state != State.ATTACK else 1.0
 	if _stagger > 0.0:
 		speed *= 0.25
-	if state == State.WANDER and _wander_time > 0.0 and fmod(_wander_time, 4.0) < 1.2:
-		speed = 0.0 # shuffle-pause
+	if state == State.WANDER and not _is_follower() and fmod(_wander_time, 4.0) < 1.2:
+		speed = 0.0 # shuffle-pause (followers keep walking to catch up)
 	var target := forward * speed * PX * along
 	velocity = velocity.move_toward(target, 900.0 * delta)
 	move_and_slide()
@@ -214,9 +237,10 @@ func _perceive() -> void:
 	var touching := dist <= 1.5 * PX
 	var seen := (in_cone or touching) and _line_of_sight(_player)
 	if seen:
-		if state != State.ATTACK:
-			state = State.CHASE
-		_goal = _player.global_position
+		if not _engaged():
+			_engage(_player.global_position)
+		elif state == State.CHASE:
+			_goal = _player.global_position
 	elif state == State.CHASE:
 		state = State.SEARCH # head to last known position
 
@@ -293,7 +317,49 @@ func _danger_toward(d: Vector2, dirs: Array[Vector2], dangers: Array[float]) -> 
 func _new_wander() -> void:
 	state = State.WANDER
 	_wander_time = randf_range(4.0, 9.0)
-	_goal = global_position + Vector2.from_angle(randf() * TAU) * randf_range(3.0, 10.0) * PX
+	if _is_follower():
+		_goal = leader.global_position + _pack_offset
+	else:
+		_goal = global_position + Vector2.from_angle(randf() * TAU) * randf_range(3.0, 10.0) * PX
+
+
+## Join a pack behind `lead` at a loose offset.
+func join_pack(id: int, lead: Zombie) -> void:
+	pack_id = id
+	leader = lead if lead != self else null
+	_pack_offset = Vector2.from_angle(randf() * TAU) * randf_range(1.0, 2.5) * PX
+
+
+func _is_follower() -> bool:
+	return leader != null and is_instance_valid(leader) and not leader.is_dead()
+
+
+func _follow_leader() -> void:
+	if state == State.WANDER and _is_follower():
+		_goal = leader.global_position + _pack_offset
+
+
+## Busy with the player (won't be distracted by sounds).
+func _engaged() -> bool:
+	return state == State.CHASE or state == State.ATTACK or state == State.RECOVER
+
+
+func _engage(pos: Vector2) -> void:
+	state = State.CHASE
+	_goal = pos
+	_alert_pack(pos)
+
+
+func _alert_pack(pos: Vector2) -> void:
+	if pack_id < 0:
+		return
+	for z in get_tree().get_nodes_in_group("zombies"):
+		var other := z as Zombie
+		if other == self or other.pack_id != pack_id or other._engaged():
+			continue
+		if other.global_position.distance_to(global_position) <= PACK_ALERT_M * PX:
+			other.state = State.CHASE
+			other._goal = pos
 
 
 func _edge_distance_to_player() -> float:
@@ -321,7 +387,8 @@ func _update_attack(delta: float) -> void:
 			_player.take_damage(attack_damage, global_position)
 	if _attack_t >= windup + 0.3:
 		_cooldown = attack_cooldown
-		state = State.CHASE
+		_recover_t = recover_time
+		state = State.RECOVER
 
 
 func _die(dir: Vector2) -> void:

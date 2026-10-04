@@ -12,9 +12,11 @@ const ARMORED_CLASSES := [1, 2, 3, 4, 6]
 const CRATES := [Vector2(-220, -60), Vector2(-265, -60), Vector2(-220, -105), Vector2(-320, 120)]
 const TREES := [Vector2(-330, -300), Vector2(380, 260)]
 const RANDOM_TREES := 30
-## Zombies kept alive on the map; respawned out of sight, away from the player.
+## Zombies kept alive on the map; respawned in packs out of sight, away from the player.
 const ZOMBIE_COUNT := 24
 const ZOMBIE_MIN_SPAWN_M := 25.0
+const PACK_MIN := 3
+const PACK_MAX := 6
 
 var _dummy_script := preload("res://scripts/target_dummy.gd")
 
@@ -22,6 +24,7 @@ var _rocks: Array[Dictionary] = []
 ## First zombies spawn after a couple of physics ticks, once rocks are in the
 ## physics space (so spawn spots can be checked).
 var _spawn_timer := 0.1
+var _next_pack := 0
 
 
 func _ready() -> void:
@@ -102,28 +105,51 @@ func _physics_process(delta: float) -> void:
 	var player := get_tree().get_first_node_in_group("player") as Node2D
 	var away := player.global_position if player else Vector2.ZERO
 	var missing := ZOMBIE_COUNT - get_tree().get_nodes_in_group("zombies").size()
-	for i in (missing if first else mini(missing, 1)):
-		_spawn_zombie(away)
+	while missing >= (1 if first else PACK_MIN):
+		var size := mini(randi_range(PACK_MIN, PACK_MAX), missing)
+		missing -= _spawn_pack(away, size)
+		if not first:
+			break
 
 
-## Random free spot at least ZOMBIE_MIN_SPAWN_M from `away_from`.
-func _spawn_zombie(away_from: Vector2) -> void:
-	var space := get_world_2d().direct_space_state
+## A pack of `size` zombies around a random free spot at least ZOMBIE_MIN_SPAWN_M
+## from `away_from`. Returns how many were spawned.
+func _spawn_pack(away_from: Vector2, size: int) -> int:
+	var center := Vector2.INF
 	for attempt in 30:
-		var p := Vector2(randf_range(-HALF_SIZE + 150, HALF_SIZE - 150), randf_range(-HALF_SIZE + 150, HALF_SIZE - 150))
-		if p.distance_to(away_from) < ZOMBIE_MIN_SPAWN_M * Firearm.PX_PER_M:
-			continue
-		var q := PhysicsShapeQueryParameters2D.new()
-		var c := CircleShape2D.new()
-		c.radius = 24.0
-		q.shape = c
-		q.transform = Transform2D(0.0, p)
-		if not space.intersect_shape(q, 1).is_empty():
+		var p := Vector2(randf_range(-HALF_SIZE + 300, HALF_SIZE - 300), randf_range(-HALF_SIZE + 300, HALF_SIZE - 300))
+		if p.distance_to(away_from) >= ZOMBIE_MIN_SPAWN_M * Firearm.PX_PER_M and _is_free(p):
+			center = p
+			break
+	if center == Vector2.INF:
+		return 1 # give up this round; count it so the loop ends
+	var id := _next_pack
+	_next_pack += 1
+	var lead: Zombie = null
+	var spawned := 0
+	for attempt in size * 6:
+		if spawned >= size:
+			break
+		var p := center if spawned == 0 else center + Vector2.from_angle(randf() * TAU) * randf_range(40.0, 140.0)
+		if spawned > 0 and not _is_free(p):
 			continue
 		var z := Zombie.new()
 		z.position = p
 		add_child(z)
-		return
+		if lead == null:
+			lead = z
+		z.join_pack(id, lead)
+		spawned += 1
+	return maxi(spawned, 1)
+
+
+func _is_free(p: Vector2) -> bool:
+	var q := PhysicsShapeQueryParameters2D.new()
+	var c := CircleShape2D.new()
+	c.radius = 24.0
+	q.shape = c
+	q.transform = Transform2D(0.0, p)
+	return get_world_2d().direct_space_state.intersect_shape(q, 1).is_empty()
 
 
 func _add_static_body(pos: Vector2, shape: Shape2D) -> StaticBody2D:

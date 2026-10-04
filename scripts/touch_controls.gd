@@ -258,7 +258,10 @@ func _draw() -> void:
 		draw_line(c, c + Vector2(l * sx, 0), white, 3.0)
 		draw_line(c, c + Vector2(0, l * sy), white, 3.0)
 
-	draw_string(font, Vector2(16, 30), "%d FPS" % Engine.get_frames_per_second(), HORIZONTAL_ALIGNMENT_LEFT, -1, 18, white)
+	# FPS + CPU time per frame (script/process, physics) for perf reports.
+	var proc_ms := Performance.get_monitor(Performance.TIME_PROCESS) * 1000.0
+	var phys_ms := Performance.get_monitor(Performance.TIME_PHYSICS_PROCESS) * 1000.0
+	draw_string(font, Vector2(16, 30), "%d FPS  proc %.1fms  phys %.1fms" % [Engine.get_frames_per_second(), proc_ms, phys_ms], HORIZONTAL_ALIGNMENT_LEFT, -1, 18, white)
 
 	# Health
 	var hp_frac: float = _player.hp / _player.max_hp
