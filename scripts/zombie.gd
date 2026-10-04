@@ -38,7 +38,7 @@ const PX := Firearm.PX_PER_M
 const RADIUS := 15.0
 const HEAD_RADIUS := 7.0
 const CRIT_DEPTH := 30.0
-const CRIT_MULT := 2.0
+const CRIT_MULT := 2.5
 const RAYS := 16
 ## px of look-ahead for steering rays (beyond the body).
 const FEELER := 60.0
@@ -46,14 +46,17 @@ const SKIN := Color(0.5, 0.62, 0.4)
 const CLOTH := Color(0.36, 0.31, 0.4)
 const OUTLINE := Color(0.08, 0.08, 0.08)
 
-@export var max_hp := 120.0
+## SMG-5 (34 dmg, x2.5 crit): 5 body hits or 2 headshots.
+@export var max_hp := 150.0
 ## kg: resists stagger (impact = weapon stagger / weight).
 @export var weight := 70.0
 ## Speeds as a fraction of the player's base walk speed (Player.move_speed).
 @export var wander_ratio := 0.25
 @export var run_ratio := 1.1
 @export var fov_deg := 70.0
-@export var sight_m := 12.0
+## m. ~60% of what the player sees ahead on screen at hip (camera 140 px ahead +
+## 360 px half-height = ~8.3 m), so the player usually spots them first.
+@export var sight_m := 5.0
 ## m from body edge to body edge.
 @export var reach_m := 0.7
 @export var attack_damage := 18.0
@@ -74,7 +77,7 @@ const DEAFEN_LEVEL := 80.0
 const DEAFEN_RATE := 0.5
 const MIN_HEARING := 10.0
 
-var hp := 120.0
+var hp := 150.0
 var state := State.WANDER
 ## Pack membership (set by the spawner). Followers wander after their leader.
 var pack_id := -1

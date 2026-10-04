@@ -7,7 +7,7 @@ extends StaticBody2D
 
 const HEAD_RADIUS := 8.0
 const CRIT_DEPTH := 36.0
-const CRIT_MULT := 2.0
+const CRIT_MULT := 2.5
 
 @export var max_hp := 100.0
 @export_range(0, 10) var armor_class := 0
