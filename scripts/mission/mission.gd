@@ -1,29 +1,29 @@
 class_name Mission
 extends Node2D
-## Sample bug mission "Operation: Swift Liberty" (Helldivers 2 style).
+## Sample Automaton mission "Operation: Swift Liberty" (Helldivers 2 style).
 ## 0. Hellpod drop at the landing zone.
 ## 1. Upload data at 2 terminals (each draws a horde).
-## 2. Close 3 bug holes (explosives: grenades, Eagle, Orbital, EAT); they spawn bugs
-##    while you are near.
-## 3. (Optional) Kill the Charger guarding the holes.
+## 2. Destroy 3 fabricators (explosives: grenades, Eagle, Orbital, EAT); they build
+##    bots while you are near.
+## 3. (Optional) Kill the Hulk guarding the fabricators.
 ## 4. Call Pelican-1 at the extraction pad, hold until it lands, board it.
-## Bug breaches: when bugs keep fighting you for a while they call reinforcements out
-## of the ground nearby (cooldown between breaches).
+## Bot drops: when bots keep fighting you for a while they call a dropship that
+## unloads a squad nearby (cooldown between drops).
 ## 25 min mission clock, 5 reinforcements (each arrives by hellpod).
-## Also draws hellpods, breaches and Pelican-1 (world space, above everything).
+## Also draws hellpods, dropships and Pelican-1 (world space, above everything).
 
 enum Phase { ACTIVE, EXTRACTING, SHUTTLE, COMPLETE, FAILED }
 
 @export var mission_time := 25.0 * 60.0
 @export var reinforcements := 5
 @export var extract_time := 90.0
-## Ambient bugs kept on the map.
+## Ambient bots kept on the map.
 @export var ambient_target := 22
-## Hard cap on live bugs (performance).
-@export var bug_cap := 50
-## s of continued fighting before bugs call a breach, and cooldown between breaches.
-@export var breach_call_time := 9.0
-@export var breach_cooldown := 60.0
+## Hard cap on live bots (performance).
+@export var bot_cap := 45
+## s of continued fighting before bots call a dropship, and cooldown between drops.
+@export var drop_call_time := 10.0
+@export var drop_cooldown := 70.0
 
 const PX := Firearm.PX_PER_M
 const NAME := "OPERATION: SWIFT LIBERTY"
@@ -47,18 +47,18 @@ var map: MissionMap
 var player: CharacterBody2D
 var _terminals: Array[Interactable] = []
 var _console: Interactable
-var _nests: Array[Destructible] = []
-var _guard: Charger
-var _breaches: Array[Dictionary] = []
-var _breach_cd := 30.0
-var _breach_call := -1.0
+var _fabricators: Array[Destructible] = []
+var _guard: Automaton
+var _drops: Array[Dictionary] = []
+var _drop_cd := 40.0
+var _drop_call := -1.0
 var _deploy_t := HELLPOD_FALL
 var _setup_ticks := 0
 var _pack_id := 1000
 var _ambient_t := 0.0
 var _nest_t := 0.0
 var _wave_t := 0.0
-var _extract_charger := false
+var _extract_hulk := false
 var _board_t := 0.0
 var _shuttle_t := 0.0
 var _death_pos := Vector2.ZERO
@@ -99,17 +99,17 @@ func _ready() -> void:
 		a.position = p
 		a.activated.connect(_on_ammo)
 		map.add_child(a)
-	for n in get_tree().get_nodes_in_group("nests"):
-		var nest := n as Destructible
-		nest.destroyed.connect(_on_nest_destroyed)
-		_nests.append(nest)
+	for n in get_tree().get_nodes_in_group("fabricators"):
+		var fab := n as Destructible
+		fab.destroyed.connect(_on_fabricator_destroyed)
+		_fabricators.append(fab)
 
 	objectives = [
 		{"id": "terminals", "text": "UPLOAD DATA AT TERMINALS", "done": false, "optional": false,
 			"count": 0, "total": _terminals.size(), "targets": map.terminal_spots.duplicate(), "active": true},
-		{"id": "nests", "text": "CLOSE BUG HOLES (EXPLOSIVES)", "done": false, "optional": false,
-			"count": 0, "total": _nests.size(), "targets": map.nest_spots.duplicate(), "active": true},
-		{"id": "charger", "text": "KILL THE CHARGER", "done": false, "optional": true,
+		{"id": "fabricators", "text": "DESTROY FABRICATORS (EXPLOSIVES)", "done": false, "optional": false,
+			"count": 0, "total": _fabricators.size(), "targets": map.nest_spots.duplicate(), "active": true},
+		{"id": "hulk", "text": "KILL THE HULK", "done": false, "optional": true,
 			"count": 0, "total": 1, "targets": [map.nest_clearing], "active": true},
 		{"id": "extract", "text": "CALL PELICAN-1", "done": false, "optional": false,
 			"count": 0, "total": 0, "targets": [map.extraction], "active": false},
@@ -166,10 +166,10 @@ func _physics_process(delta: float) -> void:
 		_fail("MISSION TIME EXPIRED")
 		return
 	_update_death(delta)
-	_update_breaches(delta)
+	_update_drops(delta)
 	_update_ambient(delta)
-	_update_nests(delta)
-	_check_charger()
+	_update_fabricators(delta)
+	_check_hulk()
 	match phase:
 		Phase.EXTRACTING:
 			_update_extraction(delta)
@@ -182,33 +182,33 @@ func _initial_spawns() -> void:
 		_spawn_pack_far(map.drop_zone, 45.0, 140.0, randi_range(3, 5))
 	var gp := map.random_point_near(map.nest_clearing, 12.0, 18.0)
 	if gp != Vector2.INF:
-		_guard = _spawn_charger(gp)
+		_guard = _spawn_hulk(gp)
 
 
 # --- Spawning --------------------------------------------------------------
 
-func _bug_count() -> int:
-	return get_tree().get_nodes_in_group("terminids").size()
+func _bot_count() -> int:
+	return get_tree().get_nodes_in_group("automatons").size()
 
 
-func _spawn_pack_at(center: Vector2, size: int, kinds: Array = []) -> Array[Terminid]:
-	if _bug_count() + size > bug_cap:
-		size = maxi(bug_cap - _bug_count(), 0)
+func _spawn_pack_at(center: Vector2, size: int, kinds: Array = []) -> Array[Automaton]:
+	if _bot_count() + size > bot_cap:
+		size = maxi(bot_cap - _bot_count(), 0)
 	if size <= 0:
 		return []
 	_pack_id += 1
-	return Terminid.spawn_pack(map, center, size, _pack_id, func(p): return map.is_free(p), kinds)
+	return Automaton.spawn_squad(map, center, size, _pack_id, func(p): return map.is_free(p), kinds)
 
 
-func _spawn_pack_far(away: Vector2, min_m: float, max_m: float, size: int) -> Array[Terminid]:
+func _spawn_pack_far(away: Vector2, min_m: float, max_m: float, size: int) -> Array[Automaton]:
 	var p := map.random_point_near(away, min_m, max_m)
 	if p == Vector2.INF:
 		return []
 	return _spawn_pack_at(p, size)
 
 
-func _spawn_charger(p: Vector2) -> Charger:
-	var g := Charger.new()
+func _spawn_hulk(p: Vector2) -> Automaton:
+	var g := Automaton.make(Automaton.Kind.HULK)
 	g.position = p
 	map.add_child(g)
 	return g
@@ -226,27 +226,26 @@ func _update_ambient(delta: float) -> void:
 	if _ambient_t > 0.0:
 		return
 	_ambient_t = 20.0
-	if _bug_count() < ambient_target:
+	if _bot_count() < ambient_target:
 		_spawn_pack_far(player.global_position, 45.0, 80.0, randi_range(3, 5))
 
 
-func _update_nests(delta: float) -> void:
+func _update_fabricators(delta: float) -> void:
 	_nest_t -= delta
 	if _nest_t > 0.0:
 		return
 	_nest_t = 14.0
-	for nest in _nests:
+	for nest in _fabricators:
 		if nest.is_destroyed():
 			continue
 		var d := nest.global_position.distance_to(player.global_position) / PX
-		if d > 45.0 or _bug_count() >= bug_cap:
+		if d > 45.0 or _bot_count() >= bot_cap:
 			continue
 		var p := map.random_point_near(nest.global_position, 2.5, 4.0, 8)
 		if p == Vector2.INF:
 			continue
 		_pack_id += 1
-		var kinds := [Terminid.Kind.SCAVENGER, Terminid.Kind.SCAVENGER, Terminid.Kind.WARRIOR]
-		for z in Terminid.spawn_pack(map, p, 2, _pack_id, func(q): return map.is_free(q), [kinds.pick_random()]):
+		for z in Automaton.spawn_squad(map, p, 2, _pack_id, func(q): return map.is_free(q), [Automaton.Kind.TROOPER]):
 			z.alert_to(player.global_position, d < 20.0)
 
 
@@ -269,24 +268,24 @@ func _on_terminal(_it: Interactable) -> void:
 	_check_main_done()
 
 
-func _on_nest_destroyed(nest: Destructible) -> void:
-	var o := objective("nests")
+func _on_fabricator_destroyed(nest: Destructible) -> void:
+	var o := objective("fabricators")
 	o.count += 1
-	msg("BUG HOLE CLOSED %d/%d" % [o.count, o.total])
+	msg("FABRICATOR DESTROYED %d/%d" % [o.count, o.total])
 	_remove_target(o, nest.global_position)
 	if o.count >= o.total:
 		o.done = true
-		msg("OBJECTIVE COMPLETE: BUG HOLES")
+		msg("OBJECTIVE COMPLETE: FABRICATORS")
 	_check_main_done()
 
 
-func _check_charger() -> void:
-	var o := objective("charger")
+func _check_hulk() -> void:
+	var o := objective("hulk")
 	if not o.done and _guard and _guard.is_dead():
 		o.done = true
 		o.count = 1
 		o.targets = []
-		msg("CHARGER KILLED")
+		msg("HULK DESTROYED")
 	elif not o.done and _guard and is_instance_valid(_guard):
 		o.targets = [_guard.global_position]
 
@@ -300,7 +299,7 @@ func _remove_target(o: Dictionary, pos: Vector2) -> void:
 
 
 func _check_main_done() -> void:
-	if objective("terminals").done and objective("nests").done and not _console.enabled:
+	if objective("terminals").done and objective("fabricators").done and not _console.enabled:
 		_console.enabled = true
 		objective("extract").active = true
 		msg("EXTRACTION AVAILABLE - CALL PELICAN-1")
@@ -321,12 +320,12 @@ func _update_extraction(delta: float) -> void:
 	if _wave_t <= 0.0:
 		_wave_t = 14.0
 		_horde(map.extraction, 1, true)
-	if not _extract_charger and extract_left <= extract_time * 0.5:
-		_extract_charger = true
+	if not _extract_hulk and extract_left <= extract_time * 0.5:
+		_extract_hulk = true
 		var p := map.random_point_near(map.extraction, 28.0, 36.0)
 		if p != Vector2.INF:
-			_spawn_charger(p).alert_to(map.extraction)
-		msg("CHARGER INCOMING")
+			_spawn_hulk(p).alert_to(map.extraction)
+		msg("HULK INCOMING")
 	if extract_left <= 0.0:
 		phase = Phase.SHUTTLE
 		_shuttle_t = 0.0
@@ -389,52 +388,52 @@ func _update_death(delta: float) -> void:
 		_pod_pos = Vector2.INF
 
 
-## Hellpod impact: kills bugs under it, leaves a scorch.
+## Hellpod impact: crushes bots under it, leaves a scorch.
 func _land_pod(at: Vector2) -> void:
 	var proj := get_tree().get_first_node_in_group("projectiles")
 	proj.explode(at, HELLPOD_BLAST)
 	player.visible = true
 
 
-## Bugs report fighting the player; sustained fighting calls a breach.
-func on_bug_alert(_bug: Node) -> void:
-	if _breach_cd <= 0.0 and _breach_call < 0.0 and not is_over():
-		_breach_call = breach_call_time
+## Bots report fighting the player; sustained fighting calls a dropship.
+func on_enemy_alert(_bot: Node) -> void:
+	if _drop_cd <= 0.0 and _drop_call < 0.0 and not is_over():
+		_drop_call = drop_call_time
 
 
-func _update_breaches(delta: float) -> void:
-	_breach_cd = maxf(_breach_cd - delta, 0.0)
-	if _breach_call >= 0.0:
-		_breach_call -= delta
-		if _breach_call < 0.0:
+func _update_drops(delta: float) -> void:
+	_drop_cd = maxf(_drop_cd - delta, 0.0)
+	if _drop_call >= 0.0:
+		_drop_call -= delta
+		if _drop_call < 0.0:
 			var fighting := false
-			for n in get_tree().get_nodes_in_group("terminids"):
-				if (n as Terminid)._engaged():
+			for n in get_tree().get_nodes_in_group("automatons"):
+				if (n as Automaton).state == Automaton.State.ENGAGE:
 					fighting = true
 					break
 			if fighting:
-				_start_breach()
-	for b in _breaches:
-		b.t += delta
-		if b.t >= 2.5 and not b.done:
-			b.done = true
+				_start_drop()
+	for d in _drops:
+		d.t += delta
+		if d.t >= 3.0 and not d.done:
+			d.done = true
 			var kinds := []
-			for i in randi_range(8, 12):
-				kinds.append(Terminid.random_kind())
-			for z in _spawn_pack_at(b.pos, kinds.size(), kinds):
-				z.alert_to(player.global_position, true)
-			if elapsed > 180.0 and randf() < 0.35:
-				_spawn_charger(b.pos + Vector2(60, 0)).alert_to(player.global_position)
-	_breaches = _breaches.filter(func(b): return b.t < 4.0)
+			for i in randi_range(5, 8):
+				kinds.append(Automaton.random_kind())
+			for b in _spawn_pack_at(d.pos, kinds.size(), kinds):
+				b.alert_to(player.global_position, true)
+			if elapsed > 180.0 and randf() < 0.3:
+				_spawn_hulk(d.pos + Vector2(70, 0)).alert_to(player.global_position, true)
+	_drops = _drops.filter(func(d): return d.t < 5.5)
 
 
-func _start_breach() -> void:
-	var p := map.random_point_near(player.global_position, 14.0, 22.0)
+func _start_drop() -> void:
+	var p := map.random_point_near(player.global_position, 16.0, 24.0)
 	if p == Vector2.INF:
 		return
-	_breach_cd = breach_cooldown
-	_breaches.append({"pos": p, "t": 0.0, "done": false})
-	msg("BUG BREACH!")
+	_drop_cd = drop_cooldown
+	_drops.append({"pos": p, "t": 0.0, "done": false, "dir": Vector2.from_angle(randf() * TAU)})
+	msg("BOT DROP INCOMING!")
 
 
 func _safe_respawn_point() -> Vector2:
@@ -464,20 +463,36 @@ func _draw() -> void:
 		draw_line(top + Vector2(0, -220), top, Color(1, 0.6, 0.2, 0.7), 10.0)
 		draw_circle(top, 16.0, Color(0.25, 0.26, 0.28))
 		draw_circle(top, 9.0, UiStyle.YELLOW)
-	for b in _breaches:
-		var k: float = clampf(b.t / 2.5, 0.0, 1.0)
-		var shake := Vector2(randf_range(-3, 3), randf_range(-3, 3)) * (1.0 - k)
-		draw_circle(b.pos + shake, 40.0 + k * 90.0, Color(0.3, 0.2, 0.12, 0.6))
-		for i in 7:
-			var a := TAU * i / 7.0 + 0.3
-			draw_line(b.pos, b.pos + Vector2.from_angle(a) * (40.0 + k * 120.0), Color(0.1, 0.07, 0.05, 0.8), 4.0)
-		if b.t >= 2.5:
-			draw_circle(b.pos, 60.0, Color(0.55, 0.45, 0.1, 0.4 * (4.0 - b.t)))
+	for d in _drops:
+		# Dropship: flies in, hovers while unloading, leaves.
+		var t: float = d.t
+		var dir: Vector2 = d.dir
+		var off := 0.0
+		if t < 2.0:
+			off = (2.0 - t) * 900.0
+		elif t > 4.0:
+			off = -(t - 4.0) * 900.0
+		var c: Vector2 = d.pos - dir * off
+		draw_circle(d.pos, 120.0, Color(0, 0, 0, 0.25 * clampf(t / 2.0, 0.0, 1.0)))
+		_draw_dropship(c, dir)
 	if phase == Phase.SHUTTLE or (phase == Phase.COMPLETE and _shuttle_t > 0.0):
 		var k := clampf(_shuttle_t / 3.0, 0.0, 1.0)
 		var c := map.extraction + Vector2(0, -(1.0 - k) * 900.0)
 		draw_circle(map.extraction, 160.0 * (0.4 + k * 0.6), Color(0, 0, 0, 0.35 * k))
 		_draw_shuttle(c, 1.0 + (1.0 - k) * 0.5)
+
+
+func _draw_dropship(c: Vector2, dir: Vector2) -> void:
+	var t := Transform2D(dir.angle() + PI / 2.0, c)
+	var outline := Color(0.05, 0.05, 0.05)
+	var hull := PackedVector2Array([Vector2(0, -110), Vector2(40, -60), Vector2(130, -20), Vector2(130, 20),
+		Vector2(40, 30), Vector2(25, 110), Vector2(-25, 110), Vector2(-40, 30), Vector2(-130, 20), Vector2(-130, -20),
+		Vector2(-40, -60)])
+	draw_colored_polygon(t * hull, outline)
+	draw_colored_polygon(t * Geometry2D.offset_polygon(hull, -4.0)[0], Color(0.2, 0.2, 0.22))
+	for x in [-100.0, 100.0]:
+		draw_circle(t * Vector2(x, 0), 16.0, Color(1, 0.3, 0.15, 0.8))
+	draw_circle(t * Vector2(0, -70), 8.0, Color(1, 0.2, 0.1))
 
 
 func _draw_shuttle(c: Vector2, s: float) -> void:

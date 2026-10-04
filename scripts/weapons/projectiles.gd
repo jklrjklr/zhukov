@@ -20,6 +20,8 @@ var _grenades: Array[Dictionary] = []
 var _blasts: Array[Dictionary] = []
 var _scorches: Array[Dictionary] = []
 var _biles: Array[Dictionary] = []
+## Automaton laser bolts: slow enough to see and dodge; cover stops them.
+var _bolts: Array[Dictionary] = []
 var _acid: Array[Dictionary] = []
 
 ## Bile Spitter acid: lobbed blob -> pool that burns the player while inside.
@@ -88,6 +90,42 @@ func spawn_grenade(from: Vector2, to: Vector2, thrower: CollisionObject2D) -> vo
 	_grenades.append({"from": from, "to": to, "pos": from, "t": 0.0, "flight": flight, "spin": randf() * TAU})
 
 
+func spawn_bolt(from: Vector2, vel: Vector2, damage: float, shooter: CollisionObject2D) -> void:
+	_bolts.append({"pos": from, "tail": from, "vel": vel, "damage": damage, "t": 0.0,
+		"exclude": [shooter.get_rid()]})
+
+
+## Dust/smoke puff (e.g. a bot falling apart).
+func add_puff(pos: Vector2, scale := 1.0) -> void:
+	_puffs.append({"pos": pos, "t": 0.0, "scale": scale})
+
+
+func _update_bolts(delta: float) -> void:
+	var space := get_world_2d().direct_space_state
+	for b in _bolts:
+		b.t += delta
+		var pos: Vector2 = b.pos
+		var step: Vector2 = b.vel * delta
+		var q := PhysicsRayQueryParameters2D.create(pos, pos + step, 1)
+		q.exclude = b.exclude
+		var hit := space.intersect_ray(q)
+		b.tail = pos
+		if hit.is_empty():
+			b.pos = pos + step
+			continue
+		var body := hit.collider as Node
+		if body.has_method("take_damage"):
+			if body.is_diving() and randf() < 0.6:
+				# Diving Helldivers are hard to hit: let it fly past.
+				(b.exclude as Array).append((body as CollisionObject2D).get_rid())
+				b.pos = pos + step
+				continue
+			body.take_damage(b.damage, pos - (b.vel as Vector2).normalized() * 40.0)
+		_puffs.append({"pos": hit.position, "t": 0.0, "bolt": true})
+		b.t = 99.0
+	_bolts = _bolts.filter(func(b): return b.t < 3.0)
+
+
 func spawn_bile(from: Vector2, to: Vector2) -> void:
 	_biles.append({"from": from, "to": to, "pos": from, "t": 0.0})
 
@@ -112,6 +150,7 @@ func _update_bile(delta: float) -> void:
 func _physics_process(delta: float) -> void:
 	_update_grenades(delta)
 	_update_bile(delta)
+	_update_bolts(delta)
 	var space := get_world_2d().direct_space_state
 	for i in range(_bullets.size() - 1, -1, -1):
 		var b: Dictionary = _bullets[i]
@@ -263,6 +302,11 @@ func _draw() -> void:
 		var k: float = b.t / 0.5
 		draw_circle(b.pos, b.r * (0.3 + k * 0.7), Color(1, 0.75, 0.3, 0.55 * (1.0 - k)))
 		draw_circle(b.pos, b.r * 0.35 * (1.0 - k), Color(1, 0.95, 0.7, 0.9 * (1.0 - k)))
+	for b in _bolts:
+		var head: Vector2 = b.pos
+		var dir := (b.vel as Vector2).normalized()
+		draw_line(head - dir * 26.0, head, Color(1, 0.2, 0.15, 0.35), 6.0)
+		draw_line(head - dir * 18.0, head, Color(1, 0.55, 0.45, 0.95), 2.5)
 	for c in _casings:
 		var size: Vector2 = c.size
 		var col: Color = c.color
@@ -285,7 +329,11 @@ func _draw() -> void:
 		draw_line(head.lerp(tail, 0.4), head, Color(1, 0.95, 0.7, 0.9), 1.5)
 	for p in _puffs:
 		var k: float = p.t / 0.25
-		if p.get("ground", false):
+		if p.get("bolt", false):
+			draw_circle(p.pos, 2.0 + k * 6.0, Color(1, 0.35, 0.25, 0.8 * (1.0 - k)))
+		elif p.has("scale"):
+			draw_circle(p.pos, (6.0 + k * 20.0) * (p.scale as float), Color(0.3, 0.3, 0.3, 0.6 * (1.0 - k)))
+		elif p.get("ground", false):
 			draw_circle(p.pos, 2.0 + k * 6.0, Color(0.55, 0.45, 0.3, 0.7 * (1.0 - k)))
 		else:
 			draw_circle(p.pos, 3.0 + k * 9.0, Color(0.9, 0.85, 0.7, 0.6 * (1.0 - k)))

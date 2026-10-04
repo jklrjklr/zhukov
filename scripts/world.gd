@@ -12,7 +12,7 @@ const ARMORED_CLASSES := [1, 2, 3, 4, 6]
 const CRATES := [Vector2(-220, -60), Vector2(-265, -60), Vector2(-220, -105), Vector2(-320, 120)]
 const TREES := [Vector2(-330, -300), Vector2(380, 260)]
 const RANDOM_TREES := 30
-## Terminids kept alive on the map; respawned in packs out of sight, away from the player.
+## Automatons kept alive on the map; respawned in packs out of sight, away from the player.
 const BUG_COUNT := 14
 const BUG_MIN_SPAWN_M := 25.0
 const PACK_MIN := 3
@@ -101,11 +101,11 @@ func _physics_process(delta: float) -> void:
 	_spawn_timer -= delta
 	if _spawn_timer > 0.0:
 		return
-	var first := _spawn_timer > -1.0 and get_tree().get_nodes_in_group("terminids").is_empty()
+	var first := _spawn_timer > -1.0 and get_tree().get_nodes_in_group("automatons").is_empty()
 	_spawn_timer = 4.0
 	var player := get_tree().get_first_node_in_group("player") as Node2D
 	var away := player.global_position if player else Vector2.ZERO
-	var missing := BUG_COUNT - get_tree().get_nodes_in_group("terminids").size()
+	var missing := BUG_COUNT - get_tree().get_nodes_in_group("automatons").size()
 	while missing >= (1 if first else PACK_MIN):
 		var size := mini(randi_range(PACK_MIN, PACK_MAX), missing)
 		missing -= _spawn_pack(away, size)
@@ -120,7 +120,7 @@ func _spawn_pack(away_from: Vector2, size: int) -> int:
 		var p := Vector2(randf_range(-HALF_SIZE + 300, HALF_SIZE - 300), randf_range(-HALF_SIZE + 300, HALF_SIZE - 300))
 		if p.distance_to(away_from) >= BUG_MIN_SPAWN_M * Firearm.PX_PER_M and _is_free(p):
 			_next_pack += 1
-			return maxi(Terminid.spawn_pack(self, p, size, _next_pack, _is_free).size(), 1)
+			return maxi(Automaton.spawn_squad(self, p, size, _next_pack, _is_free).size(), 1)
 	return 1 # give up this round; count it so the loop ends
 
 

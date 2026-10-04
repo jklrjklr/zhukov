@@ -437,7 +437,7 @@ func _draw_end(vp: Vector2) -> void:
 	var rows := [
 		["mission time", "%02d:%02d" % [t / 60, t % 60]],
 		["objectives", "%d / %d" % [main_done, main_total]],
-		["optional", "done" if _mission.objective("charger").done else "-"],
+		["optional", "done" if _mission.objective("hulk").done else "-"],
 		["kills", str(s.kills)],
 		["accuracy", "%d%%" % roundi(Game.accuracy())],
 		["shots fired", str(s.shots)],

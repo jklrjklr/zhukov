@@ -5,7 +5,7 @@ extends Node2D
 ##   - Drop zone (south), dirt roads joining every point of interest
 ##   - Ruined outpost (west-centre) with radio terminal A
 ##   - Rocky ridge (east) with radio terminal B
-##   - Forest (north-east) around a clearing with 3 nests
+##   - Forest (north-east) around a clearing with 3 Automaton fabricators
 ##   - Extraction pad (north-west) with its console
 ##   - Ammo boxes at points of interest, crates, rock fields and scattered forests
 ## Draws all static ground/rocks/walls in one canvas item; trees, crates, nests and
@@ -161,7 +161,7 @@ func _build_forests() -> void:
 		tr.position = p
 		add_child(tr)
 	for p in nest_spots:
-		var nest := Destructible.make(Destructible.Kind.NEST)
+		var nest := Destructible.make(Destructible.Kind.FABRICATOR)
 		nest.position = p
 		add_child(nest)
 
@@ -305,8 +305,9 @@ func _draw() -> void:
 	draw_arc(extraction, 5.5 * PX, 0, TAU, 64, Color(1, 1, 1, 0.25), 4.0)
 	draw_line(extraction + Vector2(-3, 0) * PX, extraction + Vector2(3, 0) * PX, Color(1, 1, 1, 0.3), 8.0)
 	draw_line(extraction + Vector2(0, -3) * PX, extraction + Vector2(0, 3) * PX, Color(1, 1, 1, 0.3), 8.0)
-	# Nest clearing: dark churned ground
-	draw_circle(nest_clearing, 11.0 * PX, Color(0.24, 0.18, 0.15))
+	# Bot base: scorched metal plating
+	draw_circle(nest_clearing, 11.0 * PX, Color(0.17, 0.16, 0.16))
+	draw_arc(nest_clearing, 11.0 * PX, 0, TAU, 48, Color(0.6, 0.15, 0.1, 0.5), 6.0)
 	for r in rocks:
 		var shade: float = r.shade
 		var poly: PackedVector2Array = r.poly
