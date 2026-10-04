@@ -40,7 +40,7 @@ const KINDS := {
 	Kind.TROOPER: {"name": "Trooper", "hp": 90.0, "weight": 80.0, "radius": 13.0, "speed": 0.95, "patrol": 0.3,
 		"sight": 8.0, "fov": 80.0, "armor": [1, 1, 1], "head": 5.0, "crit": 2.5, "turn": 260.0,
 		"weapon": "blaster", "range": 16.0, "keep": Vector2(9.0, 14.0), "burst": 3, "burst_gap": 0.12,
-		"burst_cd": 1.7, "bolt_damage": 8.0, "spread": 3.0, "bolt_speed": 28.0},
+		"burst_cd": 1.7, "bolt_damage": 6.0, "spread": 4.0, "bolt_speed": 28.0},
 	Kind.BERSERKER: {"name": "Berserker", "hp": 350.0, "weight": 260.0, "radius": 17.0, "speed": 0.8, "patrol": 0.3,
 		"sight": 7.0, "fov": 80.0, "armor": [2, 2, 2], "head": 6.0, "crit": 2.0, "turn": 200.0,
 		"weapon": "chainsaw", "reach": 0.9, "dps": 45.0},
