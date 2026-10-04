@@ -15,8 +15,14 @@ extends CharacterBody2D
 @export var acceleration := 1600.0
 @export var deceleration := 2000.0
 
+@export var max_hp := 100.0
+
 ## Where the camera looks (radians). Body rotation chases it.
 var look_angle := 0.0
+var hp := 100.0
+var dead := false
+## 0..1 flash after taking damage (HUD vignette).
+var hurt := 0.0
 
 ## Movement input in screen/local space, set by TouchControls.
 ## Length 0..1, (0, -1) = forward.
@@ -46,14 +52,31 @@ var _walk_amount := 0.0 # 0 idle .. 1 full stride, eased
 
 
 func _ready() -> void:
+	add_to_group("player")
+	hp = max_hp
 	_head.draw.connect(_draw_head)
 	look_angle = rotation
 
 
+func take_damage(amount: float, from: Vector2) -> void:
+	if dead:
+		return
+	hp = maxf(hp - amount, 0.0)
+	hurt = 1.0
+	velocity += (global_position - from).normalized() * 160.0
+	kick(randf_range(-0.06, 0.06))
+	if hp <= 0.0:
+		dead = true
+		move_input = Vector2.ZERO
+		weapon.trigger = false
+		weapon.ads = false
+
+
 func _physics_process(delta: float) -> void:
-	var input := move_input
+	hurt = maxf(hurt - delta * 1.5, 0.0)
+	var input := Vector2.ZERO if dead else move_input
 	var kb := _keyboard_move()
-	if kb != Vector2.ZERO:
+	if kb != Vector2.ZERO and not dead:
 		input = kb
 	input = input.limit_length(1.0)
 

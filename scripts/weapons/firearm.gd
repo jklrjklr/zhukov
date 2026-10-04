@@ -332,7 +332,7 @@ func _update_trigger(delta: float) -> void:
 
 
 func _try_fire() -> bool:
-	if state != State.READY or jammed or blocked > 0.0 or not _has_round():
+	if state != State.READY or jammed or blocked > 0.0 or not _has_round() or _player.dead:
 		return false
 	if stats.closed_bolt:
 		chambered = mag > 0
@@ -359,6 +359,7 @@ func _try_fire() -> bool:
 			var dir := Vector2.UP.rotated(global_rotation + deg_to_rad(off))
 			_projectiles.spawn_bullet(muzzle, dir * speed, stats, _player)
 	_projectiles.spawn_casing(to_global(Vector2(3, -12)), global_rotation)
+	get_tree().call_group("zombies", "hear", global_position, stats.noise_radius * PX_PER_M)
 
 	# Vertical: eased stacking, each shot adds less the closer the stack is to 1.
 	recoil_stack = minf(1.0, recoil_stack + stats.vertical_recoil * pow(1.0 - recoil_stack, 1.5))

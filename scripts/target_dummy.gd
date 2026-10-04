@@ -50,11 +50,7 @@ func take_hit(hit: Dictionary) -> void:
 
 
 func _is_crit(hit: Dictionary) -> bool:
-	if hit.get("aim_point") == null:
-		return false
-	var rel: Vector2 = hit.aim_point - global_position
-	var dir: Vector2 = hit.dir
-	return absf(rel.cross(dir)) <= HEAD_RADIUS and rel.dot(dir) <= CRIT_DEPTH
+	return Combat.is_crit(hit, global_position, HEAD_RADIUS, CRIT_DEPTH)
 
 
 func _process(delta: float) -> void:

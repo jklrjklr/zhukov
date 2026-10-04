@@ -70,6 +70,9 @@ func _input(event: InputEvent) -> void:
 
 func _on_touch(e: InputEventScreenTouch) -> void:
 	var vp := get_viewport_rect().size
+	if e.pressed and _player.dead:
+		get_tree().reload_current_scene()
+		return
 	if e.pressed:
 		if _fullscreen_rect().has_point(e.position):
 			_toggle_fullscreen()
@@ -189,6 +192,15 @@ func _draw() -> void:
 
 	_draw_aim_overlay()
 
+	# Hurt vignette
+	if _player.hurt > 0.0:
+		var a: float = _player.hurt * 0.35
+		var edge := 60.0
+		draw_rect(Rect2(0, 0, vp.x, edge), Color(0.8, 0, 0, a))
+		draw_rect(Rect2(0, vp.y - edge, vp.x, edge), Color(0.8, 0, 0, a))
+		draw_rect(Rect2(0, 0, edge, vp.y), Color(0.8, 0, 0, a))
+		draw_rect(Rect2(vp.x - edge, 0, edge, vp.y), Color(0.8, 0, 0, a))
+
 	# Joystick
 	if _joy_index != -1:
 		draw_circle(_joy_origin, joystick_radius, Color(1, 1, 1, 0.08))
@@ -247,6 +259,17 @@ func _draw() -> void:
 		draw_line(c, c + Vector2(0, l * sy), white, 3.0)
 
 	draw_string(font, Vector2(16, 30), "%d FPS" % Engine.get_frames_per_second(), HORIZONTAL_ALIGNMENT_LEFT, -1, 18, white)
+
+	# Health
+	var hp_frac: float = _player.hp / _player.max_hp
+	draw_rect(Rect2(16, 44, 220, 14), Color(0, 0, 0, 0.5))
+	draw_rect(Rect2(16, 44, 220 * hp_frac, 14), Color(0.85, 0.2, 0.15).lerp(Color(0.4, 0.85, 0.4), hp_frac))
+	draw_string(font, Vector2(244, 57), "%d" % roundi(_player.hp), HORIZONTAL_ALIGNMENT_LEFT, -1, 16, white)
+
+	if _player.dead:
+		draw_rect(Rect2(Vector2.ZERO, vp), Color(0, 0, 0, 0.55))
+		draw_string(font, Vector2(0, vp.y * 0.45), "YOU DIED", HORIZONTAL_ALIGNMENT_CENTER, vp.x, 56, Color(0.9, 0.2, 0.15))
+		draw_string(font, Vector2(0, vp.y * 0.45 + 50), "tap to restart", HORIZONTAL_ALIGNMENT_CENTER, vp.x, 22, white)
 
 
 ## Hip: spread cone lines from the muzzle. ADS: aim circle + reticle where bullets land.
