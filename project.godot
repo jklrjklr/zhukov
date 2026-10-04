@@ -13,7 +13,9 @@ config/features=PackedStringArray("4.6", "GL Compatibility")
 
 window/size/viewport_width=1280
 window/size/viewport_height=720
-window/stretch/mode="canvas_items"
+; Render at the base resolution (aspect-expanded, ~1560x720 landscape) and upscale:
+; sharp enough on phones while keeping fill cost fixed.
+window/stretch/mode="viewport"
 window/stretch/aspect="expand"
 window/handheld/orientation=4
 
