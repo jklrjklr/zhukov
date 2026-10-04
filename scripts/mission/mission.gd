@@ -307,7 +307,7 @@ func _update_extraction(delta: float) -> void:
 
 func _update_boarding(delta: float) -> void:
 	_shuttle_t += delta
-	var on_pad := not player.dead and player.global_position.distance_to(map.extraction) < 6.0 * PX
+	var on_pad: bool = not player.dead and player.global_position.distance_to(map.extraction) < 6.0 * PX
 	if _shuttle_t > 3.0 and on_pad:
 		_board_t += delta
 		if _board_t >= 2.0:
