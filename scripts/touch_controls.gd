@@ -195,12 +195,15 @@ func _draw() -> void:
 	draw_string(font, Vector2(16, 30), "%d FPS" % Engine.get_frames_per_second(), HORIZONTAL_ALIGNMENT_LEFT, -1, 18, white)
 
 
-## Weapon name, rounds (+1 = chambered), spare mags as fill bars, status line.
+## Weapon name, rounds loaded, spare mags as fill bars, status line.
 func _draw_ammo(font: Font, at: Vector2) -> void:
 	var w := _weapon
 	var white := Color(1, 1, 1, 0.85)
 	draw_string(font, at, "%s  %s" % [w.stats.display_name, w.stats.caliber], HORIZONTAL_ALIGNMENT_LEFT, -1, 16, Color(1, 1, 1, 0.6))
-	var rounds := "%d" % w.mag + ("+1" if w.chambered else "")
+	# One number for rounds ready; "+1" only when a tactical reload put a full mag
+	# behind a chambered round (more than the mag holds).
+	var total := w.rounds_loaded()
+	var rounds := "%d+1" % w.stats.mag_size if total > w.stats.mag_size else "%d" % total
 	draw_string(font, at + Vector2(0, 30), rounds, HORIZONTAL_ALIGNMENT_LEFT, -1, 28, white)
 	for i in w.mags.size():
 		var x := at.x + 90 + i * 12
