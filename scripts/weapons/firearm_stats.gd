@@ -34,8 +34,13 @@ enum BulletType { NORMAL, PELLETS, FLECHETTE, INCENDIARY, ROCKET }
 @export var muzzle_velocity := 400.0
 ## Impact power of one hit (knockback, slowdown, interrupt, stun build-up).
 ## Effect on a target = stagger / target weight; scales with range falloff,
-## x1.5 on criticals. See Zombie for the rules.
+## x1.5 on criticals. See Terminid for the rules.
 @export var stagger := 10.0
+
+@export_group("Explosive (ROCKET bullets)")
+## m blast radius around the impact (0 = none).
+@export var blast_radius := 0.0
+@export var blast_damage := 0.0
 
 @export_group("Fire control")
 @export var rpm := 800.0
@@ -45,6 +50,8 @@ enum BulletType { NORMAL, PELLETS, FLECHETTE, INCENDIARY, ROCKET }
 ## Closed bolt holds +1 in the chamber; open bolt fires straight from the mag.
 @export var closed_bolt := true
 @export var spare_mags := 4
+## Single-use launcher: thrown away when empty.
+@export var disposable := false
 ## s, round still chambered.
 @export var reload_time_tactical := 2.4
 ## s, chamber empty (needs bolt work).

@@ -1,25 +1,35 @@
 class_name Mission
 extends Node2D
-## Sample mission "Operation: Dead Ground".
-## 1. Activate 2 radio terminals (each draws a horde).
-## 2. Destroy 3 nests (explosives only; they spawn zombies while you are near).
-## 3. (Optional) Kill the Grawl guarding the nests.
-## 4. Call extraction at the pad, survive until the shuttle lands, board it.
-## 25 min mission clock, 5 reinforcements. Out of either = mission failed.
-## Also draws the shuttle and reinforcement drop pods (world space, above everything).
+## Sample bug mission "Operation: Swift Liberty" (Helldivers 2 style).
+## 0. Hellpod drop at the landing zone.
+## 1. Upload data at 2 terminals (each draws a horde).
+## 2. Close 3 bug holes (explosives: grenades, Eagle, Orbital, EAT); they spawn bugs
+##    while you are near.
+## 3. (Optional) Kill the Charger guarding the holes.
+## 4. Call Pelican-1 at the extraction pad, hold until it lands, board it.
+## Bug breaches: when bugs keep fighting you for a while they call reinforcements out
+## of the ground nearby (cooldown between breaches).
+## 25 min mission clock, 5 reinforcements (each arrives by hellpod).
+## Also draws hellpods, breaches and Pelican-1 (world space, above everything).
 
 enum Phase { ACTIVE, EXTRACTING, SHUTTLE, COMPLETE, FAILED }
 
 @export var mission_time := 25.0 * 60.0
 @export var reinforcements := 5
 @export var extract_time := 90.0
-## Ambient zombies kept on the map.
+## Ambient bugs kept on the map.
 @export var ambient_target := 22
-## Hard cap on live zombies (performance).
-@export var zombie_cap := 45
+## Hard cap on live bugs (performance).
+@export var bug_cap := 50
+## s of continued fighting before bugs call a breach, and cooldown between breaches.
+@export var breach_call_time := 9.0
+@export var breach_cooldown := 60.0
 
 const PX := Firearm.PX_PER_M
-const NAME := "OPERATION: DEAD GROUND"
+const NAME := "OPERATION: SWIFT LIBERTY"
+const HELLPOD_FALL := 2.0
+const HELLPOD_BLAST := {"radius_m": 2.5, "damage": 600.0, "ap": 5, "armor_damage": 200.0, "destruction": 30,
+	"stagger": 800.0, "sound": 130.0, "sound_falloff": 8.0, "self_mult": 0.0}
 
 var phase := Phase.ACTIVE
 var time_left := 0.0
@@ -38,13 +48,17 @@ var player: CharacterBody2D
 var _terminals: Array[Interactable] = []
 var _console: Interactable
 var _nests: Array[Destructible] = []
-var _guard: Grawl
+var _guard: Charger
+var _breaches: Array[Dictionary] = []
+var _breach_cd := 30.0
+var _breach_call := -1.0
+var _deploy_t := HELLPOD_FALL
 var _setup_ticks := 0
 var _pack_id := 1000
 var _ambient_t := 0.0
 var _nest_t := 0.0
 var _wave_t := 0.0
-var _extract_grawl := false
+var _extract_charger := false
 var _board_t := 0.0
 var _shuttle_t := 0.0
 var _death_pos := Vector2.ZERO
@@ -64,6 +78,11 @@ func _ready() -> void:
 	player.global_position = map.drop_zone
 	player.look_angle = 0.0
 	player.rotation = 0.0
+	# Hellpod insertion: hidden until the pod lands.
+	player.deploying = true
+	player.visible = false
+	_pod_pos = map.drop_zone
+	_pod_t = HELLPOD_FALL
 
 	for p in map.terminal_spots:
 		var t := Interactable.make(Interactable.Kind.TERMINAL)
@@ -86,17 +105,17 @@ func _ready() -> void:
 		_nests.append(nest)
 
 	objectives = [
-		{"id": "terminals", "text": "ACTIVATE RADIO TERMINALS", "done": false, "optional": false,
+		{"id": "terminals", "text": "UPLOAD DATA AT TERMINALS", "done": false, "optional": false,
 			"count": 0, "total": _terminals.size(), "targets": map.terminal_spots.duplicate(), "active": true},
-		{"id": "nests", "text": "DESTROY NESTS (EXPLOSIVES)", "done": false, "optional": false,
+		{"id": "nests", "text": "CLOSE BUG HOLES (EXPLOSIVES)", "done": false, "optional": false,
 			"count": 0, "total": _nests.size(), "targets": map.nest_spots.duplicate(), "active": true},
-		{"id": "grawl", "text": "KILL THE GRAWL", "done": false, "optional": true,
+		{"id": "charger", "text": "KILL THE CHARGER", "done": false, "optional": true,
 			"count": 0, "total": 1, "targets": [map.nest_clearing], "active": true},
-		{"id": "extract", "text": "CALL EXTRACTION", "done": false, "optional": false,
+		{"id": "extract", "text": "CALL PELICAN-1", "done": false, "optional": false,
 			"count": 0, "total": 0, "targets": [map.extraction], "active": false},
 	]
 	msg(NAME)
-	msg("ACTIVATE THE TERMINALS AND DESTROY THE NESTS")
+	msg("HELLPOD INBOUND")
 
 
 func objective(id: String) -> Dictionary:
@@ -122,6 +141,14 @@ func _physics_process(delta: float) -> void:
 	messages = messages.filter(func(m): return m.t < 5.0)
 	if _pod_t > 0.0:
 		_pod_t = maxf(_pod_t - delta, 0.0)
+	if player.deploying and _setup_ticks > 3:
+		_deploy_t -= delta
+		if _deploy_t <= 0.0:
+			_land_pod(map.drop_zone)
+			player.deploying = false
+			player.visible = true
+			_pod_pos = Vector2.INF
+			msg("FOR SUPER EARTH!")
 	queue_redraw()
 
 	# Wait a couple of ticks so the map's bodies are in the physics space.
@@ -139,9 +166,10 @@ func _physics_process(delta: float) -> void:
 		_fail("MISSION TIME EXPIRED")
 		return
 	_update_death(delta)
+	_update_breaches(delta)
 	_update_ambient(delta)
 	_update_nests(delta)
-	_check_grawl()
+	_check_charger()
 	match phase:
 		Phase.EXTRACTING:
 			_update_extraction(delta)
@@ -154,33 +182,33 @@ func _initial_spawns() -> void:
 		_spawn_pack_far(map.drop_zone, 45.0, 140.0, randi_range(3, 5))
 	var gp := map.random_point_near(map.nest_clearing, 12.0, 18.0)
 	if gp != Vector2.INF:
-		_guard = _spawn_grawl(gp)
+		_guard = _spawn_charger(gp)
 
 
 # --- Spawning --------------------------------------------------------------
 
-func _zombie_count() -> int:
-	return get_tree().get_nodes_in_group("zombies").size()
+func _bug_count() -> int:
+	return get_tree().get_nodes_in_group("terminids").size()
 
 
-func _spawn_pack_at(center: Vector2, size: int) -> Array[Zombie]:
-	if _zombie_count() + size > zombie_cap:
-		size = maxi(zombie_cap - _zombie_count(), 0)
+func _spawn_pack_at(center: Vector2, size: int, kinds: Array = []) -> Array[Terminid]:
+	if _bug_count() + size > bug_cap:
+		size = maxi(bug_cap - _bug_count(), 0)
 	if size <= 0:
 		return []
 	_pack_id += 1
-	return Zombie.spawn_pack(map, center, size, _pack_id, func(p): return map.is_free(p))
+	return Terminid.spawn_pack(map, center, size, _pack_id, func(p): return map.is_free(p), kinds)
 
 
-func _spawn_pack_far(away: Vector2, min_m: float, max_m: float, size: int) -> Array[Zombie]:
+func _spawn_pack_far(away: Vector2, min_m: float, max_m: float, size: int) -> Array[Terminid]:
 	var p := map.random_point_near(away, min_m, max_m)
 	if p == Vector2.INF:
 		return []
 	return _spawn_pack_at(p, size)
 
 
-func _spawn_grawl(p: Vector2) -> Grawl:
-	var g := Grawl.new()
+func _spawn_charger(p: Vector2) -> Charger:
+	var g := Charger.new()
 	g.position = p
 	map.add_child(g)
 	return g
@@ -198,7 +226,7 @@ func _update_ambient(delta: float) -> void:
 	if _ambient_t > 0.0:
 		return
 	_ambient_t = 20.0
-	if _zombie_count() < ambient_target:
+	if _bug_count() < ambient_target:
 		_spawn_pack_far(player.global_position, 45.0, 80.0, randi_range(3, 5))
 
 
@@ -211,13 +239,14 @@ func _update_nests(delta: float) -> void:
 		if nest.is_destroyed():
 			continue
 		var d := nest.global_position.distance_to(player.global_position) / PX
-		if d > 45.0 or _zombie_count() >= zombie_cap:
+		if d > 45.0 or _bug_count() >= bug_cap:
 			continue
 		var p := map.random_point_near(nest.global_position, 2.5, 4.0, 8)
 		if p == Vector2.INF:
 			continue
 		_pack_id += 1
-		for z in Zombie.spawn_pack(map, p, 1, _pack_id, func(q): return map.is_free(q)):
+		var kinds := [Terminid.Kind.SCAVENGER, Terminid.Kind.SCAVENGER, Terminid.Kind.WARRIOR]
+		for z in Terminid.spawn_pack(map, p, 2, _pack_id, func(q): return map.is_free(q), [kinds.pick_random()]):
 			z.alert_to(player.global_position, d < 20.0)
 
 
@@ -231,33 +260,33 @@ func _on_ammo(_it: Interactable) -> void:
 func _on_terminal(_it: Interactable) -> void:
 	var o := objective("terminals")
 	o.count += 1
-	msg("TERMINAL ACTIVATED %d/%d" % [o.count, o.total])
+	msg("DATA UPLOADED %d/%d" % [o.count, o.total])
 	_horde(_it.global_position, 2 + o.count)
 	_remove_target(o, _it.global_position)
 	if o.count >= o.total:
 		o.done = true
-		msg("OBJECTIVE COMPLETE: TERMINALS")
+		msg("OBJECTIVE COMPLETE: DATA UPLOADED")
 	_check_main_done()
 
 
 func _on_nest_destroyed(nest: Destructible) -> void:
 	var o := objective("nests")
 	o.count += 1
-	msg("NEST DESTROYED %d/%d" % [o.count, o.total])
+	msg("BUG HOLE CLOSED %d/%d" % [o.count, o.total])
 	_remove_target(o, nest.global_position)
 	if o.count >= o.total:
 		o.done = true
-		msg("OBJECTIVE COMPLETE: NESTS")
+		msg("OBJECTIVE COMPLETE: BUG HOLES")
 	_check_main_done()
 
 
-func _check_grawl() -> void:
-	var o := objective("grawl")
+func _check_charger() -> void:
+	var o := objective("charger")
 	if not o.done and _guard and _guard.is_dead():
 		o.done = true
 		o.count = 1
 		o.targets = []
-		msg("GRAWL KILLED")
+		msg("CHARGER KILLED")
 	elif not o.done and _guard and is_instance_valid(_guard):
 		o.targets = [_guard.global_position]
 
@@ -274,7 +303,7 @@ func _check_main_done() -> void:
 	if objective("terminals").done and objective("nests").done and not _console.enabled:
 		_console.enabled = true
 		objective("extract").active = true
-		msg("EXTRACTION AVAILABLE AT THE PAD")
+		msg("EXTRACTION AVAILABLE - CALL PELICAN-1")
 
 
 func _on_extract_called(_it: Interactable) -> void:
@@ -282,8 +311,8 @@ func _on_extract_called(_it: Interactable) -> void:
 	extract_left = extract_time
 	_wave_t = 3.0
 	var o := objective("extract")
-	o.text = "DEFEND THE PAD"
-	msg("EXTRACTION INBOUND")
+	o.text = "DEFEND THE LANDING ZONE"
+	msg("PELICAN-1 INBOUND")
 
 
 func _update_extraction(delta: float) -> void:
@@ -292,17 +321,17 @@ func _update_extraction(delta: float) -> void:
 	if _wave_t <= 0.0:
 		_wave_t = 14.0
 		_horde(map.extraction, 1, true)
-	if not _extract_grawl and extract_left <= extract_time * 0.5:
-		_extract_grawl = true
+	if not _extract_charger and extract_left <= extract_time * 0.5:
+		_extract_charger = true
 		var p := map.random_point_near(map.extraction, 28.0, 36.0)
 		if p != Vector2.INF:
-			_spawn_grawl(p).alert_to(map.extraction)
-		msg("GRAWL INCOMING")
+			_spawn_charger(p).alert_to(map.extraction)
+		msg("CHARGER INCOMING")
 	if extract_left <= 0.0:
 		phase = Phase.SHUTTLE
 		_shuttle_t = 0.0
-		objective("extract").text = "BOARD THE SHUTTLE"
-		msg("SHUTTLE LANDED - GET ON BOARD")
+		objective("extract").text = "BOARD PELICAN-1"
+		msg("PELICAN-1 HAS LANDED - GET ON BOARD")
 
 
 func _update_boarding(delta: float) -> void:
@@ -343,18 +372,69 @@ func _update_death(delta: float) -> void:
 			_fail("NO REINFORCEMENTS LEFT")
 			return
 		respawn_in = 4.0
-		msg("REINFORCING")
+		msg("REINFORCING - HELLPOD INBOUND")
 		return
 	respawn_in -= delta
 	if respawn_in <= 1.0 and _pod_pos == Vector2.INF:
 		_pod_pos = _safe_respawn_point()
 		_pod_t = 1.0
+		player.visible = false
 	if respawn_in <= 0.0:
 		reinforcements -= 1
+		_land_pod(_pod_pos)
 		player.revive(_pod_pos)
+		msg("REINFORCED")
 		player.look_angle = player.rotation
 		respawn_in = -1.0
 		_pod_pos = Vector2.INF
+
+
+## Hellpod impact: kills bugs under it, leaves a scorch.
+func _land_pod(at: Vector2) -> void:
+	var proj := get_tree().get_first_node_in_group("projectiles")
+	proj.explode(at, HELLPOD_BLAST)
+	player.visible = true
+
+
+## Bugs report fighting the player; sustained fighting calls a breach.
+func on_bug_alert(_bug: Node) -> void:
+	if _breach_cd <= 0.0 and _breach_call < 0.0 and not is_over():
+		_breach_call = breach_call_time
+
+
+func _update_breaches(delta: float) -> void:
+	_breach_cd = maxf(_breach_cd - delta, 0.0)
+	if _breach_call >= 0.0:
+		_breach_call -= delta
+		if _breach_call < 0.0:
+			var fighting := false
+			for n in get_tree().get_nodes_in_group("terminids"):
+				if (n as Terminid)._engaged():
+					fighting = true
+					break
+			if fighting:
+				_start_breach()
+	for b in _breaches:
+		b.t += delta
+		if b.t >= 2.5 and not b.done:
+			b.done = true
+			var kinds := []
+			for i in randi_range(8, 12):
+				kinds.append(Terminid.random_kind())
+			for z in _spawn_pack_at(b.pos, kinds.size(), kinds):
+				z.alert_to(player.global_position, true)
+			if elapsed > 180.0 and randf() < 0.35:
+				_spawn_charger(b.pos + Vector2(60, 0)).alert_to(player.global_position)
+	_breaches = _breaches.filter(func(b): return b.t < 4.0)
+
+
+func _start_breach() -> void:
+	var p := map.random_point_near(player.global_position, 14.0, 22.0)
+	if p == Vector2.INF:
+		return
+	_breach_cd = breach_cooldown
+	_breaches.append({"pos": p, "t": 0.0, "done": false})
+	msg("BUG BREACH!")
 
 
 func _safe_respawn_point() -> Vector2:
@@ -376,10 +456,23 @@ func _safe_respawn_point() -> Vector2:
 
 func _draw() -> void:
 	if _pod_t > 0.0 and _pod_pos != Vector2.INF:
-		# Incoming pod: shrinking shadow ring + streak.
-		var k := 1.0 - _pod_t
-		draw_circle(_pod_pos, 30.0 * (1.5 - k), Color(0, 0, 0, 0.3 * k))
-		draw_arc(_pod_pos, 30.0 + 60.0 * _pod_t, 0, TAU, 32, Color(1, 0.6, 0.2, 0.8), 3.0)
+		# Incoming hellpod: growing shadow, fiery streak from the sky.
+		var total := HELLPOD_FALL if player.deploying else 1.0
+		var k := clampf(1.0 - _pod_t / total, 0.0, 1.0)
+		draw_circle(_pod_pos, 40.0 * (0.4 + k * 0.6), Color(0, 0, 0, 0.35 * k))
+		var top := _pod_pos + Vector2(0, -900.0 * (1.0 - k))
+		draw_line(top + Vector2(0, -220), top, Color(1, 0.6, 0.2, 0.7), 10.0)
+		draw_circle(top, 16.0, Color(0.25, 0.26, 0.28))
+		draw_circle(top, 9.0, UiStyle.YELLOW)
+	for b in _breaches:
+		var k: float = clampf(b.t / 2.5, 0.0, 1.0)
+		var shake := Vector2(randf_range(-3, 3), randf_range(-3, 3)) * (1.0 - k)
+		draw_circle(b.pos + shake, 40.0 + k * 90.0, Color(0.3, 0.2, 0.12, 0.6))
+		for i in 7:
+			var a := TAU * i / 7.0 + 0.3
+			draw_line(b.pos, b.pos + Vector2.from_angle(a) * (40.0 + k * 120.0), Color(0.1, 0.07, 0.05, 0.8), 4.0)
+		if b.t >= 2.5:
+			draw_circle(b.pos, 60.0, Color(0.55, 0.45, 0.1, 0.4 * (4.0 - b.t)))
 	if phase == Phase.SHUTTLE or (phase == Phase.COMPLETE and _shuttle_t > 0.0):
 		var k := clampf(_shuttle_t / 3.0, 0.0, 1.0)
 		var c := map.extraction + Vector2(0, -(1.0 - k) * 900.0)

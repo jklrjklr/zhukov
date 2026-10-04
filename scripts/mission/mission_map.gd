@@ -220,6 +220,7 @@ func _add_wall(r: Rect2, visible_wall := true) -> void:
 	add_child(body)
 	if visible_wall:
 		walls.append(r)
+		Vision.add_occluder(body, Vision.rect_points(r.size))
 
 
 func _add_rock(p: Vector2, radius: float) -> void:
@@ -229,6 +230,7 @@ func _add_rock(p: Vector2, radius: float) -> void:
 	var col := CollisionPolygon2D.new()
 	col.polygon = poly
 	body.add_child(col)
+	Vision.add_occluder(body, poly)
 	add_child(body)
 	var world_poly := PackedVector2Array()
 	for v in poly:

@@ -98,8 +98,90 @@ func _ready() -> void:
 		_cam_base = _camera.position
 		_cam_offset = _cam_base
 	_projectiles = get_tree().get_first_node_in_group("projectiles")
+	var chosen: FirearmStats = Game.primary_stats()
+	if chosen:
+		stats = chosen
+	slots = [{"stats": stats}]
 	reset_loadout()
 	fire_mode_index = stats.fire_modes.size() - 1 # start on the most automatic mode
+
+
+## Carried weapons: slot 0 primary, slot 1 support (optional). Each slot keeps its
+## own ammo state while holstered.
+var slots: Array[Dictionary] = []
+var slot := 0
+var _drop_t := 0.0
+
+
+## Back to the primary only, full ammo (mission start, reinforcement).
+func reset_all() -> void:
+	if not slots.is_empty():
+		stats = slots[0].stats
+	slots = [{"stats": stats}]
+	slot = 0
+	fire_mode_index = stats.fire_modes.size() - 1
+	reset_loadout()
+
+
+func has_support() -> bool:
+	return slots.size() > 1
+
+
+func support_stats() -> FirearmStats:
+	return slots[1].stats if has_support() else null
+
+
+## Picked up a support weapon: it goes in slot 1 (replacing any) and is drawn.
+func give_support(st: FirearmStats) -> void:
+	_save_slot()
+	var entry := {"stats": st}
+	if has_support():
+		slots[1] = entry
+	else:
+		slots.append(entry)
+	_load_slot(1)
+
+
+## Swap between primary and support.
+func switch_weapon() -> void:
+	if not has_support() or state == State.RELOADING or state == State.CLEARING:
+		return
+	_save_slot()
+	_load_slot(1 - slot)
+
+
+func drop_support() -> void:
+	if not has_support():
+		return
+	if slot == 1:
+		slots.remove_at(1)
+		_load_slot(0)
+	else:
+		slots.remove_at(1)
+
+
+func _save_slot() -> void:
+	slots[slot] = {"stats": stats, "mag": mag, "chambered": chambered, "mags": mags.duplicate(),
+		"mode": fire_mode_index, "jammed": jammed}
+
+
+func _load_slot(i: int) -> void:
+	slot = i
+	var d: Dictionary = slots[i]
+	stats = d.stats
+	if d.has("mag"):
+		mag = d.mag
+		chambered = d.chambered
+		mags.assign(d.mags)
+		fire_mode_index = d.mode
+		jammed = d.jammed
+		trigger = false
+		ads = false
+		recoil_stack = 0.0
+		_set_state(State.DRAWING, stats.swap_time())
+	else:
+		fire_mode_index = stats.fire_modes.size() - 1
+		reset_loadout()
 
 
 ## Full mag (+1 chambered on closed bolts) and full spare mags; weapon comes up again.
@@ -318,6 +400,14 @@ func _physics_process(delta: float) -> void:
 	var reloading := state == State.RELOADING or state == State.CLEARING
 	_tilt = move_toward(_tilt, -0.45 if reloading else 0.0, delta * 4.0)
 	rotation = deg_to_rad(stats.move_sway_deg()) * sway * lerpf(1.0, 0.4, _ads)
+	# Spent disposable launcher: toss it and go back to the primary.
+	if stats.disposable and state == State.READY and not _has_round() and mags.is_empty():
+		_drop_t += delta
+		if _drop_t > 0.6:
+			_drop_t = 0.0
+			drop_support()
+	else:
+		_drop_t = 0.0
 	_update_state(delta)
 	_drop_empty_mag()
 	_update_block()
@@ -347,7 +437,9 @@ func _update_trigger(delta: float) -> void:
 
 
 func _try_fire() -> bool:
-	if state != State.READY or jammed or blocked > 0.0 or not _has_round() or _player.dead:
+	if state != State.READY or jammed or blocked > 0.0 or not _has_round() or _player.dead or _player.deploying:
+		return false
+	if _player.sprinting or _player.is_diving():
 		return false
 	Game.add_stat("shots")
 	if stats.closed_bolt:
@@ -374,7 +466,8 @@ func _try_fire() -> bool:
 			var off := clampf(randfn(0.0, spread / 4.0), -spread / 2.0, spread / 2.0)
 			var dir := Vector2.UP.rotated(global_rotation + deg_to_rad(off))
 			_projectiles.spawn_bullet(muzzle, dir * speed, stats, _player)
-	_projectiles.spawn_casing(to_global(Vector2(3, -12)), global_rotation)
+	if stats.bullet_type != FirearmStats.BulletType.ROCKET:
+		_projectiles.spawn_casing(to_global(Vector2(3, -12)), global_rotation)
 	get_tree().call_group("enemies", "hear", global_position, stats.sound, stats.sound_falloff)
 
 	# Vertical: eased stacking, each shot adds less the closer the stack is to 1.

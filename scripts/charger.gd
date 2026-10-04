@@ -1,6 +1,6 @@
-class_name Grawl
+class_name Charger
 extends CharacterBody2D
-## Heavy charger enemy (Helldivers 2 "Charger"-like).
+## Charger: heavy armored Terminid (Helldivers 2 Charger).
 ## - Armor by facing: front plates AC5, sides AC3, rear sac AC1 (and the rear sac is a
 ##   weak spot: hits from behind always count as critical). Flank it.
 ## - Very heavy: light weapons barely stagger it; explosives can.
@@ -20,7 +20,7 @@ const FRONT_AC := 5
 const SIDE_AC := 3
 const REAR_AC := 1
 const REAR_CRIT_MULT := 2.0
-## Stagger thresholds (same idea as zombies, much heavier).
+## Stagger thresholds (same idea as Terminids, much heavier).
 const STUN_DECAY := 0.4
 
 @export var max_hp := 1000.0
@@ -62,7 +62,7 @@ var _stuck := 0.0
 func _ready() -> void:
 	hp = max_hp
 	add_to_group("enemies")
-	add_to_group("grawls")
+	add_to_group("chargers")
 	add_to_group("concealable")
 	motion_mode = CharacterBody2D.MOTION_MODE_FLOATING
 	collision_layer = 2
@@ -318,7 +318,7 @@ func _die() -> void:
 	state = State.DEAD
 	Game.add_stat("kills")
 	remove_from_group("enemies")
-	remove_from_group("grawls")
+	remove_from_group("chargers")
 	_col.set_deferred("disabled", true)
 	z_index = -1
 	velocity = Vector2.ZERO

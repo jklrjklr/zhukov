@@ -1,4 +1,4 @@
-[gd_scene load_steps=8 format=3]
+[gd_scene load_steps=9 format=3]
 
 [ext_resource type="Script" path="res://scripts/mission/mission_map.gd" id="1_map"]
 [ext_resource type="PackedScene" path="res://scenes/player.tscn" id="2_player"]
@@ -6,6 +6,8 @@
 [ext_resource type="Script" path="res://scripts/weapons/projectiles.gd" id="4_proj"]
 [ext_resource type="Script" path="res://scripts/ui/hud.gd" id="5_hud"]
 [ext_resource type="Script" path="res://scripts/mission/mission.gd" id="6_mission"]
+
+[ext_resource type="Script" path="res://scripts/stratagems.gd" id="7_strat"]
 
 [node name="MissionScene" type="Node2D"]
 
@@ -20,6 +22,9 @@ script = ExtResource("4_proj")
 
 [node name="Mission" type="Node2D" parent="."]
 script = ExtResource("6_mission")
+
+[node name="Stratagems" type="Node2D" parent="."]
+script = ExtResource("7_strat")
 
 [node name="HUD" type="CanvasLayer" parent="."]
 

@@ -17,6 +17,7 @@ var hp := 150.0
 var _flash := 0.0
 var _debris: Array[Dictionary] = []
 var _col: CollisionShape2D
+var _occluder: LightOccluder2D
 ## Spiky canopy outline (trees), built once.
 var _canopy := PackedVector2Array()
 var _canopy_inner := PackedVector2Array()
@@ -48,6 +49,7 @@ func _ready() -> void:
 			var r := RectangleShape2D.new()
 			r.size = Vector2(40, 40)
 			_col.shape = r
+			_occluder = Vision.add_occluder(self, Vision.rect_points(r.size))
 		Kind.NEST:
 			var nc := CircleShape2D.new()
 			nc.radius = 30.0
@@ -57,6 +59,7 @@ func _ready() -> void:
 			var c := CircleShape2D.new()
 			c.radius = 12.0 # trunk; bullets fly under the canopy
 			_col.shape = c
+			_occluder = Vision.add_occluder(self, Vision.circle_points(12.0))
 			z_index = 2 # canopy over player
 			var spin := fmod(position.x * 0.013 + position.y * 0.007, TAU)
 			_canopy = _star(18, 60.0, 40.0, spin)
@@ -89,6 +92,8 @@ func is_destroyed() -> bool:
 
 func _destroy(dir: Vector2) -> void:
 	destroyed.emit(self)
+	if _occluder:
+		_occluder.queue_free()
 	remove_from_group("nests")
 	_col.set_deferred("disabled", true)
 	z_index = 0

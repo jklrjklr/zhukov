@@ -5,7 +5,7 @@ extends StaticBody2D
 
 signal activated(it: Interactable)
 
-enum Kind { TERMINAL, EXTRACT_CONSOLE, AMMO }
+enum Kind { TERMINAL, EXTRACT_CONSOLE, AMMO, RESUPPLY_POD, SUPPORT_POD }
 
 @export var kind := Kind.TERMINAL
 @export var hold_time := 6.0
@@ -17,6 +17,10 @@ enum Kind { TERMINAL, EXTRACT_CONSOLE, AMMO }
 
 var progress := 0.0
 var used := false
+## Times it can be used (pods hold several boxes / launchers).
+var uses := 1
+## Support pod: weapon it hands out.
+var payload: FirearmStats
 var _blink := 0.0
 
 
@@ -35,6 +39,15 @@ static func make(k: Kind) -> Interactable:
 			it.hold_time = 0.6
 			it.label = "RESUPPLY"
 			it.reach_m = 1.8
+		Kind.RESUPPLY_POD:
+			it.hold_time = 0.6
+			it.label = "TAKE SUPPLIES"
+			it.uses = 2
+		Kind.SUPPORT_POD:
+			it.hold_time = 0.6
+			it.label = "TAKE EAT-17"
+			it.uses = 2
+			it.payload = load("res://weapons/eat17.tres")
 	return it
 
 
@@ -43,6 +56,8 @@ func _ready() -> void:
 	var col := CollisionShape2D.new()
 	var r := RectangleShape2D.new()
 	r.size = Vector2(34, 26) if kind != Kind.AMMO else Vector2(30, 22)
+	if kind == Kind.RESUPPLY_POD or kind == Kind.SUPPORT_POD:
+		r.size = Vector2(36, 36)
 	col.shape = r
 	add_child(col)
 
@@ -56,8 +71,9 @@ func hold(delta: float, _by: Node) -> void:
 		return
 	progress += delta
 	if progress >= hold_time:
-		progress = hold_time
-		used = true
+		progress = 0.0
+		uses -= 1
+		used = uses <= 0
 		activated.emit(self)
 		queue_redraw()
 
@@ -80,6 +96,18 @@ func _draw() -> void:
 			if kind == Kind.TERMINAL:
 				draw_line(Vector2(10, -13), Vector2(16, -30), outline, 3.0) # antenna
 				draw_circle(Vector2(16, -30), 3.0, Color(0.9, 0.2, 0.15) if not used else Color(0.2, 0.9, 0.4))
+		Kind.RESUPPLY_POD, Kind.SUPPORT_POD:
+			# Drop pod: round hull, colored fins, hatch.
+			var fin := Color(0.25, 0.55, 0.95) if kind == Kind.RESUPPLY_POD else Color(0.3, 0.75, 0.35)
+			for i in 4:
+				var a := TAU * i / 4.0 + PI / 4.0
+				draw_line(Vector2.ZERO, Vector2.from_angle(a) * 26.0, outline, 7.0)
+				draw_line(Vector2.ZERO, Vector2.from_angle(a) * 25.0, fin, 4.0)
+			draw_circle(Vector2.ZERO, 19.5, outline)
+			draw_circle(Vector2.ZERO, 18.0, Color(0.32, 0.34, 0.36) if not used else Color(0.2, 0.2, 0.2))
+			draw_circle(Vector2.ZERO, 10.0, fin.darkened(0.2) if not used else Color(0.15, 0.15, 0.15))
+			for i in uses:
+				draw_circle(Vector2(-6 + i * 12, 0), 3.0, UiStyle.YELLOW)
 		Kind.AMMO:
 			var c := Color(0.25, 0.35, 0.2) if not used else Color(0.18, 0.2, 0.17)
 			draw_rect(Rect2(-16.5, -12.5, 33, 25), outline)

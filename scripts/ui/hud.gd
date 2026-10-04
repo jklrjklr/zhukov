@@ -17,6 +17,7 @@ var _mission: Mission
 var _map_open := false
 var _paused := false
 var _buttons := {} # name -> Rect2 of the current frame
+var _strat: Stratagems
 
 
 func _ready() -> void:
@@ -28,6 +29,8 @@ func _ready() -> void:
 
 
 func _process(_delta: float) -> void:
+	if _strat == null:
+		_strat = get_tree().get_first_node_in_group("stratagems") as Stratagems
 	queue_redraw()
 
 
@@ -112,6 +115,7 @@ func _draw() -> void:
 	_draw_top_buttons(vp)
 	_draw_messages(vp)
 	_draw_interact_prompt(vp)
+	_draw_stratagems(vp)
 	_draw_player_panel(vp)
 	_draw_perf(vp)
 	if _player.dead:
@@ -239,6 +243,46 @@ func _draw_extraction(vp: Vector2) -> void:
 		UiStyle.bar(self, r, _mission.board_progress(), UiStyle.YELLOW)
 
 
+## Stratagem list while entering a code: name, arrows (matched part lit), cooldown.
+func _draw_stratagems(_vp: Vector2) -> void:
+	if _strat == null or not _strat.entering:
+		return
+	var x := 150.0
+	var y := 200.0
+	var row := 46.0
+	var r := Rect2(x, y, 400, 20 + row * _strat.equipped.size())
+	UiStyle.panel(self, r, UiStyle.PANEL_SOLID)
+	UiStyle.accent(self, r, UiStyle.RED if _strat.error_t > 0.0 else UiStyle.YELLOW)
+	var yy := y + 18.0
+	for id in _strat.equipped:
+		var def: Dictionary = Stratagems.DEFS[id]
+		var ok := _strat.available(id)
+		var lit := ok and _strat.matches_prefix(id)
+		var col: Color = def.color if ok else Color(0.5, 0.5, 0.5)
+		draw_rect(Rect2(x + 14, yy, 30, 30), Color(col, 0.85))
+		UiStyle.text(self, Vector2(x + 54, yy + 12), def.name, 14, UiStyle.TEXT if ok else UiStyle.TEXT_DIM)
+		if ok:
+			var code: Array = def.code
+			for i in code.size():
+				var on := lit and i < _strat.input.size()
+				var c := Vector2(x + 62 + i * 22, yy + 24)
+				_code_arrow(c, int(code[i]), UiStyle.YELLOW if on else (UiStyle.TEXT if lit else UiStyle.TEXT_DIM))
+			var st: Dictionary = _strat.status[id]
+			if st.uses > 0:
+				UiStyle.text(self, Vector2(x + 300, yy + 24), "x%d" % st.uses, 13, UiStyle.TEXT_DIM)
+		else:
+			var w := _strat.wait_time(id)
+			var what := "rearming" if (_strat.status[id] as Dictionary).uses == 0 else "cooldown"
+			UiStyle.text(self, Vector2(x + 54, yy + 30), "%s %d:%02d" % [what, int(w) / 60, int(w) % 60], 13, UiStyle.TEXT_DIM)
+		yy += row
+
+
+func _code_arrow(c: Vector2, d: int, col: Color) -> void:
+	var v: Vector2 = [Vector2.UP, Vector2.DOWN, Vector2.LEFT, Vector2.RIGHT][d]
+	var side := v.orthogonal()
+	draw_colored_polygon(PackedVector2Array([c + v * 7.0, c - v * 5.0 + side * 6.0, c - v * 5.0 - side * 6.0]), col)
+
+
 func _draw_interact_prompt(vp: Vector2) -> void:
 	var it: Interactable = _player.interact_target
 	if it == null or _player.dead:
@@ -261,6 +305,8 @@ func _draw_player_panel(vp: Vector2) -> void:
 	var hp_col := UiStyle.RED if hp_frac < 0.3 else (UiStyle.YELLOW if hp_frac < 0.6 else UiStyle.TEXT)
 	UiStyle.text(self, Vector2(x, y + 24), "health", 13, UiStyle.TEXT_DIM)
 	UiStyle.bar(self, Rect2(x, y + 32, 200, 16), hp_frac, hp_col, 10)
+	if _player.stamina < 1.0:
+		draw_rect(Rect2(x, y + 50, 200 * _player.stamina, 3), UiStyle.BLUE)
 	if _player.is_healing():
 		UiStyle.text(self, Vector2(x + 120, y + 24), "stimmed", 13, UiStyle.GREEN)
 	# Stims / grenades pips
@@ -276,6 +322,9 @@ func _draw_player_panel(vp: Vector2) -> void:
 	draw_line(Vector2(wx - 14, y + 12), Vector2(wx - 14, y + 74), Color(1, 1, 1, 0.15), 2.0)
 	var w := _weapon
 	UiStyle.text(self, Vector2(wx, y + 24), "%s  %s" % [w.stats.display_name, w.fire_mode_name()], 15, UiStyle.YELLOW)
+	if w.has_support():
+		var other: FirearmStats = w.slots[1 - w.slot].stats
+		UiStyle.text(self, Vector2(wx + 150, y + 78), "swap: " + other.display_name, 12, UiStyle.GREEN)
 	var total := w.rounds_loaded()
 	# "+1" only when a tactical reload put a full mag behind a chambered round.
 	var rounds := "%d+1" % w.stats.mag_size if total > w.stats.mag_size else "%d" % total
@@ -388,7 +437,7 @@ func _draw_end(vp: Vector2) -> void:
 	var rows := [
 		["mission time", "%02d:%02d" % [t / 60, t % 60]],
 		["objectives", "%d / %d" % [main_done, main_total]],
-		["optional", "done" if _mission.objective("grawl").done else "-"],
+		["optional", "done" if _mission.objective("charger").done else "-"],
 		["kills", str(s.kills)],
 		["accuracy", "%d%%" % roundi(Game.accuracy())],
 		["shots fired", str(s.shots)],

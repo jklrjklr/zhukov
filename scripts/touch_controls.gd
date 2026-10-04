@@ -6,12 +6,15 @@ extends Control
 ## - ADS: tap toggles aim down sights; press and swipe up/down sets aim distance.
 ##   While aiming, any right-side swipe (and dragging FIRE) also moves aim distance
 ##   with its vertical motion.
-## - INTERACT (hold) appears next to terminals, consoles and ammo boxes.
+## - INTERACT (hold) appears next to terminals, consoles, ammo boxes and pods.
+## - STRATAGEM (left): opens the stratagem menu; enter the code with the D-pad or by
+##   swiping on the right half (one swipe = one arrow). Tap again to cancel.
+## - DIVE: lunge and drop prone. SWAP: primary <-> support weapon (when carrying one).
 ## On web, the top-right corner toggles fullscreen.
 ## Info (health, ammo, objectives...) is drawn by the HUD; this node only draws the
 ## controls and the aim overlay.
 ## Desktop: mouse is emulated as touch index 0 (plus WASD / Q,E, Space, R, B, F, Z/X,
-## G grenade, H stim, hold V interact).
+## G grenade, H stim, hold V interact, Ctrl stratagems + arrow keys, C dive, T swap).
 
 @export var player_path: NodePath
 @export var joystick_radius := 110.0
@@ -31,6 +34,11 @@ const ADS_TURN_MULT := 0.5
 ## A press on ADS shorter/smaller than this is a tap (toggle).
 const TAP_MS := 300
 const TAP_PX := 14.0
+const STRAT_RADIUS := 46.0
+const DPAD_RADIUS := 50.0
+const DPAD_GAP := 105.0
+## Minimum swipe length for a stratagem arrow (px).
+const SWIPE_MIN := 40.0
 
 var _player: Node
 var _weapon: Firearm
@@ -49,6 +57,9 @@ var _ads_start := Vector2.ZERO
 var _ads_press_ms := 0
 var _ads_was_on := false
 var _interact_index := -1
+var _strat: Stratagems
+var _swipe_index := -1
+var _swipe_start := Vector2.ZERO
 
 
 func _ready() -> void:
@@ -57,6 +68,8 @@ func _ready() -> void:
 
 
 func _process(_delta: float) -> void:
+	if _strat == null:
+		_strat = get_tree().get_first_node_in_group("stratagems") as Stratagems
 	_player.interacting = _interact_index != -1 or Input.is_physical_key_pressed(KEY_V)
 	queue_redraw()
 
@@ -74,6 +87,21 @@ func _unhandled_key_input(event: InputEvent) -> void:
 				_player.throw_grenade()
 			KEY_H:
 				_player.use_stim()
+			KEY_C:
+				_player.dive()
+			KEY_T:
+				_weapon.switch_weapon()
+			KEY_CTRL:
+				if _strat:
+					_strat.toggle_menu()
+			KEY_UP:
+				if _strat: _strat.push(Stratagems.Dir.UP)
+			KEY_DOWN:
+				if _strat: _strat.push(Stratagems.Dir.DOWN)
+			KEY_LEFT:
+				if _strat: _strat.push(Stratagems.Dir.LEFT)
+			KEY_RIGHT:
+				if _strat: _strat.push(Stratagems.Dir.RIGHT)
 
 
 func _input(event: InputEvent) -> void:
@@ -88,9 +116,25 @@ func _input(event: InputEvent) -> void:
 
 func _on_touch(e: InputEventScreenTouch) -> void:
 	var vp := get_viewport_rect().size
+	var entering := _strat != null and _strat.entering
 	if e.pressed:
 		if OS.has_feature("web") and _fullscreen_rect().has_point(e.position):
 			_toggle_fullscreen()
+		elif _strat and e.position.distance_to(_strat_center()) < STRAT_RADIUS:
+			_release_fire()
+			_weapon.ads = false
+			_strat.toggle_menu()
+		elif entering and e.position.x >= vp.x * 0.5:
+			var d := _dpad_at(e.position)
+			if d >= 0:
+				_strat.push(d)
+			elif _swipe_index == -1:
+				_swipe_index = e.index
+				_swipe_start = e.position
+		elif e.position.distance_to(_dive_center()) < SMALL_RADIUS:
+			_player.dive()
+		elif _weapon.has_support() and e.position.distance_to(_swap_center()) < SMALL_RADIUS:
+			_weapon.switch_weapon()
 		elif e.position.distance_to(_fire_center()) < FIRE_RADIUS and _fire_index == -1:
 			_fire_index = e.index
 			_fire_last = e.position
@@ -129,6 +173,14 @@ func _on_touch(e: InputEventScreenTouch) -> void:
 			_release_fire()
 		elif e.index == _interact_index:
 			_interact_index = -1
+		elif e.index == _swipe_index:
+			_swipe_index = -1
+			var d := e.position - _swipe_start
+			if _strat and d.length() >= SWIPE_MIN:
+				if absf(d.x) > absf(d.y):
+					_strat.push(Stratagems.Dir.RIGHT if d.x > 0 else Stratagems.Dir.LEFT)
+				else:
+					_strat.push(Stratagems.Dir.DOWN if d.y > 0 else Stratagems.Dir.UP)
 		elif e.index == _ads_index:
 			_ads_index = -1
 			var tap := Time.get_ticks_msec() - _ads_press_ms < TAP_MS and e.position.distance_to(_ads_start) < TAP_PX
@@ -185,6 +237,36 @@ func _release_fire() -> void:
 
 func _interact_visible() -> bool:
 	return _player.interact_target != null
+
+
+func _strat_center() -> Vector2:
+	return Vector2(90, 260)
+
+
+func _dive_center() -> Vector2:
+	var vp := get_viewport_rect().size
+	return Vector2(vp.x - 52, vp.y - 52)
+
+
+func _swap_center() -> Vector2:
+	var vp := get_viewport_rect().size
+	return Vector2(vp.x - 60, vp.y - 440)
+
+
+func _dpad_center() -> Vector2:
+	var vp := get_viewport_rect().size
+	return Vector2(vp.x - 230, vp.y * 0.55)
+
+
+## Which D-pad arrow is at p (-1 = none).
+func _dpad_at(p: Vector2) -> int:
+	var c := _dpad_center()
+	var dirs := {Stratagems.Dir.UP: Vector2.UP, Stratagems.Dir.DOWN: Vector2.DOWN,
+		Stratagems.Dir.LEFT: Vector2.LEFT, Stratagems.Dir.RIGHT: Vector2.RIGHT}
+	for d in dirs:
+		if p.distance_to(c + (dirs[d] as Vector2) * DPAD_GAP) < DPAD_RADIUS:
+			return d
+	return -1
 
 
 func _fire_center() -> Vector2:
@@ -250,7 +332,25 @@ func _draw() -> void:
 		draw_arc(hint, joystick_radius, 0, TAU, 48, Color(1, 1, 1, 0.12), 3.0)
 		UiStyle.text(self, hint + Vector2(-60, 6), "move", 18, Color(1, 1, 1, 0.25), HORIZONTAL_ALIGNMENT_CENTER, 120)
 
+	# Stratagem menu toggle + D-pad while entering a code
+	var entering := _strat != null and _strat.entering
+	if _strat:
+		_button(_strat_center(), STRAT_RADIUS, "STRAT", entering, 15)
+	if entering:
+		var c := _dpad_center()
+		var dirs := [Vector2.UP, Vector2.DOWN, Vector2.LEFT, Vector2.RIGHT]
+		for v in dirs:
+			var bc: Vector2 = c + v * DPAD_GAP
+			draw_circle(bc, DPAD_RADIUS, Color(0, 0, 0, 0.5))
+			draw_arc(bc, DPAD_RADIUS, 0, TAU, 32, UiStyle.YELLOW, 2.5)
+			_arrow(bc, v, 20.0, UiStyle.YELLOW)
+		UiStyle.text(self, c + Vector2(-100, 8), "swipe or tap", 14, UiStyle.TEXT_DIM, HORIZONTAL_ALIGNMENT_CENTER, 200)
+		return
+
 	_button(_fire_center(), FIRE_RADIUS, "FIRE", _fire_index != -1, 24, UiStyle.RED)
+	_button(_dive_center(), SMALL_RADIUS - 4, "DIVE", _player.is_diving(), 14)
+	if _weapon.has_support():
+		_button(_swap_center(), SMALL_RADIUS, "SWAP", _weapon.slot == 1, 14, UiStyle.GREEN)
 	var w := _weapon
 	var busy := w.state == Firearm.State.RELOADING or w.state == Firearm.State.CLEARING
 	_button(_reload_center(), SMALL_RADIUS, "CLEAR" if w.jammed else "RELOAD", false, 14)
@@ -281,6 +381,13 @@ func _draw() -> void:
 			var sy := 1.0 if c.y == r.position.y else -1.0
 			draw_line(c, c + Vector2(l * sx, 0), UiStyle.TEXT_DIM, 3.0)
 			draw_line(c, c + Vector2(0, l * sy), UiStyle.TEXT_DIM, 3.0)
+
+
+## Filled arrow triangle pointing along v.
+func _arrow(c: Vector2, v: Vector2, size: float, col: Color) -> void:
+	var side := v.orthogonal()
+	draw_colored_polygon(PackedVector2Array([c + v * size, c - v * size * 0.6 + side * size * 0.8,
+		c - v * size * 0.6 - side * size * 0.8]), col)
 
 
 ## Round control: dark glass, accent ring, label; filled with the accent when active.

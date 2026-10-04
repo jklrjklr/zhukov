@@ -12,16 +12,16 @@ const ARMORED_CLASSES := [1, 2, 3, 4, 6]
 const CRATES := [Vector2(-220, -60), Vector2(-265, -60), Vector2(-220, -105), Vector2(-320, 120)]
 const TREES := [Vector2(-330, -300), Vector2(380, 260)]
 const RANDOM_TREES := 30
-## Zombies kept alive on the map; respawned in packs out of sight, away from the player.
-const ZOMBIE_COUNT := 24
-const ZOMBIE_MIN_SPAWN_M := 25.0
+## Terminids kept alive on the map; respawned in packs out of sight, away from the player.
+const BUG_COUNT := 14
+const BUG_MIN_SPAWN_M := 25.0
 const PACK_MIN := 3
 const PACK_MAX := 6
 
 var _dummy_script := preload("res://scripts/target_dummy.gd")
 
 var _rocks: Array[Dictionary] = []
-## First zombies spawn after a couple of physics ticks, once rocks are in the
+## First bugs spawn after a couple of physics ticks, once rocks are in the
 ## physics space (so spawn spots can be checked).
 var _spawn_timer := 0.1
 var _next_pack := 0
@@ -45,6 +45,7 @@ func _ready() -> void:
 		var col := CollisionPolygon2D.new()
 		col.polygon = poly
 		body.add_child(col)
+		Vision.add_occluder(body, poly)
 		add_child(body)
 		var world_poly := PackedVector2Array()
 		for v in poly:
@@ -80,7 +81,7 @@ func _ready() -> void:
 
 	var test_wall := RectangleShape2D.new()
 	test_wall.size = TEST_WALL.size
-	_add_static_body(TEST_WALL.get_center(), test_wall)
+	Vision.add_occluder(_add_static_body(TEST_WALL.get_center(), test_wall), Vision.rect_points(TEST_WALL.size))
 
 	var t := 50.0
 	var s := HALF_SIZE * 2 + t * 2
@@ -100,11 +101,11 @@ func _physics_process(delta: float) -> void:
 	_spawn_timer -= delta
 	if _spawn_timer > 0.0:
 		return
-	var first := _spawn_timer > -1.0 and get_tree().get_nodes_in_group("zombies").is_empty()
+	var first := _spawn_timer > -1.0 and get_tree().get_nodes_in_group("terminids").is_empty()
 	_spawn_timer = 4.0
 	var player := get_tree().get_first_node_in_group("player") as Node2D
 	var away := player.global_position if player else Vector2.ZERO
-	var missing := ZOMBIE_COUNT - get_tree().get_nodes_in_group("zombies").size()
+	var missing := BUG_COUNT - get_tree().get_nodes_in_group("terminids").size()
 	while missing >= (1 if first else PACK_MIN):
 		var size := mini(randi_range(PACK_MIN, PACK_MAX), missing)
 		missing -= _spawn_pack(away, size)
@@ -112,14 +113,14 @@ func _physics_process(delta: float) -> void:
 			break
 
 
-## A pack of `size` zombies around a random free spot at least ZOMBIE_MIN_SPAWN_M
+## A pack of `size` bugs around a random free spot at least BUG_MIN_SPAWN_M
 ## from `away_from`. Returns how many were spawned.
 func _spawn_pack(away_from: Vector2, size: int) -> int:
 	for attempt in 30:
 		var p := Vector2(randf_range(-HALF_SIZE + 300, HALF_SIZE - 300), randf_range(-HALF_SIZE + 300, HALF_SIZE - 300))
-		if p.distance_to(away_from) >= ZOMBIE_MIN_SPAWN_M * Firearm.PX_PER_M and _is_free(p):
+		if p.distance_to(away_from) >= BUG_MIN_SPAWN_M * Firearm.PX_PER_M and _is_free(p):
 			_next_pack += 1
-			return maxi(Zombie.spawn_pack(self, p, size, _next_pack, _is_free).size(), 1)
+			return maxi(Terminid.spawn_pack(self, p, size, _next_pack, _is_free).size(), 1)
 	return 1 # give up this round; count it so the loop ends
 
 

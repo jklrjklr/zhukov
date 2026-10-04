@@ -4,7 +4,7 @@
 
 [resource]
 script = ExtResource("1_stats")
-display_name = "SMG-5"
+display_name = "MP-98 Knight"
 model = "smg5"
 caliber = "9x19mm"
 damage = 34.0

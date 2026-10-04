@@ -19,6 +19,15 @@ var _puffs: Array[Dictionary] = []
 var _grenades: Array[Dictionary] = []
 var _blasts: Array[Dictionary] = []
 var _scorches: Array[Dictionary] = []
+var _biles: Array[Dictionary] = []
+var _acid: Array[Dictionary] = []
+
+## Bile Spitter acid: lobbed blob -> pool that burns the player while inside.
+const BILE_FLIGHT := 0.9
+const BILE_SPLASH_DAMAGE := 18.0
+const ACID_RADIUS_M := 1.8
+const ACID_DPS := 10.0
+const ACID_TIME := 3.5
 
 ## Frag grenade.
 const GRENADE_FUSE := 2.2
@@ -30,6 +39,13 @@ const GRENADE_DESTRUCTION := 30
 const GRENADE_STAGGER := 160.0
 const GRENADE_SOUND := 140.0
 const GRENADE_SOUND_FALLOFF := 8.0
+## Explosion parameters for explode().
+const GRENADE_BLAST := {
+	"radius_m": GRENADE_RADIUS_M, "damage": GRENADE_DAMAGE, "ap": GRENADE_AP,
+	"armor_damage": GRENADE_ARMOR_DAMAGE, "destruction": GRENADE_DESTRUCTION,
+	"stagger": GRENADE_STAGGER, "sound": GRENADE_SOUND, "sound_falloff": GRENADE_SOUND_FALLOFF,
+	"self_mult": 0.6,
+}
 
 
 func _ready() -> void:
@@ -72,8 +88,30 @@ func spawn_grenade(from: Vector2, to: Vector2, thrower: CollisionObject2D) -> vo
 	_grenades.append({"from": from, "to": to, "pos": from, "t": 0.0, "flight": flight, "spin": randf() * TAU})
 
 
+func spawn_bile(from: Vector2, to: Vector2) -> void:
+	_biles.append({"from": from, "to": to, "pos": from, "t": 0.0})
+
+
+func _update_bile(delta: float) -> void:
+	var player := get_tree().get_first_node_in_group("player") as Node2D
+	for b in _biles:
+		b.t += delta
+		b.pos = (b.from as Vector2).lerp(b.to, clampf(b.t / BILE_FLIGHT, 0.0, 1.0))
+		if b.t >= BILE_FLIGHT:
+			_acid.append({"pos": b.to, "t": 0.0})
+			if player and player.global_position.distance_to(b.to) < ACID_RADIUS_M * PX:
+				player.take_damage(BILE_SPLASH_DAMAGE, b.to)
+	_biles = _biles.filter(func(b): return b.t < BILE_FLIGHT)
+	for a in _acid:
+		a.t += delta
+		if player and not player.dead and player.global_position.distance_to(a.pos) < ACID_RADIUS_M * PX:
+			player.take_damage(ACID_DPS * delta, a.pos, false)
+	_acid = _acid.filter(func(a): return a.t < ACID_TIME)
+
+
 func _physics_process(delta: float) -> void:
 	_update_grenades(delta)
+	_update_bile(delta)
 	var space := get_world_2d().direct_space_state
 	for i in range(_bullets.size() - 1, -1, -1):
 		var b: Dictionary = _bullets[i]
@@ -96,6 +134,8 @@ func _physics_process(delta: float) -> void:
 			b.dist += step.length()
 			if b.dead and b.land != null:
 				_puffs.append({"pos": b.pos, "t": 0.0, "ground": true})
+			if b.dead:
+				_rocket_blast(st, b.pos)
 			continue
 		var hit_pos: Vector2 = hit.position
 		var meters: float = (b.dist + pos.distance_to(hit_pos)) / PX
@@ -113,6 +153,7 @@ func _physics_process(delta: float) -> void:
 		_puffs.append({"pos": hit_pos, "t": 0.0})
 		b.pos = hit_pos
 		b.dead = true
+		_rocket_blast(st, hit_pos)
 
 	for c in _casings:
 		c.t += delta
@@ -137,21 +178,31 @@ func _physics_process(delta: float) -> void:
 	queue_redraw()
 
 
+func _rocket_blast(st: FirearmStats, at: Vector2) -> void:
+	if st.bullet_type != FirearmStats.BulletType.ROCKET or st.blast_radius <= 0.0:
+		return
+	explode(at, {"radius_m": st.blast_radius, "damage": st.blast_damage, "ap": st.armor_penetration,
+		"armor_damage": st.armor_damage * 0.3, "destruction": st.destruction_level, "stagger": st.stagger * 0.5,
+		"sound": st.sound, "sound_falloff": st.sound_falloff, "self_mult": 0.6})
+
+
 func _update_grenades(delta: float) -> void:
 	for g in _grenades:
 		g.t += delta
 		var k := clampf(g.t / g.flight, 0.0, 1.0)
 		g.pos = (g.from as Vector2).lerp(g.to, 1.0 - pow(1.0 - k, 2.0))
 		if g.t >= GRENADE_FUSE:
-			_explode(g.pos)
+			explode(g.pos, GRENADE_BLAST)
 	_grenades = _grenades.filter(func(g): return g.t < GRENADE_FUSE)
 
 
-func _explode(center: Vector2) -> void:
-	var r := GRENADE_RADIUS_M * PX
+## Blast at center. p: radius_m, damage, ap, armor_damage, destruction, stagger,
+## sound, sound_falloff, self_mult (fraction of damage the player takes).
+func explode(center: Vector2, p: Dictionary) -> void:
+	var r: float = p.radius_m * PX
 	_blasts.append({"pos": center, "t": 0.0, "r": r})
 	_scorches.append({"pos": center, "t": 0.0, "r": r * 0.35})
-	get_tree().call_group("enemies", "hear", center, GRENADE_SOUND, GRENADE_SOUND_FALLOFF)
+	get_tree().call_group("enemies", "hear", center, p.sound, p.sound_falloff)
 	var space := get_world_2d().direct_space_state
 	var shape := CircleShape2D.new()
 	shape.radius = r
@@ -175,19 +226,28 @@ func _explode(center: Vector2) -> void:
 		if dir == Vector2.ZERO:
 			dir = Vector2.UP
 		if body.has_method("take_damage"):
-			body.take_damage(GRENADE_DAMAGE * fall * 0.6, center) # own grenades hurt
+			body.take_damage(p.damage * fall * p.get("self_mult", 0.6), center) # friendly fire is real
 		elif body.has_method("take_hit"):
 			if body.is_in_group("enemies"):
 				Game.add_stat("hits")
 			body.take_hit({
-				"damage": GRENADE_DAMAGE * fall, "base_damage": GRENADE_DAMAGE,
-				"armor_penetration": GRENADE_AP, "armor_damage": GRENADE_ARMOR_DAMAGE * fall,
-				"destruction_level": GRENADE_DESTRUCTION, "stagger": GRENADE_STAGGER * fall,
+				"damage": p.damage * fall, "base_damage": p.damage,
+				"armor_penetration": p.ap, "armor_damage": p.armor_damage * fall,
+				"destruction_level": p.destruction, "stagger": p.stagger * fall,
 				"dir": dir, "meters": d / PX, "aim_point": null, "explosive": true,
 			})
 
 
 func _draw() -> void:
+	for a in _acid:
+		var fade := clampf(ACID_TIME - a.t, 0.0, 1.0)
+		draw_circle(a.pos, ACID_RADIUS_M * PX, Color(0.55, 0.75, 0.1, 0.35 * fade))
+		draw_circle(a.pos, ACID_RADIUS_M * PX * 0.6, Color(0.75, 0.95, 0.2, 0.3 * fade))
+	for b in _biles:
+		var k: float = b.t / BILE_FLIGHT
+		var lift := sin(k * PI) * 40.0
+		draw_circle(b.pos, 4.0, Color(0, 0, 0, 0.3))
+		draw_circle(b.pos + Vector2(0, -lift), 6.0, Color(0.7, 0.95, 0.2, 0.9))
 	for s in _scorches:
 		draw_circle(s.pos, s.r, Color(0.05, 0.04, 0.03, 0.45 * clampf(40.0 - s.t, 0.0, 1.0)))
 	for g in _grenades:
@@ -213,6 +273,12 @@ func _draw() -> void:
 	for b in _bullets:
 		var head: Vector2 = b.pos
 		var tail: Vector2 = b.tail
+		if (b.stats as FirearmStats).bullet_type == FirearmStats.BulletType.ROCKET:
+			var dir := (b.vel as Vector2).normalized()
+			draw_line(head - dir * 70.0, head, Color(0.8, 0.8, 0.8, 0.35), 6.0) # smoke
+			draw_line(head - dir * 14.0, head, Color(0.25, 0.28, 0.2), 5.0)
+			draw_circle(head - dir * 15.0, 3.5, Color(1, 0.7, 0.2))
+			continue
 		if head.distance_to(tail) > TRACER_LEN:
 			tail = head - (head - tail).normalized() * TRACER_LEN
 		draw_line(tail, head, Color(1, 0.85, 0.45, 0.25), 3.0)

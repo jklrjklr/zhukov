@@ -6,7 +6,7 @@ extends CharacterBody2D
 ## Movement has light inertia (accel/decel).
 ## Draw order: feet, torso, hands (this node) -> Firearm -> Head (children).
 
-@export var move_speed := 180.0 # px/s base walk (3 m/s); zombies scale from this
+@export var move_speed := 180.0 # px/s base walk (3 m/s); enemy speeds scale from this
 @export var keyboard_turn_speed := 2.8 # rad/s, desktop testing only
 ## Body turn rate (deg/s) at hip; scaled by weapon turn_multiplier and ADS.
 @export var body_turn_speed := 300.0
@@ -22,6 +22,14 @@ extends CharacterBody2D
 @export var stim_time := 1.2
 ## m: hip throw distance (ADS throws to the aim circle).
 @export var throw_distance := 10.0
+## Sprint: joystick pushed to the edge. Speed multiplier and seconds of stamina.
+@export var sprint_mult := 1.5
+@export var stamina_seconds := 6.0
+@export var stamina_regen_delay := 1.0
+## Dive: distance (m) and time (s), then prone recovery (s).
+@export var dive_distance := 3.5
+@export var dive_time := 0.4
+@export var prone_time := 0.55
 
 ## Where the camera looks (radians). Body rotation chases it.
 var look_angle := 0.0
@@ -36,6 +44,17 @@ var interacting := false
 ## Interactable currently in reach (or null).
 var interact_target: Interactable = null
 var _heal_left := 0.0
+## 0..1
+var stamina := 1.0
+var sprinting := false
+## True while the hellpod is still coming down (hidden, no control).
+var deploying := false
+var _stamina_idle := 0.0
+var _slow_t := 0.0
+var _dive_t := 0.0
+var _prone_t := 0.0
+var _dive_dir := Vector2.UP
+var _edge_t := 0.0
 
 ## Movement input in screen/local space, set by TouchControls.
 ## Length 0..1, (0, -1) = forward.
@@ -73,6 +92,24 @@ func _ready() -> void:
 	look_angle = rotation
 
 
+## Hunter strike etc.: move at half speed for t seconds.
+func apply_slow(t: float) -> void:
+	_slow_t = maxf(_slow_t, t)
+
+
+func dive() -> void:
+	if dead or deploying or _dive_t > 0.0 or _prone_t > 0.0:
+		return
+	var dir := move_input.rotated(look_angle) if move_input.length() > 0.2 else Vector2.UP.rotated(rotation)
+	_dive_dir = dir.normalized()
+	_dive_t = dive_time
+	weapon.trigger = false
+
+
+func is_diving() -> bool:
+	return _dive_t > 0.0 or _prone_t > 0.0
+
+
 func use_stim() -> void:
 	if dead or stims <= 0 or hp >= max_hp or _heal_left > 0.0:
 		return
@@ -105,22 +142,27 @@ func resupply() -> void:
 func revive(pos: Vector2) -> void:
 	dead = false
 	hp = max_hp
+	stamina = 1.0
+	_slow_t = 0.0
+	_dive_t = 0.0
+	_prone_t = 0.0
 	hurt = 0.0
 	_heal_left = 0.0
 	stims = max_stims
 	grenades = max_grenades
 	global_position = pos
 	velocity = Vector2.ZERO
-	weapon.reset_loadout()
+	weapon.reset_all()
 
 
-func take_damage(amount: float, from: Vector2) -> void:
-	if dead:
+func take_damage(amount: float, from: Vector2, knock := true) -> void:
+	if dead or deploying:
 		return
 	hp = maxf(hp - amount, 0.0)
-	hurt = 1.0
-	velocity += (global_position - from).normalized() * 160.0
-	kick(randf_range(-0.06, 0.06))
+	hurt = maxf(hurt, minf(1.0, amount / 20.0))
+	if knock:
+		velocity += (global_position - from).normalized() * 160.0
+		kick(randf_range(-0.06, 0.06))
 	if hp <= 0.0:
 		dead = true
 		Game.add_stat("deaths")
@@ -132,6 +174,10 @@ func take_damage(amount: float, from: Vector2) -> void:
 
 func _physics_process(delta: float) -> void:
 	hurt = maxf(hurt - delta * 1.5, 0.0)
+	_slow_t = maxf(_slow_t - delta, 0.0)
+	if deploying:
+		velocity = Vector2.ZERO
+		return
 	if _heal_left > 0.0 and not dead:
 		var h := minf(_heal_left, max_hp / stim_time * delta)
 		hp = minf(hp + h, max_hp)
@@ -154,11 +200,44 @@ func _physics_process(delta: float) -> void:
 	rotation = wrapf(rotation + clampf(diff, -max_step, max_step), -PI, PI)
 	_rig.rotation = wrapf(look_angle - rotation, -PI, PI)
 
+	# Dive: fast lunge, then a moment prone (can't move).
+	if _dive_t > 0.0:
+		_dive_t -= delta
+		velocity = _dive_dir * dive_distance * Firearm.PX_PER_M / dive_time
+		move_and_slide()
+		if _dive_t <= 0.0:
+			_prone_t = prone_time
+		_animate(delta)
+		return
+	if _prone_t > 0.0:
+		_prone_t -= delta
+		velocity = velocity.move_toward(Vector2.ZERO, deceleration * 2.0 * delta)
+		move_and_slide()
+		_animate(delta)
+		return
+
+	# Sprint: stick held at the edge (or Shift), not aiming, with stamina left.
+	_edge_t = _edge_t + delta if input.length() >= 0.97 else 0.0
+	var want_sprint := (_edge_t > 0.12 or Input.is_physical_key_pressed(KEY_SHIFT)) and input.length() > 0.5
+	sprinting = want_sprint and stamina > 0.0 and ads < 0.1 and not dead
+	if sprinting:
+		stamina = maxf(stamina - delta / stamina_seconds, 0.0)
+		_stamina_idle = 0.0
+		weapon.ads = false
+	else:
+		_stamina_idle += delta
+		if _stamina_idle > stamina_regen_delay:
+			stamina = minf(stamina + delta / (stamina_seconds * 0.6), 1.0)
+
 	# Joystick is screen-relative (camera); speed penalties are body-relative.
 	var dir_world := input.rotated(look_angle)
 	var ads_mult := lerpf(1.0, weapon.stats.ads_move_mult, ads)
 	var target := dir_world * move_speed * _direction_multiplier(dir_world.rotated(-rotation)) \
 		* weapon.stats.move_multiplier() * ads_mult
+	if sprinting:
+		target *= sprint_mult
+	if _slow_t > 0.0:
+		target *= 0.5
 	var rate := acceleration if target.length() > velocity.length() else deceleration
 	velocity = velocity.move_toward(target, rate * delta)
 	move_and_slide()
