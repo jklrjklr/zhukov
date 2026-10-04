@@ -4,7 +4,7 @@ extends Node2D
 ## Child of Player, origin at the pistol grip, muzzle toward -Y.
 
 const PX_PER_M := 60.0
-## px the camera is pushed back at full vertical recoil stack.
+## px the camera is kicked up (forward) at full vertical recoil stack (hip).
 const CAM_PUSH := 70.0
 ## Extra zoom at full vertical recoil stack.
 const CAM_ZOOM := 0.08
@@ -394,9 +394,9 @@ func _update_recoil(delta: float) -> void:
 		var k := minf(1.0, delta * 8.0)
 		_cam_zoom = lerpf(_cam_zoom, lerpf(1.0, ads_zoom, a), k)
 		_cam_offset = _cam_offset.lerp(_cam_base.lerp(ads_cam, a), k)
-		# Vertical recoil: hip pushes the view back toward the player; ADS pushes it
-		# forward (less than the aim circle moves).
-		var push := lerpf(eased * CAM_PUSH, -ads_recoil_push() * ADS_CAM_FOLLOW, a)
+		# Vertical recoil kicks the view up (forward) and zooms in, like muzzle rise.
+		# ADS: follows the aim circle's push (less than the circle moves).
+		var push := -lerpf(eased * CAM_PUSH, ads_recoil_push() * ADS_CAM_FOLLOW, a)
 		_camera.position = _cam_offset + Vector2(0, push) + _shake
 		_camera.zoom = Vector2.ONE * _cam_zoom * (1.0 + eased * CAM_ZOOM)
 
