@@ -2,6 +2,12 @@ extends StaticBody2D
 ## Practice target: floating damage numbers, distance label, optional armor, heals after a pause.
 ## Armor: hit factor = FirearmStats.armor_factor(ap, armor_class) scales both HP damage and
 ## armor damage. Armor at 0 durability is broken (class 0).
+## Critical: an aimed bullet whose landing point is on the head (within HEAD_RADIUS
+## sideways and not more than CRIT_DEPTH past the centre) does CRIT_MULT damage.
+
+const HEAD_RADIUS := 8.0
+const CRIT_DEPTH := 36.0
+const CRIT_MULT := 2.0
 
 @export var max_hp := 100.0
 @export_range(0, 10) var armor_class := 0
@@ -35,11 +41,20 @@ func take_hit(hit: Dictionary) -> void:
 	var f := FirearmStats.armor_factor(hit.armor_penetration, ac)
 	if ac > 0:
 		armor = maxf(armor - hit.armor_damage * f, 0.0)
-	var dmg: float = hit.damage * f
+	var crit := _is_crit(hit)
+	var dmg: float = hit.damage * f * (CRIT_MULT if crit else 1.0)
 	hp = maxf(hp - dmg, 0.0)
 	_since_hit = 0.0
-	var text := "BLOCK" if f <= 0.0 else "%d" % roundi(dmg)
-	_numbers.append({"text": text, "t": 0.0, "x": randf_range(-10, 10)})
+	var text := "BLOCK" if f <= 0.0 else ("CRIT %d" if crit else "%d") % roundi(dmg)
+	_numbers.append({"text": text, "t": 0.0, "x": randf_range(-10, 10), "crit": crit})
+
+
+func _is_crit(hit: Dictionary) -> bool:
+	if hit.get("aim_point") == null:
+		return false
+	var rel: Vector2 = hit.aim_point - global_position
+	var dir: Vector2 = hit.dir
+	return absf(rel.cross(dir)) <= HEAD_RADIUS and rel.dot(dir) <= CRIT_DEPTH
 
 
 func _process(delta: float) -> void:
@@ -80,5 +95,6 @@ func _draw() -> void:
 	for n in _numbers:
 		var a: float = 1.0 - n.t / 0.9
 		var p := Vector2(n.x - 30, -26 - n.t * 40.0)
-		draw_string(font, p, n.text, HORIZONTAL_ALIGNMENT_CENTER, 60, 20, Color(1, 0.95, 0.5, a))
+		var crit_col := Color(1, 0.35, 0.2, a) if n.crit else Color(1, 0.95, 0.5, a)
+		draw_string(font, p - Vector2(20, 0), n.text, HORIZONTAL_ALIGNMENT_CENTER, 100, 24 if n.crit else 20, crit_col)
 	draw_set_transform(Vector2.ZERO)

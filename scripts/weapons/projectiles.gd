@@ -2,7 +2,9 @@ extends Node2D
 ## Simulates and draws all bullets, ejected casings and impact puffs in one node
 ## (cheap on web). Bullets are ray-stepped each physics tick, so fast rounds never tunnel.
 ## Targets implement take_hit(hit: Dictionary): damage (after falloff), base_damage,
-## armor_penetration, armor_damage, destruction_level, dir, meters.
+## armor_penetration, armor_damage, destruction_level, dir, meters, aim_point.
+## Aimed (ADS) bullets have a landing point: they stop there (hit the ground) unless
+## something is in the way first. aim_point lets targets decide on critical hits.
 
 const PX := Firearm.PX_PER_M
 const TRACER_LEN := 140.0
@@ -16,10 +18,11 @@ func _ready() -> void:
 	add_to_group("projectiles")
 
 
-func spawn_bullet(pos: Vector2, vel: Vector2, stats: FirearmStats, shooter: CollisionObject2D) -> void:
+func spawn_bullet(pos: Vector2, vel: Vector2, stats: FirearmStats, shooter: CollisionObject2D, land: Variant = null) -> void:
 	_bullets.append({
 		"pos": pos, "tail": pos, "vel": vel, "dist": 0.0, "stats": stats,
 		"exclude": [shooter.get_rid()], "dead": false,
+		"land": land, "land_dist": pos.distance_to(land) if land != null else INF,
 	})
 
 
@@ -50,7 +53,7 @@ func _physics_process(delta: float) -> void:
 		var st: FirearmStats = b.stats
 		var pos: Vector2 = b.pos
 		var step: Vector2 = b.vel * delta
-		var remain: float = st.range_max * PX - b.dist
+		var remain: float = minf(st.range_max * PX, b.land_dist) - b.dist
 		if step.length() >= remain:
 			step = step.limit_length(remain)
 			b.dead = true
@@ -61,6 +64,8 @@ func _physics_process(delta: float) -> void:
 		if hit.is_empty():
 			b.pos = pos + step
 			b.dist += step.length()
+			if b.dead and b.land != null:
+				_puffs.append({"pos": b.pos, "t": 0.0, "ground": true})
 			continue
 		var hit_pos: Vector2 = hit.position
 		var meters: float = (b.dist + pos.distance_to(hit_pos)) / PX
@@ -70,7 +75,7 @@ func _physics_process(delta: float) -> void:
 				"damage": st.damage_at(meters), "base_damage": st.damage,
 				"armor_penetration": st.armor_penetration, "armor_damage": st.armor_damage,
 				"destruction_level": st.destruction_level,
-				"dir": (b.vel as Vector2).normalized(), "meters": meters,
+				"dir": (b.vel as Vector2).normalized(), "meters": meters, "aim_point": b.land,
 			})
 		_puffs.append({"pos": hit_pos, "t": 0.0})
 		b.pos = hit_pos
@@ -110,4 +115,7 @@ func _draw() -> void:
 		draw_line(head.lerp(tail, 0.4), head, Color(1, 0.95, 0.7, 0.9), 1.5)
 	for p in _puffs:
 		var k: float = p.t / 0.25
-		draw_circle(p.pos, 3.0 + k * 9.0, Color(0.9, 0.85, 0.7, 0.6 * (1.0 - k)))
+		if p.get("ground", false):
+			draw_circle(p.pos, 2.0 + k * 6.0, Color(0.55, 0.45, 0.3, 0.7 * (1.0 - k)))
+		else:
+			draw_circle(p.pos, 3.0 + k * 9.0, Color(0.9, 0.85, 0.7, 0.6 * (1.0 - k)))

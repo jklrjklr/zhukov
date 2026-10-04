@@ -3,8 +3,11 @@ extends Control
 ## - Left half: floating joystick (appears where the finger lands) -> move.
 ## - Right half: horizontal swipe -> turn (camera rotates with the player).
 ## - FIRE button (hold; dragging it also turns), RELOAD and fire MODE buttons.
+## - ADS button: tap toggles aim down sights; press and swipe up/down sets aim distance.
+##   While aiming, any right-side swipe (and dragging FIRE) also moves aim distance
+##   with its vertical motion.
 ## Top-right corner toggles fullscreen.
-## On desktop, mouse is emulated as touch index 0 (plus WASD / Q,E, Space, R, B).
+## On desktop, mouse is emulated as touch index 0 (plus WASD / Q,E, Space, R, B, F, Z/X).
 
 @export var player_path: NodePath
 @export var joystick_radius := 110.0
@@ -15,6 +18,14 @@ extends Control
 const FULLSCREEN_SIZE := Vector2(90, 90)
 const FIRE_RADIUS := 80.0
 const SMALL_RADIUS := 44.0
+const ADS_RADIUS := 50.0
+## Meters of aim distance per full-screen-height vertical swipe.
+const AIM_M_PER_SCREEN := 16.0
+## Turn sensitivity while fully aimed.
+const ADS_TURN_MULT := 0.5
+## A press on ADS shorter/smaller than this is a tap (toggle).
+const TAP_MS := 300
+const TAP_PX := 14.0
 
 var _player: Node
 var _weapon: Firearm
@@ -27,6 +38,11 @@ var _look_index := -1
 var _look_last := Vector2.ZERO
 var _fire_index := -1
 var _fire_last := Vector2.ZERO
+var _ads_index := -1
+var _ads_last := Vector2.ZERO
+var _ads_start := Vector2.ZERO
+var _ads_press_ms := 0
+var _ads_was_on := false
 
 
 func _ready() -> void:
@@ -61,6 +77,13 @@ func _on_touch(e: InputEventScreenTouch) -> void:
 			_fire_index = e.index
 			_fire_last = e.position
 			_weapon.trigger = true
+		elif e.position.distance_to(_ads_center()) < ADS_RADIUS and _ads_index == -1:
+			_ads_index = e.index
+			_ads_last = e.position
+			_ads_start = e.position
+			_ads_press_ms = Time.get_ticks_msec()
+			_ads_was_on = _weapon.ads
+			_weapon.ads = true
 		elif e.position.distance_to(_reload_center()) < SMALL_RADIUS:
 			_weapon.reload()
 		elif e.position.distance_to(_mode_center()) < SMALL_RADIUS:
@@ -80,6 +103,11 @@ func _on_touch(e: InputEventScreenTouch) -> void:
 			_look_index = -1
 		elif e.index == _fire_index:
 			_release_fire()
+		elif e.index == _ads_index:
+			_ads_index = -1
+			var tap := Time.get_ticks_msec() - _ads_press_ms < TAP_MS and e.position.distance_to(_ads_start) < TAP_PX
+			if tap and _ads_was_on:
+				_weapon.ads = false
 
 
 func _on_drag(e: InputEventScreenDrag) -> void:
@@ -90,15 +118,23 @@ func _on_drag(e: InputEventScreenDrag) -> void:
 		var strength := inverse_lerp(dead_zone, 1.0, v.length())
 		_player.move_input = v.normalized() * clampf(strength, 0.0, 1.0)
 	elif e.index == _look_index:
-		_turn(e.position.x - _look_last.x)
+		_aim_drag(e.position - _look_last, _weapon.ads)
 		_look_last = e.position
 	elif e.index == _fire_index:
-		_turn(e.position.x - _fire_last.x)
+		_aim_drag(e.position - _fire_last, _weapon.ads)
 		_fire_last = e.position
+	elif e.index == _ads_index:
+		_aim_drag(e.position - _ads_last, true)
+		_ads_last = e.position
 
 
-func _turn(dx: float) -> void:
-	_player.turn(dx / get_viewport_rect().size.x * turn_per_screen_width * _weapon.stats.turn_multiplier())
+## Horizontal turns; vertical moves the aim circle (up = farther) when adjusting.
+func _aim_drag(d: Vector2, adjust_distance: bool) -> void:
+	var vp := get_viewport_rect().size
+	var sens := lerpf(1.0, ADS_TURN_MULT, _weapon.ads_amount())
+	_player.turn(d.x / vp.x * turn_per_screen_width * _weapon.stats.turn_multiplier() * sens)
+	if adjust_distance:
+		_weapon.adjust_aim(-d.y / vp.y * AIM_M_PER_SCREEN)
 
 
 func _release_joystick() -> void:
@@ -121,6 +157,11 @@ func _fire_center() -> Vector2:
 func _reload_center() -> Vector2:
 	var vp := get_viewport_rect().size
 	return Vector2(vp.x - 320, vp.y - 90)
+
+
+func _ads_center() -> Vector2:
+	var vp := get_viewport_rect().size
+	return Vector2(vp.x - 330, vp.y - 250)
 
 
 func _mode_center() -> Vector2:
@@ -181,7 +222,18 @@ func _draw() -> void:
 	draw_arc(mc, SMALL_RADIUS, 0, TAU, 32, faint, 2.0)
 	draw_string(font, mc + Vector2(-40, 6), _weapon.fire_mode_name(), HORIZONTAL_ALIGNMENT_CENTER, 80, 16, white)
 
-	_draw_ammo(font, Vector2(vp.x - 330, vp.y - 290))
+	# ADS button: shows aim distance while aiming
+	var ac := _ads_center()
+	var on := _weapon.ads
+	draw_circle(ac, ADS_RADIUS, Color(1, 0.9, 0.3, 0.22) if on else Color(1, 1, 1, 0.1))
+	draw_arc(ac, ADS_RADIUS, 0, TAU, 40, Color(1, 0.9, 0.3, 0.7) if on else faint, 2.0)
+	draw_string(font, ac + Vector2(-40, -2 if on else 6), "ADS", HORIZONTAL_ALIGNMENT_CENTER, 80, 18, white)
+	if on:
+		draw_string(font, ac + Vector2(-40, 18), "%d m" % roundi(_weapon.aim_distance), HORIZONTAL_ALIGNMENT_CENTER, 80, 14, white)
+		draw_string(font, ac + Vector2(-40, -ADS_RADIUS - 6), "^", HORIZONTAL_ALIGNMENT_CENTER, 80, 14, faint)
+		draw_string(font, ac + Vector2(-40, ADS_RADIUS + 16), "v", HORIZONTAL_ALIGNMENT_CENTER, 80, 14, faint)
+
+	_draw_ammo(font, Vector2(vp.x - 290, 130))
 
 	# Fullscreen button (corner brackets)
 	var r := _fullscreen_rect().grow(-28)

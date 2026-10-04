@@ -42,7 +42,8 @@ func _physics_process(delta: float) -> void:
 	if kb != Vector2.ZERO:
 		input = kb
 	input = input.limit_length(1.0)
-	velocity = input.rotated(rotation) * move_speed * _direction_multiplier(input) * weapon.stats.move_multiplier()
+	var ads_mult := lerpf(1.0, weapon.stats.ads_move_mult, weapon.ads_amount())
+	velocity = input.rotated(rotation) * move_speed * _direction_multiplier(input) * weapon.stats.move_multiplier() * ads_mult
 	move_and_slide()
 	_animate(delta)
 

@@ -4,8 +4,9 @@ extends PointLight2D
 ## LightOccluder2Ds. Everything outside it stays dark (CanvasModulate in main scene).
 ## Nodes in group "concealable" (enemies, dummies) fade out when not in sight; close
 ## ones stay faintly visible ("you sense them"). Child of Player, rotates with it.
+## Aiming down sights narrows the cone to the weapon's ads_fov.
 
-const TEX_SIZE := 384
+const TEX_SIZE := 320
 const PX := Firearm.PX_PER_M
 ## Light mask bit used only for the player's own body light.
 const SELF_MASK := 2
@@ -20,13 +21,20 @@ const SELF_MASK := 2
 @export var sense_full := 3.0
 @export_range(0.0, 1.0) var sense_alpha := 0.55
 
+var _weapon: Firearm
+var _hip_tex: ImageTexture
+var _ads_tex: ImageTexture
+
 
 func _ready() -> void:
 	shadow_enabled = true
 	shadow_filter = Light2D.SHADOW_FILTER_PCF5
 	shadow_filter_smooth = 1.5
 	energy = 0.85
-	texture = _build_texture()
+	_weapon = get_parent().get_node("Firearm")
+	_hip_tex = _build_texture(fov_degrees)
+	_ads_tex = _build_texture(_weapon.stats.ads_fov)
+	texture = _hip_tex
 	texture_scale = view_distance * PX / (TEX_SIZE / 2.0)
 	range_item_cull_mask = 1
 	_setup_self_light()
@@ -46,8 +54,10 @@ static func make_occluder(points: PackedVector2Array) -> LightOccluder2D:
 func _physics_process(delta: float) -> void:
 	var player := get_parent() as CollisionObject2D
 	var space := get_world_2d().direct_space_state
+	var ads := _weapon.ads_amount()
+	texture = _ads_tex if ads >= 0.5 else _hip_tex
 	var forward := Vector2.UP.rotated(global_rotation)
-	var half_fov := deg_to_rad(fov_degrees / 2.0)
+	var half_fov := deg_to_rad(lerpf(fov_degrees, _weapon.stats.ads_fov, ads) / 2.0)
 	for n in get_tree().get_nodes_in_group("concealable"):
 		var item := n as CanvasItem
 		var to: Vector2 = item.global_position - global_position
@@ -89,8 +99,8 @@ func _setup_self_light() -> void:
 	add_child(self_light)
 
 
-func _build_texture() -> ImageTexture:
-	var half_fov := deg_to_rad(fov_degrees / 2.0)
+func _build_texture(fov: float) -> ImageTexture:
+	var half_fov := deg_to_rad(fov / 2.0)
 	var edge := deg_to_rad(6.0)
 	var c := TEX_SIZE / 2.0
 	var data := PackedByteArray()

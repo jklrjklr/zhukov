@@ -76,6 +76,14 @@ enum BulletType { NORMAL, PELLETS, FLECHETTE, INCENDIARY, ROCKET }
 ## m, for enemy hearing later.
 @export var noise_radius := 60.0
 
+@export_group("Aim down sights")
+## Sight cone while aiming (degrees).
+@export var ads_fov := 60.0
+## m, farthest aim circle distance.
+@export var ads_range := 20.0
+@export var ads_spread_mult := 0.6
+@export var ads_move_mult := 0.55
+
 @export_group("Art")
 ## px, weapon-local (grip at origin, muzzle toward -Y).
 @export var grip_hand := Vector2.ZERO
@@ -109,6 +117,11 @@ func roll_back_rate() -> float:
 ## Peak weapon swing (degrees) while walking at full speed.
 func move_sway_deg() -> float:
 	return lerpf(6.0, 2.0, ergo())
+
+
+## s to bring the sights up.
+func ads_time() -> float:
+	return lerpf(0.5, 0.2, ergo())
 
 
 func turn_multiplier() -> float:
