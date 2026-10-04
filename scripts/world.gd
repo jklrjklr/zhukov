@@ -1,10 +1,14 @@
 extends Node2D
-## Placeholder test arena: a gridded ground, random rocks and border walls.
-## Gives visual reference so movement and rotation can be judged.
+## Placeholder test arena: gridded ground (1 cell = 100 px), random rocks, border walls,
+## a firing lane of target dummies straight ahead (north) and a wall to test weapon length.
 
-const HALF_SIZE := 2000.0
+const HALF_SIZE := 3000.0
 const GRID := 100.0
-const ROCK_COUNT := 70
+const ROCK_COUNT := 110
+const DUMMY_METERS := [5, 10, 20, 35, 50]
+const TEST_WALL := Rect2(160, -40, 40, 200)
+
+var _dummy_script := preload("res://scripts/target_dummy.gd")
 
 var _rocks: Array[Dictionary] = []
 
@@ -18,11 +22,23 @@ func _ready() -> void:
 			rng.randf_range(-HALF_SIZE + 100, HALF_SIZE - 100))
 		if pos.length() < 300.0:
 			continue # keep spawn clear
+		if absf(pos.x) < 250.0 and pos.y < 0.0:
+			continue # keep firing lane clear
 		var radius := rng.randf_range(25.0, 80.0)
 		var shape := CircleShape2D.new()
 		shape.radius = radius
 		_add_static_body(pos, shape)
 		_rocks.append({"pos": pos, "radius": radius, "shade": rng.randf_range(0.3, 0.45)})
+
+	for i in DUMMY_METERS.size():
+		var dummy := StaticBody2D.new()
+		dummy.set_script(_dummy_script)
+		dummy.position = Vector2((i % 2 * 2 - 1) * 40.0, -DUMMY_METERS[i] * Firearm.PX_PER_M)
+		add_child(dummy)
+
+	var wall := RectangleShape2D.new()
+	wall.size = TEST_WALL.size
+	_add_static_body(TEST_WALL.get_center(), wall)
 
 	var t := 50.0
 	var s := HALF_SIZE * 2 + t * 2
@@ -59,4 +75,6 @@ func _draw() -> void:
 		var shade: float = r.shade
 		draw_circle(r.pos, r.radius, Color(shade, shade * 0.95, shade * 0.85))
 		draw_circle(r.pos + Vector2(-r.radius * 0.25, -r.radius * 0.25), r.radius * 0.5, Color(shade + 0.1, shade + 0.1, shade + 0.05))
+	draw_rect(TEST_WALL.grow(2.0), Color(0.1, 0.1, 0.1))
+	draw_rect(TEST_WALL, Color(0.45, 0.42, 0.38))
 	draw_rect(Rect2(-HALF_SIZE, -HALF_SIZE, HALF_SIZE * 2, HALF_SIZE * 2), Color(0.6, 0.15, 0.1), false, 12.0)

@@ -1,6 +1,7 @@
 extends CharacterBody2D
 ## Top-down player. The camera is a child that rotates with the player, so
 ## "forward" (local -Y) is always screen-up, like an FPS seen from above.
+## Draw order: feet, torso, hands (this node) -> Firearm -> Head (children).
 
 @export var move_speed := 260.0
 @export var keyboard_turn_speed := 2.8 # rad/s, desktop testing only
@@ -14,12 +15,18 @@ const SKIN := Color(0.96, 0.78, 0.6)
 const ARMOR := Color(0.95, 0.75, 0.15)
 const HELMET := Color(0.3, 0.32, 0.3)
 const BOOT := Color(0.22, 0.2, 0.18)
-const GUN := Color(0.18, 0.18, 0.2)
 const OUTLINE := Color(0.08, 0.08, 0.08)
 const STRIDE := 34.0 # px travelled per full step cycle
 
 var _walk_phase := 0.0 # radians, advances with distance moved
 var _walk_amount := 0.0 # 0 idle .. 1 full stride, eased
+
+@onready var weapon: Firearm = $Firearm
+@onready var _head: Node2D = $Head
+
+
+func _ready() -> void:
+	_head.draw.connect(_draw_head)
 
 
 func _physics_process(delta: float) -> void:
@@ -27,13 +34,13 @@ func _physics_process(delta: float) -> void:
 	var kb := _keyboard_move()
 	if kb != Vector2.ZERO:
 		input = kb
-	velocity = input.limit_length(1.0).rotated(rotation) * move_speed
+	velocity = input.limit_length(1.0).rotated(rotation) * move_speed * weapon.stats.move_multiplier()
 	move_and_slide()
 	_animate(delta)
 
 	var kb_turn := float(Input.is_physical_key_pressed(KEY_E)) - float(Input.is_physical_key_pressed(KEY_Q))
 	if kb_turn != 0.0:
-		turn(kb_turn * keyboard_turn_speed * delta)
+		turn(kb_turn * keyboard_turn_speed * weapon.stats.turn_multiplier() * delta)
 
 
 ## Positive = clockwise (turn right).
@@ -56,11 +63,6 @@ func _animate(delta: float) -> void:
 
 
 func _draw() -> void:
-	# Aim line
-	for i in 12:
-		var a := Vector2(0, -50 - i * 40)
-		draw_line(a, a + Vector2(0, -20), Color(1, 0.9, 0.3, 0.35 - i * 0.025), 2.0)
-
 	var swing := sin(_walk_phase) * _walk_amount
 	var bob := absf(cos(_walk_phase)) * _walk_amount
 
@@ -69,28 +71,23 @@ func _draw() -> void:
 	_shape_ellipse(Vector2(9, -6 + swing * 9), Vector2(4.5, 6.5), BOOT)
 
 	# Torso (wide shoulders, sways slightly opposite to feet)
-	var torso_rot := -swing * 0.12
-	draw_set_transform(Vector2.ZERO, torso_rot)
+	draw_set_transform(Vector2.ZERO, -swing * 0.12)
 	_shape_ellipse(Vector2(0, 1), Vector2(16, 10), ARMOR)
 	draw_set_transform(Vector2.ZERO)
 
-	# Gun held forward along the aim line
-	draw_rect(Rect2(-3, -44, 6, 30), OUTLINE)
-	draw_rect(Rect2(-2, -43, 4, 28), GUN)
-
-	# Hands: right on grip, left on handguard
-	var hand_bob := Vector2(0, bob * 1.5)
-	_shape_circle(Vector2(4, -17) + hand_bob, 4.0, SKIN)
-	_shape_circle(Vector2(-3, -31) + hand_bob, 4.0, SKIN)
-
-	# Head (helmet with visor facing forward)
-	_shape_circle(Vector2(0, 0), 7.0, HELMET)
-	draw_arc(Vector2(0, 0), 4.5, -PI * 0.8, -PI * 0.2, 10, Color(0.55, 0.85, 1.0), 2.5)
+	# Hands, under the weapon
+	for p in weapon.hand_points():
+		_shape_circle(self, p + Vector2(0, bob * 1.5), 4.0, SKIN)
 
 
-func _shape_circle(c: Vector2, r: float, col: Color) -> void:
-	draw_circle(c, r + 1.5, OUTLINE)
-	draw_circle(c, r, col)
+func _draw_head() -> void:
+	_shape_circle(_head, Vector2.ZERO, 7.0, HELMET)
+	_head.draw_arc(Vector2.ZERO, 4.5, -PI * 0.8, -PI * 0.2, 10, Color(0.55, 0.85, 1.0), 2.5)
+
+
+func _shape_circle(ci: CanvasItem, c: Vector2, r: float, col: Color) -> void:
+	ci.draw_circle(c, r + 1.5, OUTLINE)
+	ci.draw_circle(c, r, col)
 
 
 func _shape_ellipse(c: Vector2, radii: Vector2, col: Color) -> void:
