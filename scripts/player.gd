@@ -95,7 +95,7 @@ func _draw() -> void:
 	draw_set_transform(Vector2.ZERO)
 
 	# Chest mag pouches
-	for x in [-12.0, -6.5]:
+	for x in [-14.0, -9.5]:
 		draw_rect(Rect2(x - 2.5, -6, 5, 6.5), OUTLINE)
 		draw_rect(Rect2(x - 2, -5.5, 4, 5.5), POUCH)
 

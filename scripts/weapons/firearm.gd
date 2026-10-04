@@ -13,7 +13,7 @@ const MAG_SIZE_PX := Vector2(4.5, 10)
 ## Max px the weapon is pulled back when the muzzle is inside a wall.
 const MAX_PULL := 25.0
 ## Player space: chest mag pouch.
-const POUCH := Vector2(-9, -2)
+const POUCH := Vector2(-12, -3)
 ## px the cocking lever travels back.
 const BOLT_TRAVEL := 6.0
 
