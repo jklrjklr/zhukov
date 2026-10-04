@@ -82,6 +82,10 @@ enum BulletType { NORMAL, PELLETS, FLECHETTE, INCENDIARY, ROCKET }
 @export var support_hand := Vector2(0, -18)
 ## px of stock behind the grip.
 @export var stock_length := 10.0
+## Where the mag goes in (support hand target during reloads).
+@export var mag_well := Vector2(0, -9)
+## Cocking lever / charging handle (pulled on empty reload and jam clear).
+@export var bolt_handle := Vector2(-4, -20)
 
 
 func ergo() -> float:

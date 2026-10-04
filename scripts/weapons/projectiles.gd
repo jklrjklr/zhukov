@@ -28,6 +28,15 @@ func spawn_casing(pos: Vector2, rot: float) -> void:
 	_casings.append({
 		"pos": pos, "vel": Vector2(randf_range(110, 170), randf_range(-10, 40)).rotated(rot),
 		"rot": randf() * TAU, "spin": randf_range(-25, 25), "t": 0.0,
+		"size": Vector2(2.4, 5), "color": Color(0.85, 0.65, 0.25), "life": 3.0,
+	})
+
+
+## Generic dropped object (e.g. empty magazine) that slides to a stop and fades.
+func spawn_debris(pos: Vector2, vel: Vector2, rot: float, size: Vector2, color: Color, life: float) -> void:
+	_casings.append({
+		"pos": pos, "vel": vel, "rot": rot, "spin": randf_range(-4, 4), "t": 0.0,
+		"size": size, "color": color, "life": life,
 	})
 
 
@@ -74,7 +83,7 @@ func _physics_process(delta: float) -> void:
 		c.spin *= damp
 		c.pos += c.vel * delta
 		c.rot += c.spin * delta
-	_casings = _casings.filter(func(c): return c.t < 3.0)
+	_casings = _casings.filter(func(c): return c.t < c.life)
 	if _casings.size() > 150:
 		_casings = _casings.slice(_casings.size() - 150)
 
@@ -86,9 +95,11 @@ func _physics_process(delta: float) -> void:
 
 func _draw() -> void:
 	for c in _casings:
-		var a := clampf(3.0 - c.t, 0.0, 1.0)
+		var size: Vector2 = c.size
+		var col: Color = c.color
+		col.a = clampf(c.life - c.t, 0.0, 1.0)
 		draw_set_transform(c.pos, c.rot)
-		draw_rect(Rect2(-1.2, -2.5, 2.4, 5), Color(0.85, 0.65, 0.25, a))
+		draw_rect(Rect2(-size / 2.0, size), col)
 	draw_set_transform(Vector2.ZERO)
 	for b in _bullets:
 		var head: Vector2 = b.pos

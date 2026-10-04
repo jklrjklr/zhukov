@@ -41,3 +41,5 @@ noise_radius = 70.0
 grip_hand = Vector2(0, 0)
 support_hand = Vector2(0, -18)
 stock_length = 10.5
+mag_well = Vector2(0, -9)
+bolt_handle = Vector2(-4, -20)

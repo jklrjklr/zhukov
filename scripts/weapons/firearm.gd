@@ -8,8 +8,31 @@ const PX_PER_M := 60.0
 const CAM_PUSH := 70.0
 ## Extra zoom at full vertical recoil stack.
 const CAM_ZOOM := 0.08
+## Top-down size of a loose magazine.
+const MAG_SIZE_PX := Vector2(4.5, 10)
 ## Max px the weapon is pulled back when the muzzle is inside a wall.
 const MAX_PULL := 25.0
+## Player space: chest mag pouch.
+const POUCH := Vector2(-9, -2)
+## px the cocking lever travels back.
+const BOLT_TRAVEL := 6.0
+
+## Support hand keyframes: [progress, point]. Points: support, well, pouch, lever, lever_back.
+## Tactical: old mag out -> stowed in pouch -> fresh mag in.
+const TACTICAL_KEYS := [
+	[0.0, "support"], [0.12, "well"], [0.18, "well"], [0.38, "pouch"], [0.52, "pouch"],
+	[0.74, "well"], [0.84, "well"], [1.0, "support"]]
+const TACTICAL_MAG_IN_HAND := Vector2(0.15, 0.8)
+## Empty: empty mag dropped -> fresh mag from pouch -> in -> pull and slap the bolt.
+const EMPTY_KEYS := [
+	[0.0, "support"], [0.08, "well"], [0.12, "well"], [0.32, "pouch"], [0.4, "pouch"],
+	[0.6, "well"], [0.66, "well"], [0.74, "lever"], [0.82, "lever_back"], [0.86, "lever"],
+	[1.0, "support"]]
+const EMPTY_MAG_IN_HAND := Vector2(0.36, 0.64)
+const EMPTY_MAG_DROP := 0.12
+## Clearing a jam: rack the bolt.
+const CLEAR_KEYS := [
+	[0.0, "support"], [0.3, "lever"], [0.55, "lever_back"], [0.65, "lever"], [1.0, "support"]]
 
 enum State { DRAWING, READY, RELOADING, CLEARING }
 
@@ -42,6 +65,8 @@ var _since_shot := 99.0
 var _roll_back := 0.0
 var _kick := 0.0
 var _tilt := 0.0
+var _reload_empty := false
+var _mag_dropped := false
 var _flash := 0.0
 var _shake := Vector2.ZERO
 var _player: CharacterBody2D
@@ -97,8 +122,9 @@ func reload() -> void:
 		return
 	if mag >= stats.mag_size:
 		return
-	var empty := not _has_round()
-	_set_state(State.RELOADING, stats.reload_time_empty if empty else stats.reload_time_tactical)
+	_reload_empty = not _has_round()
+	_mag_dropped = false
+	_set_state(State.RELOADING, stats.reload_time_empty if _reload_empty else stats.reload_time_tactical)
 
 
 func current_spread_deg() -> float:
@@ -113,11 +139,78 @@ func muzzle_local() -> Vector2:
 ## Hand positions in Player space (hands sit under the weapon).
 func hand_points() -> Array[Vector2]:
 	var t := transform * _hold_transform()
-	var support := stats.support_hand
-	if state == State.RELOADING or state == State.CLEARING:
-		# Support hand goes to the mag well and back.
-		support = Vector2(-7, -9 + sin(state_progress() * TAU * 2.0) * 4.0)
-	return [t * stats.grip_hand, t * support]
+	var keys := _anim_keys()
+	var support := t * stats.support_hand if keys.is_empty() else _anim_hand(keys)
+	return [t * stats.grip_hand, support]
+
+
+## Player-space position of the mag carried by the support hand, or null.
+func held_mag() -> Variant:
+	if state != State.RELOADING:
+		return null
+	var p := state_progress()
+	var span := EMPTY_MAG_IN_HAND if _reload_empty else TACTICAL_MAG_IN_HAND
+	if p < span.x or p >= span.y:
+		return null
+	return _anim_hand(_anim_keys())
+
+
+## Rotation of the weapon in Player space (for drawing a held mag).
+func hold_rotation() -> float:
+	return rotation + _tilt
+
+
+func _anim_keys() -> Array:
+	match state:
+		State.RELOADING:
+			return EMPTY_KEYS if _reload_empty else TACTICAL_KEYS
+		State.CLEARING:
+			return CLEAR_KEYS
+	return []
+
+
+func _anim_point(name: String) -> Vector2:
+	var t := transform * _hold_transform()
+	match name:
+		"well":
+			return t * stats.mag_well
+		"pouch":
+			return POUCH
+		"lever":
+			return t * stats.bolt_handle
+		"lever_back":
+			return t * (stats.bolt_handle + Vector2(0, BOLT_TRAVEL))
+	return t * stats.support_hand
+
+
+## Eased support hand position along the keyframes at the current progress.
+func _anim_hand(keys: Array) -> Vector2:
+	var p := state_progress()
+	for i in keys.size() - 1:
+		var a: Array = keys[i]
+		var b: Array = keys[i + 1]
+		if p <= b[0]:
+			var k := smoothstep(0.0, 1.0, (p - a[0]) / maxf(b[0] - a[0], 0.0001))
+			return _anim_point(a[1]).lerp(_anim_point(b[1]), k)
+	return _anim_point(keys[-1][1])
+
+
+## 0..1 how far the cocking lever is pulled back (hand drags it).
+func _bolt_pull() -> float:
+	var keys := _anim_keys()
+	if keys.is_empty():
+		return 0.0
+	var p := state_progress()
+	for i in keys.size() - 1:
+		var a: Array = keys[i]
+		var b: Array = keys[i + 1]
+		if p <= b[0]:
+			var on_lever := String(a[1]).begins_with("lever") and String(b[1]).begins_with("lever")
+			if not on_lever:
+				return 0.0
+			var lever := _anim_point("lever")
+			return clampf(_anim_hand(keys).distance_to(lever) / BOLT_TRAVEL, 0.0, 1.0)
+	return 0.0
 
 
 func _unhandled_key_input(event: InputEvent) -> void:
@@ -139,6 +232,7 @@ func _physics_process(delta: float) -> void:
 	_tilt = move_toward(_tilt, -0.45 if reloading else 0.0, delta * 4.0)
 	rotation = deg_to_rad(stats.move_sway_deg()) * sway
 	_update_state(delta)
+	_drop_empty_mag()
 	_update_block()
 	_update_trigger(delta)
 	_update_recoil(delta)
@@ -235,6 +329,18 @@ func _update_state(delta: float) -> void:
 	state = State.READY
 
 
+## Empty reload: the empty mag falls to the ground.
+func _drop_empty_mag() -> void:
+	if state != State.RELOADING or not _reload_empty or _mag_dropped:
+		return
+	if state_progress() < EMPTY_MAG_DROP:
+		return
+	_mag_dropped = true
+	var at := _player.to_global(_anim_point("well"))
+	var fall := Vector2(randf_range(-40, -10), randf_range(20, 50)).rotated(global_rotation)
+	_projectiles.spawn_debris(at, fall, global_rotation + randf_range(-0.5, 0.5), MAG_SIZE_PX, Color(0.12, 0.12, 0.13), 20.0)
+
+
 func _finish_reload() -> void:
 	var best := 0
 	for i in mags.size():
@@ -284,7 +390,7 @@ func _draw() -> void:
 			draw_line(m + d * 20.0, m + d * 420.0, Color(1, 0.9, 0.3, 0.18), 1.5)
 
 	draw_set_transform_matrix(_hold_transform())
-	WeaponArt.draw(self, stats.model)
+	WeaponArt.draw(self, stats.model, _bolt_pull() * BOLT_TRAVEL)
 	if _flash > 0.0:
 		var m := muzzle_local()
 		var pts := PackedVector2Array()

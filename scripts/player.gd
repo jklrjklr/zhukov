@@ -15,6 +15,7 @@ const SKIN := Color(0.96, 0.78, 0.6)
 const ARMOR := Color(0.95, 0.75, 0.15)
 const HELMET := Color(0.3, 0.32, 0.3)
 const BOOT := Color(0.22, 0.2, 0.18)
+const POUCH := Color(0.4, 0.38, 0.22)
 const OUTLINE := Color(0.08, 0.08, 0.08)
 ## Full step cycles (left+right foot) per second at full speed. Decoupled from
 ## distance on purpose: feet may "skip" ground, the pace just reads calmer.
@@ -92,6 +93,20 @@ func _draw() -> void:
 	draw_set_transform(Vector2.ZERO, -swing * 0.12)
 	_shape_ellipse(Vector2(0, 1), Vector2(16, 10), ARMOR)
 	draw_set_transform(Vector2.ZERO)
+
+	# Chest mag pouches
+	for x in [-12.0, -6.5]:
+		draw_rect(Rect2(x - 2.5, -6, 5, 6.5), OUTLINE)
+		draw_rect(Rect2(x - 2, -5.5, 4, 5.5), POUCH)
+
+	# Mag in the support hand during reloads (under the hand)
+	var mag = weapon.held_mag()
+	if mag != null:
+		var mp: Vector2 = mag + Vector2(0, bob * 1.5)
+		draw_set_transform(mp, weapon.hold_rotation())
+		draw_rect(Rect2(-Firearm.MAG_SIZE_PX / 2.0, Firearm.MAG_SIZE_PX).grow(1.0), OUTLINE)
+		draw_rect(Rect2(-Firearm.MAG_SIZE_PX / 2.0, Firearm.MAG_SIZE_PX), Color(0.16, 0.16, 0.17))
+		draw_set_transform(Vector2.ZERO)
 
 	# Hands, under the weapon
 	for p in weapon.hand_points():

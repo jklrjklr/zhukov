@@ -4,17 +4,18 @@ class_name WeaponArt
 const OUTLINE := Color(0.06, 0.06, 0.07)
 
 
-static func draw(ci: CanvasItem, model: String) -> void:
+## bolt: px the cocking lever is pulled back (+Y).
+static func draw(ci: CanvasItem, model: String, bolt := 0.0) -> void:
 	match model:
 		"smg5":
-			_smg5(ci)
+			_smg5(ci, bolt)
 		_:
 			_parts(ci, [[Rect2(-2.5, -30, 5, 40), Color(0.2, 0.2, 0.22)]])
 
 
 ## MP5A2-style, simplified: fixed stock, slim receiver, wider handguard,
 ## cocking lever on the left, drum rear sight, front sight hood, 3-lug barrel.
-static func _smg5(ci: CanvasItem) -> void:
+static func _smg5(ci: CanvasItem, bolt: float) -> void:
 	var metal := Color(0.2, 0.2, 0.22)
 	var poly := Color(0.13, 0.13, 0.14)
 	_parts(ci, [
@@ -22,7 +23,7 @@ static func _smg5(ci: CanvasItem) -> void:
 		[Rect2(-2.5, 1, 5, 8), poly], # stock
 		[Rect2(-2.5, -20, 5, 22), metal], # receiver
 		[Rect2(-3.5, -24, 7, 10), poly], # handguard
-		[Rect2(-4.8, -22, 2, 3.5), metal], # cocking lever
+		[Rect2(-4.8, -22 + bolt, 2, 3.5), metal], # cocking lever
 		[Rect2(-1.6, -28, 3.2, 4), metal], # front sight hood
 		[Rect2(-1, -31, 2, 3), Color(0.08, 0.08, 0.08)], # barrel / 3-lug
 	])
