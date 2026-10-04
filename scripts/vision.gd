@@ -28,7 +28,7 @@ func _ready() -> void:
 static func make_occluder(points: PackedVector2Array) -> LightOccluder2D:
 	var poly := OccluderPolygon2D.new()
 	poly.polygon = points
-	poly.cull_mode = OccluderPolygon2D.CULL_CLOCKWISE
+	poly.cull_mode = OccluderPolygon2D.CULL_COUNTER_CLOCKWISE
 	var occ := LightOccluder2D.new()
 	occ.occluder = poly
 	return occ
