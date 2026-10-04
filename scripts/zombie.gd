@@ -5,7 +5,9 @@ extends CharacterBody2D
 ## - Runs at the player when seen; goes to the last known spot when sight is lost.
 ## - Gunshots within the weapon's noise radius make it investigate.
 ## - Steers around anything in the way (rocks, props, other zombies) with context
-##   steering: rays in RAYS directions score "towards goal" minus "blocked".
+##   steering: rays in RAYS directions score "towards goal" minus "blocked". When the
+##   direct way is blocked it commits to one side for a while, so it walks around
+##   walls instead of dithering in front of them.
 ## - In reach: winds up and swings an arm; damage lands if the player is still there.
 
 enum State { WANDER, CHASE, SEARCH, ATTACK, DEAD }
@@ -46,6 +48,9 @@ var _struck := false
 var _cooldown := 0.0
 var _stagger := 0.0
 var _steer := Vector2.UP
+## -1/+1 while detouring around something (which side), 0 when not.
+var _detour := 0
+var _detour_time := 0.0
 var _tick := 0
 var _walk_phase := 0.0
 var _dead_t := 0.0
@@ -198,8 +203,8 @@ func _steer_dir(desired: Vector2) -> Vector2:
 	var exclude := [get_rid()]
 	if state == State.CHASE and _player:
 		exclude.append(_player.get_rid())
-	var best := desired
-	var best_score := -INF
+	var dirs: Array[Vector2] = []
+	var dangers: Array[float] = []
 	for i in RAYS:
 		var d := Vector2.from_angle(TAU * i / RAYS)
 		var q := PhysicsRayQueryParameters2D.create(global_position, global_position + d * (RADIUS + FEELER))
@@ -209,12 +214,48 @@ func _steer_dir(desired: Vector2) -> Vector2:
 		if not hit.is_empty():
 			var free_px := global_position.distance_to(hit.position) - RADIUS
 			danger = 1.0 - clampf(free_px / FEELER, 0.0, 1.0)
+		dirs.append(d)
+		dangers.append(danger)
+
+	# Direct way blocked? Commit to the freer side until clear (or timeout).
+	var ahead := _danger_toward(desired, dirs, dangers)
+	_detour_time -= 0.05
+	if ahead > 0.4:
+		if _detour == 0:
+			var left := _danger_toward(desired.rotated(-PI / 2.0), dirs, dangers)
+			var right := _danger_toward(desired.rotated(PI / 2.0), dirs, dangers)
+			_detour = -1 if left < right or (left == right and randf() < 0.5) else 1
+			_detour_time = 3.0
+	elif _detour_time < 2.5:
+		_detour = 0
+	if _detour_time <= 0.0:
+		_detour = 0
+	var side := desired.rotated(_detour * PI / 2.0)
+
+	var best := desired
+	var best_score := -INF
+	for i in RAYS:
+		var d := dirs[i]
 		# Slight preference to keep the current heading (less jitter).
-		var score := d.dot(desired) + 0.25 * d.dot(_steer) - danger * 2.0
+		var score := d.dot(desired) + 0.25 * d.dot(_steer) - dangers[i] * 2.0
+		if _detour != 0:
+			score += 0.7 * d.dot(side)
 		if score > best_score:
 			best_score = score
 			best = d
 	return best
+
+
+## Danger of the ray closest to direction d.
+func _danger_toward(d: Vector2, dirs: Array[Vector2], dangers: Array[float]) -> float:
+	var best_i := 0
+	var best_dot := -2.0
+	for i in dirs.size():
+		var dd := dirs[i].dot(d)
+		if dd > best_dot:
+			best_dot = dd
+			best_i = i
+	return dangers[best_i]
 
 
 func _new_wander() -> void:
