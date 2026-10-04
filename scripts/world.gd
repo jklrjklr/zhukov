@@ -30,10 +30,18 @@ func _ready() -> void:
 		if absf(pos.x) < 250.0 and pos.y < 0.0:
 			continue # keep firing lane clear
 		var radius := rng.randf_range(25.0, 80.0)
-		var shape := CircleShape2D.new()
-		shape.radius = radius
-		_add_static_body(pos, shape)
-		_rocks.append({"pos": pos, "radius": radius, "shade": rng.randf_range(0.3, 0.45)})
+		var poly := _blunt_blob(rng, radius)
+		var body := StaticBody2D.new()
+		body.position = pos
+		var col := CollisionPolygon2D.new()
+		col.polygon = poly
+		body.add_child(col)
+		body.add_child(Vision.make_occluder(poly))
+		add_child(body)
+		var world_poly := PackedVector2Array()
+		for v in poly:
+			world_poly.append(v + pos)
+		_rocks.append({"poly": world_poly, "pos": pos, "radius": radius, "shade": rng.randf_range(0.3, 0.45)})
 
 	for i in DUMMY_METERS.size():
 		var dummy := StaticBody2D.new()
@@ -64,7 +72,10 @@ func _ready() -> void:
 
 	var test_wall := RectangleShape2D.new()
 	test_wall.size = TEST_WALL.size
-	_add_static_body(TEST_WALL.get_center(), test_wall)
+	var wall_body := _add_static_body(TEST_WALL.get_center(), test_wall)
+	var h := TEST_WALL.size / 2.0
+	wall_body.add_child(Vision.make_occluder(PackedVector2Array([
+		Vector2(-h.x, -h.y), Vector2(h.x, -h.y), Vector2(h.x, h.y), Vector2(-h.x, h.y)])))
 
 	var t := 50.0
 	var s := HALF_SIZE * 2 + t * 2
@@ -80,13 +91,33 @@ func _ready() -> void:
 	queue_redraw()
 
 
-func _add_static_body(pos: Vector2, shape: Shape2D) -> void:
+func _add_static_body(pos: Vector2, shape: Shape2D) -> StaticBody2D:
 	var body := StaticBody2D.new()
 	body.position = pos
 	var col := CollisionShape2D.new()
 	col.shape = shape
 	body.add_child(col)
 	add_child(body)
+	return body
+
+
+## Lumpy rounded rock outline: random radii smoothed twice so bumps stay blunt.
+func _blunt_blob(rng: RandomNumberGenerator, radius: float) -> PackedVector2Array:
+	var n := 14
+	var radii: Array[float] = []
+	for i in n:
+		radii.append(radius * rng.randf_range(0.75, 1.0))
+	for pass_i in 2:
+		var smooth: Array[float] = []
+		for i in n:
+			smooth.append((radii[i - 1] + radii[i] * 2.0 + radii[(i + 1) % n]) / 4.0)
+		radii = smooth
+	var start := rng.randf() * TAU
+	var pts := PackedVector2Array()
+	for i in n:
+		var a := start + TAU * i / n
+		pts.append(Vector2(cos(a), sin(a)) * radii[i])
+	return pts
 
 
 func _draw() -> void:
@@ -99,8 +130,15 @@ func _draw() -> void:
 		x += GRID
 	for r in _rocks:
 		var shade: float = r.shade
-		draw_circle(r.pos, r.radius, Color(shade, shade * 0.95, shade * 0.85))
-		draw_circle(r.pos + Vector2(-r.radius * 0.25, -r.radius * 0.25), r.radius * 0.5, Color(shade + 0.1, shade + 0.1, shade + 0.05))
+		var poly: PackedVector2Array = r.poly
+		var center: Vector2 = r.pos
+		for o in Geometry2D.offset_polygon(poly, 2.0):
+			draw_colored_polygon(o, Color(0.08, 0.08, 0.08))
+		draw_colored_polygon(poly, Color(shade, shade * 0.95, shade * 0.85))
+		var top := PackedVector2Array()
+		for v in poly:
+			top.append(center + (v - center) * 0.55 + Vector2(-0.18, -0.18) * r.radius)
+		draw_colored_polygon(top, Color(shade + 0.08, shade + 0.08, shade + 0.04))
 	draw_rect(TEST_WALL.grow(2.0), Color(0.1, 0.1, 0.1))
 	draw_rect(TEST_WALL, Color(0.45, 0.42, 0.38))
 	draw_rect(Rect2(-HALF_SIZE, -HALF_SIZE, HALF_SIZE * 2, HALF_SIZE * 2), Color(0.6, 0.15, 0.1), false, 12.0)

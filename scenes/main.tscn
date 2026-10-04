@@ -7,6 +7,9 @@
 
 [node name="Main" type="Node2D"]
 
+[node name="Darkness" type="CanvasModulate" parent="."]
+color = Color(0.2, 0.22, 0.25, 1)
+
 [node name="World" type="Node2D" parent="."]
 script = ExtResource("1_world")
 
