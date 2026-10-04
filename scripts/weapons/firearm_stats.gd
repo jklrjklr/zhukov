@@ -73,8 +73,10 @@ enum BulletType { NORMAL, PELLETS, FLECHETTE, INCENDIARY, ROCKET }
 @export var weight := 3.0
 ## m, butt to muzzle. Firing is blocked while the muzzle is inside a wall.
 @export var weapon_length := 0.7
-## m, for enemy hearing later.
-@export var noise_radius := 60.0
+## Loudness of a shot at the muzzle (0..~150; unsuppressed 9mm ~ 100).
+@export var sound := 100.0
+## % of loudness lost per meter from the muzzle (compounding).
+@export_range(0.0, 100.0) var sound_falloff := 4.0
 
 @export_group("Aim down sights")
 ## Sight cone while aiming (degrees).
@@ -141,6 +143,11 @@ static func armor_factor(ap: int, armor_class: int) -> float:
 	if ap >= armor_class:
 		return 1.0
 	return maxf(0.0, 1.0 - 0.25 * (armor_class - ap))
+
+
+## Loudness heard `meters` away from the muzzle.
+static func loudness_at(loudness: float, falloff_pct: float, meters: float) -> float:
+	return loudness * pow(1.0 - falloff_pct / 100.0, meters)
 
 
 func damage_at(meters: float) -> float:

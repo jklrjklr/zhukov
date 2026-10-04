@@ -3,7 +3,9 @@ extends CharacterBody2D
 ## Basic enemy.
 ## - Wanders slowly. Sees the player inside a 70 deg / 20 m cone with line of sight.
 ## - Runs at the player when seen; goes to the last known spot when sight is lost.
-## - Gunshots within the weapon's noise radius make it investigate.
+## - Hearing: a sound is heard when its loudness at this distance is at least
+##   (100 - hearing). Sounds louder than DEAFEN_LEVEL here knock hearing down
+##   (ringing ears); it recovers over time.
 ## - Steers around anything in the way (rocks, props, other zombies) with context
 ##   steering: rays in RAYS directions score "towards goal" minus "blocked". When the
 ##   direct way is blocked it commits to one side for a while, so it walks around
@@ -37,9 +39,21 @@ const OUTLINE := Color(0.08, 0.08, 0.08)
 @export var windup := 0.45
 @export var attack_cooldown := 0.9
 @export var turn_speed_deg := 240.0
+## 0..100 hearing sensitivity: hears sounds of at least (100 - hearing) loudness.
+@export var hearing := 90.0
+## Hearing points regained per second after being deafened.
+@export var hearing_recovery := 4.0
+
+## Loudness (at the ear) above which hearing gets damaged.
+const DEAFEN_LEVEL := 80.0
+## Hearing lost per loudness point above DEAFEN_LEVEL.
+const DEAFEN_RATE := 0.5
+const MIN_HEARING := 10.0
 
 var hp := 120.0
 var state := State.WANDER
+## Current hearing (drops when deafened, recovers to `hearing`).
+var hearing_now := 90.0
 
 var _goal := Vector2.ZERO
 var _wander_time := 0.0
@@ -62,6 +76,7 @@ var _col: CollisionShape2D
 
 func _ready() -> void:
 	hp = max_hp
+	hearing_now = hearing
 	add_to_group("zombies")
 	add_to_group("concealable")
 	motion_mode = CharacterBody2D.MOTION_MODE_FLOATING
@@ -81,13 +96,20 @@ func is_dead() -> bool:
 	return state == State.DEAD
 
 
-## Gunshot (or other noise) at pos, audible within radius px.
-func hear(pos: Vector2, radius: float) -> void:
-	if state == State.DEAD or state == State.CHASE or state == State.ATTACK:
+## A sound at pos: loudness at the source, % lost per meter.
+func hear(pos: Vector2, loudness: float, falloff_pct: float) -> void:
+	if state == State.DEAD:
 		return
-	if global_position.distance_to(pos) <= radius:
-		state = State.SEARCH
-		_goal = pos + Vector2(randf_range(-3, 3), randf_range(-3, 3)) * PX
+	var level := FirearmStats.loudness_at(loudness, falloff_pct, global_position.distance_to(pos) / PX)
+	var heard := level >= 100.0 - hearing_now
+	if level > DEAFEN_LEVEL:
+		hearing_now = maxf(hearing_now - (level - DEAFEN_LEVEL) * DEAFEN_RATE, MIN_HEARING)
+	if not heard or state == State.CHASE or state == State.ATTACK:
+		return
+	state = State.SEARCH
+	# Quieter = vaguer idea of where it came from.
+	var vague := lerpf(6.0, 1.0, clampf(level / 60.0, 0.0, 1.0))
+	_goal = pos + Vector2(randf_range(-vague, vague), randf_range(-vague, vague)) * PX
 
 
 func take_hit(hit: Dictionary) -> void:
@@ -123,6 +145,7 @@ func _physics_process(delta: float) -> void:
 
 	_cooldown = maxf(_cooldown - delta, 0.0)
 	_stagger = maxf(_stagger - delta, 0.0)
+	hearing_now = minf(hearing_now + hearing_recovery * delta, hearing)
 	_tick += 1
 	if _tick % 5 == 0:
 		_perceive()
