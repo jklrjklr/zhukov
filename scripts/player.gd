@@ -1,10 +1,22 @@
 extends CharacterBody2D
-## Top-down player. The camera is a child that rotates with the player, so
-## "forward" (local -Y) is always screen-up, like an FPS seen from above.
+## Top-down player. Swipes turn the camera (look_angle); the body (and weapon,
+## sight cone) follows at a limited turn rate, so fast flicks lag behind like
+## swinging a real weapon. The camera rig counter-rotates so the view stays on
+## look_angle: screen-up is always where you are looking.
+## Movement has light inertia (accel/decel).
 ## Draw order: feet, torso, hands (this node) -> Firearm -> Head (children).
 
 @export var move_speed := 260.0
 @export var keyboard_turn_speed := 2.8 # rad/s, desktop testing only
+## Body turn rate (deg/s) at hip; scaled by weapon turn_multiplier and ADS.
+@export var body_turn_speed := 300.0
+@export_range(0.0, 1.0) var ads_body_turn := 0.5
+## px/s^2
+@export var acceleration := 1600.0
+@export var deceleration := 2000.0
+
+## Where the camera looks (radians). Body rotation chases it.
+var look_angle := 0.0
 
 ## Movement input in screen/local space, set by TouchControls.
 ## Length 0..1, (0, -1) = forward.
@@ -30,10 +42,12 @@ var _walk_amount := 0.0 # 0 idle .. 1 full stride, eased
 
 @onready var weapon: Firearm = $Firearm
 @onready var _head: Node2D = $Head
+@onready var _rig: Node2D = $CameraRig
 
 
 func _ready() -> void:
 	_head.draw.connect(_draw_head)
+	look_angle = rotation
 
 
 func _physics_process(delta: float) -> void:
@@ -42,18 +56,38 @@ func _physics_process(delta: float) -> void:
 	if kb != Vector2.ZERO:
 		input = kb
 	input = input.limit_length(1.0)
-	var ads_mult := lerpf(1.0, weapon.stats.ads_move_mult, weapon.ads_amount())
-	velocity = input.rotated(rotation) * move_speed * _direction_multiplier(input) * weapon.stats.move_multiplier() * ads_mult
-	move_and_slide()
-	_animate(delta)
 
 	var kb_turn := float(Input.is_physical_key_pressed(KEY_E)) - float(Input.is_physical_key_pressed(KEY_Q))
 	if kb_turn != 0.0:
-		turn(kb_turn * keyboard_turn_speed * weapon.stats.turn_multiplier() * delta)
+		turn_look(kb_turn * keyboard_turn_speed * delta)
+
+	# Body chases the camera at a limited rate.
+	var ads := weapon.ads_amount()
+	var max_step := deg_to_rad(body_turn_speed * weapon.stats.turn_multiplier() * lerpf(1.0, ads_body_turn, ads)) * delta
+	var diff := wrapf(look_angle - rotation, -PI, PI)
+	rotation = wrapf(rotation + clampf(diff, -max_step, max_step), -PI, PI)
+	_rig.rotation = wrapf(look_angle - rotation, -PI, PI)
+
+	# Joystick is screen-relative (camera); speed penalties are body-relative.
+	var dir_world := input.rotated(look_angle)
+	var ads_mult := lerpf(1.0, weapon.stats.ads_move_mult, ads)
+	var target := dir_world * move_speed * _direction_multiplier(dir_world.rotated(-rotation)) \
+		* weapon.stats.move_multiplier() * ads_mult
+	var rate := acceleration if target.length() > velocity.length() else deceleration
+	velocity = velocity.move_toward(target, rate * delta)
+	move_and_slide()
+	_animate(delta)
 
 
+## Swipe / keyboard turning: moves the camera; the body follows.
 ## Positive = clockwise (turn right).
-func turn(radians: float) -> void:
+func turn_look(radians: float) -> void:
+	look_angle = wrapf(look_angle + radians, -PI, PI)
+
+
+## Recoil: moves camera and body together.
+func kick(radians: float) -> void:
+	look_angle = wrapf(look_angle + radians, -PI, PI)
 	rotation = wrapf(rotation + radians, -PI, PI)
 
 

@@ -132,7 +132,7 @@ func _on_drag(e: InputEventScreenDrag) -> void:
 func _aim_drag(d: Vector2, adjust_distance: bool) -> void:
 	var vp := get_viewport_rect().size
 	var sens := lerpf(1.0, ADS_TURN_MULT, _weapon.ads_amount())
-	_player.turn(d.x / vp.x * turn_per_screen_width * _weapon.stats.turn_multiplier() * sens)
+	_player.turn_look(d.x / vp.x * turn_per_screen_width * sens)
 	if adjust_distance:
 		_weapon.adjust_aim(-d.y / vp.y * AIM_M_PER_SCREEN)
 

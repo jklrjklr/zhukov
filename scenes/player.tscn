@@ -25,6 +25,8 @@ stats = ExtResource("3_smg5")
 [node name="Vision" type="PointLight2D" parent="."]
 script = ExtResource("4_vision")
 
-[node name="Camera2D" type="Camera2D" parent="."]
+[node name="CameraRig" type="Node2D" parent="."]
+
+[node name="Camera2D" type="Camera2D" parent="CameraRig"]
 position = Vector2(0, -140)
 ignore_rotation = false

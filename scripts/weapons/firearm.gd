@@ -10,9 +10,12 @@ const CAM_PUSH := 70.0
 const CAM_ZOOM := 0.08
 ## ADS: nearest aim distance (m).
 const ADS_MIN := 2.0
-## ADS: at full vertical recoil stack, bullets land this fraction farther than the
-## aim circle (the circle itself does not move).
+## ADS muzzle rise: at full vertical recoil stack the aim circle (and where bullets
+## land) is pushed this fraction of the aim distance farther away.
 const ADS_RECOIL_DEPTH := 0.5
+## ADS: the camera is pushed forward by this fraction of the circle's push, so the
+## circle visibly climbs past the view like real muzzle rise.
+const ADS_CAM_FOLLOW := 0.5
 
 ## Top-down size of a loose magazine.
 const MAG_SIZE_PX := Vector2(4.5, 10)
@@ -90,7 +93,7 @@ var _projectiles: Node
 
 func _ready() -> void:
 	_player = get_parent()
-	_camera = _player.get_node_or_null("Camera2D")
+	_camera = _player.get_node_or_null("CameraRig/Camera2D")
 	if _camera:
 		_cam_base = _camera.position
 		_cam_offset = _cam_base
@@ -169,9 +172,23 @@ func aim_overlay() -> Dictionary:
 		"forward": Vector2.UP.rotated(global_rotation),
 		"half_spread": deg_to_rad(current_spread_deg() / 2.0),
 		"ads": _ads,
-		"center": to_global(muzzle_local() + Vector2(0, -aim_distance * PX_PER_M)),
+		"center": to_global(aim_center_local()),
 		"radius": aim_radius_px(),
 	}
+
+
+## Centre of the aim circle (weapon space), including vertical recoil push.
+func aim_center_local() -> Vector2:
+	return muzzle_local() + Vector2(0, -aim_distance * PX_PER_M - ads_recoil_push())
+
+
+## px the aim circle is currently pushed out by vertical recoil.
+func ads_recoil_push() -> float:
+	return _eased_stack() * ADS_RECOIL_DEPTH * aim_distance * PX_PER_M
+
+
+func _eased_stack() -> float:
+	return recoil_stack * recoil_stack * (3.0 - 2.0 * recoil_stack)
 
 
 ## Aim circle radius in px at the current aim distance.
@@ -331,13 +348,11 @@ func _try_fire() -> bool:
 	var speed := stats.muzzle_velocity * PX_PER_M
 	for i in stats.bullet_count:
 		if _ads >= 0.5:
-			# Aimed: each bullet lands somewhere inside the aim circle; vertical recoil
-			# pushes the landing point farther while the circle stays put.
-			var forward := Vector2.UP.rotated(global_rotation)
-			var center := to_global(muzzle_local() + Vector2(0, -aim_distance * PX_PER_M))
+			# Aimed: each bullet lands somewhere inside the aim circle, which vertical
+			# recoil has pushed farther out (muzzle rise).
+			var center := to_global(aim_center_local())
 			var scatter := Vector2.from_angle(randf() * TAU) * aim_radius_px() * sqrt(randf())
-			var depth := recoil_stack * ADS_RECOIL_DEPTH * aim_distance * PX_PER_M
-			var land := center + scatter + forward * depth
+			var land := center + scatter
 			_projectiles.spawn_bullet(muzzle, (land - muzzle).normalized() * speed, stats, _player, land)
 		else:
 			var off := clampf(randfn(0.0, spread / 4.0), -spread / 2.0, spread / 2.0)
@@ -350,7 +365,7 @@ func _try_fire() -> bool:
 	# Horizontal: bounce left/right, part of it rolls back by itself.
 	var dir_sign := 1.0 if randf() < stats.horizontal_recoil_right else -1.0
 	var bounce := deg_to_rad(stats.horizontal_recoil * randf_range(0.6, 1.0)) * dir_sign
-	_player.turn(bounce)
+	_player.kick(bounce)
 	_roll_back -= bounce * stats.recoil_recovery
 	_kick = 3.0
 	_flash = 0.045
@@ -365,11 +380,11 @@ func _update_recoil(delta: float) -> void:
 		recoil_stack = move_toward(recoil_stack, 0.0, stats.vertical_recovery_rate() * delta * (0.3 + recoil_stack))
 	if _since_shot > 0.04 and _roll_back != 0.0:
 		var step := _roll_back * minf(1.0, stats.roll_back_rate() * delta)
-		_player.turn(step)
+		_player.kick(step)
 		_roll_back -= step
 	_shake = _shake.lerp(Vector2.ZERO, minf(1.0, delta * 25.0))
 	if _camera:
-		var eased := recoil_stack * recoil_stack * (3.0 - 2.0 * recoil_stack)
+		var eased := _eased_stack()
 		# ADS: zoom out / shift forward so both the player and the aim circle fit.
 		var aim_px := aim_distance * PX_PER_M
 		var ads_zoom := clampf(720.0 / (aim_px + 220.0), 0.5, 1.0)
@@ -379,7 +394,10 @@ func _update_recoil(delta: float) -> void:
 		var k := minf(1.0, delta * 8.0)
 		_cam_zoom = lerpf(_cam_zoom, lerpf(1.0, ads_zoom, a), k)
 		_cam_offset = _cam_offset.lerp(_cam_base.lerp(ads_cam, a), k)
-		_camera.position = _cam_offset + Vector2(0, eased * CAM_PUSH) + _shake
+		# Vertical recoil: hip pushes the view back toward the player; ADS pushes it
+		# forward (less than the aim circle moves).
+		var push := lerpf(eased * CAM_PUSH, -ads_recoil_push() * ADS_CAM_FOLLOW, a)
+		_camera.position = _cam_offset + Vector2(0, push) + _shake
 		_camera.zoom = Vector2.ONE * _cam_zoom * (1.0 + eased * CAM_ZOOM)
 
 
