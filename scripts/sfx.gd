@@ -45,7 +45,7 @@ func streams(name: String) -> Array:
 		var base := name if i == 0 else "%s_%d" % [name, i]
 		var found := false
 		for ext in EXTS:
-			var path := DIR + base + "." + ext
+			var path: String = DIR + base + "." + ext
 			if ResourceLoader.exists(path):
 				list.append(load(path))
 				found = true
