@@ -30,6 +30,7 @@ func _input(event: InputEvent) -> void:
 			break
 	if hit == "":
 		return
+	Sfx.play_ui("ui_click", -4.0)
 	if hit == "deploy":
 		_screen = "loadout"
 	elif hit == "range":

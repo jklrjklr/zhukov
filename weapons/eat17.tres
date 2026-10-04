@@ -42,6 +42,7 @@ weight = 6.5
 weapon_length = 1.0
 sound = 130.0
 sound_falloff = 9.0
+shot_sound = "rocket_launch"
 ads_fov = 45.0
 ads_range = 30.0
 ads_spread_mult = 0.6

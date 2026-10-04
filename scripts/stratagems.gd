@@ -112,7 +112,9 @@ func push(dir: int) -> void:
 	if matches.is_empty():
 		input.clear()
 		error_t = 0.4
+		Sfx.play_ui("strat_error", -4.0)
 		return
+	Sfx.play_ui("strat_input", -4.0, 0.03 * input.size())
 	for id in matches:
 		if (DEFS[id].code as Array).size() == input.size():
 			_throw(id)
@@ -133,6 +135,8 @@ func matches_prefix(id: String) -> bool:
 func _throw(id: String) -> void:
 	close_menu()
 	last_called = id
+	Sfx.play_ui("strat_ready", -4.0)
+	Sfx.play_ui("throw", -4.0, 0.1)
 	var def: Dictionary = DEFS[id]
 	var st: Dictionary = status[id]
 	st.cd = def.cooldown
@@ -170,6 +174,9 @@ func _physics_process(delta: float) -> void:
 		b.t += delta
 		var k := clampf(b.t / b.flight, 0.0, 1.0)
 		b.pos = (b.from as Vector2).lerp(b.to, 1.0 - pow(1.0 - k, 2.0))
+		if k >= 1.0 and not b.get("landed", false):
+			b.landed = true
+			Sfx.play("beacon", b.pos, -4.0)
 		if b.t >= b.flight + DEFS[b.id].delay:
 			_arrive(b)
 	_beacons = _beacons.filter(func(b): return b.t < b.flight + DEFS[b.id].delay)
@@ -186,12 +193,15 @@ func _arrive(b: Dictionary) -> void:
 			_fx.append({"kind": "pod", "pos": at, "t": 0.0, "pod": Interactable.Kind.SUPPORT_POD})
 		"orbital_precision":
 			_fx.append({"kind": "beam", "pos": at, "t": 0.0})
+			Sfx.play("orbital_shot", at, 2.0)
 		"eagle_airstrike":
+			Sfx.play_ui("eagle_flyby", -3.0, 0.05)
 			var across: Vector2 = (b.dir as Vector2).orthogonal()
 			_fx.append({"kind": "eagle", "pos": at, "t": 0.0, "dir": (b.dir as Vector2), "big": false})
 			for i in 5:
 				_fx.append({"kind": "bomb", "pos": at + across * (i - 2) * 3.0 * PX, "t": -0.45 - i * 0.09, "big": false})
 		"eagle_500kg":
+			Sfx.play_ui("eagle_flyby", -3.0, 0.05)
 			_fx.append({"kind": "eagle", "pos": at, "t": 0.0, "dir": (b.dir as Vector2), "big": true})
 			_fx.append({"kind": "bomb", "pos": at, "t": -0.7, "big": true})
 
@@ -204,6 +214,7 @@ func _update_fx(delta: float) -> void:
 				if f.t >= POD_FALL and not f.get("done", false):
 					f.done = true
 					_projectiles.explode(f.pos, POD_BLAST)
+					Sfx.play("hellpod_impact", f.pos)
 					var pod := Interactable.make(f.pod)
 					pod.position = f.pos
 					pod.activated.connect(_on_pod)
@@ -220,6 +231,7 @@ func _update_fx(delta: float) -> void:
 
 
 func _on_pod(it: Interactable) -> void:
+	Sfx.play_ui("pod_open", -6.0)
 	match it.kind:
 		Interactable.Kind.RESUPPLY_POD:
 			_player.resupply()

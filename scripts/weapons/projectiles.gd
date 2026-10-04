@@ -241,6 +241,7 @@ func explode(center: Vector2, p: Dictionary) -> void:
 	var r: float = p.radius_m * PX
 	_blasts.append({"pos": center, "t": 0.0, "r": r})
 	_scorches.append({"pos": center, "t": 0.0, "r": r * 0.35})
+	Sfx.play("explosion_big" if p.radius_m >= 4.0 else "explosion", center, 2.0, 0.1)
 	get_tree().call_group("enemies", "hear", center, p.sound, p.sound_falloff)
 	var space := get_world_2d().direct_space_state
 	var shape := CircleShape2D.new()

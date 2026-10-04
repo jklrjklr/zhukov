@@ -45,6 +45,8 @@ func _input(event: InputEvent) -> void:
 			get_viewport().set_input_as_handled()
 		return
 	var hit := _button_at(t.position)
+	if hit != "":
+		Sfx.play_ui("ui_click", -4.0)
 	var consumed := true
 	if _paused:
 		match hit:

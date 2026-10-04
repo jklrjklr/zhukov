@@ -40,14 +40,14 @@ const KINDS := {
 	Kind.TROOPER: {"name": "Trooper", "hp": 90.0, "weight": 80.0, "radius": 13.0, "speed": 0.95, "patrol": 0.3,
 		"sight": 8.0, "fov": 80.0, "armor": [1, 1, 1], "head": 5.0, "crit": 2.5, "turn": 260.0,
 		"weapon": "blaster", "range": 16.0, "keep": Vector2(9.0, 14.0), "burst": 3, "burst_gap": 0.12,
-		"burst_cd": 1.7, "bolt_damage": 8.0, "spread": 5.0, "bolt_speed": 28.0},
+		"burst_cd": 1.7, "bolt_damage": 8.0, "spread": 3.0, "bolt_speed": 28.0},
 	Kind.BERSERKER: {"name": "Berserker", "hp": 350.0, "weight": 260.0, "radius": 17.0, "speed": 0.8, "patrol": 0.3,
 		"sight": 7.0, "fov": 80.0, "armor": [2, 2, 2], "head": 6.0, "crit": 2.0, "turn": 200.0,
 		"weapon": "chainsaw", "reach": 0.9, "dps": 45.0},
 	Kind.DEVASTATOR: {"name": "Devastator", "hp": 650.0, "weight": 420.0, "radius": 21.0, "speed": 0.6, "patrol": 0.25,
 		"sight": 9.0, "fov": 80.0, "armor": [3, 3, 3], "head": 6.0, "crit": 2.5, "turn": 160.0,
 		"weapon": "blaster", "range": 16.0, "keep": Vector2(7.0, 12.0), "burst": 5, "burst_gap": 0.1,
-		"burst_cd": 2.3, "bolt_damage": 10.0, "spread": 6.0, "bolt_speed": 26.0},
+		"burst_cd": 2.3, "bolt_damage": 10.0, "spread": 4.0, "bolt_speed": 26.0},
 	Kind.HULK: {"name": "Hulk", "hp": 1600.0, "weight": 1600.0, "radius": 32.0, "speed": 0.55, "patrol": 0.2,
 		"sight": 9.0, "fov": 90.0, "armor": [5, 4, 2], "head": 7.0, "crit": 2.0, "turn": 110.0,
 		"weapon": "flamer", "range": 6.0, "dps": 35.0, "cone": 25.0, "rear_mult": 2.0, "eye_armor": 3},
@@ -216,6 +216,8 @@ func take_hit(hit: Dictionary) -> void:
 	var dmg: float = hit.damage * FirearmStats.armor_factor(hit.armor_penetration, armor) * mult
 	hp -= dmg
 	_flash = 0.08
+	if not hit.get("explosive", false):
+		Sfx.play("hit_armor" if dmg <= 0.0 else "hit_metal", global_position, -6.0, 0.1)
 	var text := "BLOCK" if dmg <= 0.0 else ("CRIT %d" if crit else "%d") % roundi(dmg)
 	_numbers.append({"text": text, "t": 0.0, "crit": crit, "x": randf_range(-10, 10)})
 	var impact: float = hit.get("stagger", 0.0) / weight
@@ -319,6 +321,9 @@ func _physics_process(delta: float) -> void:
 							speed *= 0.4
 							_player.take_damage(_cfg.dps * delta, global_position, false)
 
+	if _cfg.weapon != "blaster":
+		var sawing: bool = state == State.ENGAGE and _cfg.weapon == "chainsaw" and dist_m < 4.0
+		Sfx.hold(str(get_instance_id()), _cfg.weapon, global_position, flaming or sawing, -2.0)
 	if _tick % (9 if far else 3) == 0 and speed > 0.0:
 		_steer = _steer.lerp(_steer_dir((_goal - global_position).normalized()), 0.5).normalized()
 	var move_dir := _steer
@@ -349,6 +354,7 @@ func _update_blaster(delta: float, dist_m: float, to_player: Vector2) -> void:
 		var muzzle := global_position + Vector2.UP.rotated(rotation) * (radius + 6.0) + Vector2.RIGHT.rotated(rotation) * radius * 0.5
 		var proj := get_tree().get_first_node_in_group("projectiles")
 		proj.spawn_bolt(muzzle, dir * _cfg.bolt_speed * PX, _cfg.bolt_damage, self)
+		Sfx.play("bot_heavy_blaster" if kind == Kind.DEVASTATOR else "bot_blaster", muzzle, -4.0, 0.08)
 		_muzzle_flash = 0.06
 		if _burst_left <= 0:
 			_fire_cd = _cfg.burst_cd * randf_range(0.8, 1.2)
@@ -455,6 +461,8 @@ func _die(dir: Vector2) -> void:
 	remove_from_group("enemies")
 	remove_from_group("hulks")
 	_col.set_deferred("disabled", true)
+	Sfx.play("bot_death", global_position, 0.0, 0.1)
+	Sfx.hold(str(get_instance_id()), "", global_position, false)
 	z_index = -1
 	velocity = Vector2.ZERO
 	rotation = (dir as Vector2).angle() + PI / 2.0 + randf_range(-0.5, 0.5)
@@ -544,3 +552,7 @@ func _draw() -> void:
 func _box(r: Rect2, col: Color) -> void:
 	draw_rect(r.grow(1.3), OUTLINE)
 	draw_rect(r, col)
+
+
+func _exit_tree() -> void:
+	Sfx.hold(str(get_instance_id()), "", Vector2.ZERO, false)

@@ -127,6 +127,7 @@ func objective(id: String) -> Dictionary:
 
 func msg(text: String) -> void:
 	messages.append({"text": text, "t": 0.0})
+	Sfx.play_ui("objective", -6.0)
 	if messages.size() > 4:
 		messages.pop_front()
 
@@ -335,6 +336,7 @@ func _update_extraction(delta: float) -> void:
 
 func _update_boarding(delta: float) -> void:
 	_shuttle_t += delta
+	Sfx.hold("pelican", "pelican", map.extraction, _shuttle_t < 12.0, -2.0)
 	var on_pad: bool = not player.dead and player.global_position.distance_to(map.extraction) < 6.0 * PX
 	if _shuttle_t > 3.0 and on_pad:
 		_board_t += delta
@@ -352,6 +354,7 @@ func _complete() -> void:
 	phase = Phase.COMPLETE
 	objective("extract").done = true
 	msg("MISSION COMPLETE")
+	Sfx.hold("pelican", "", Vector2.ZERO, false)
 
 
 func _fail(reason: String) -> void:
@@ -392,6 +395,7 @@ func _update_death(delta: float) -> void:
 func _land_pod(at: Vector2) -> void:
 	var proj := get_tree().get_first_node_in_group("projectiles")
 	proj.explode(at, HELLPOD_BLAST)
+	Sfx.play("hellpod_impact", at)
 	player.visible = true
 
 
@@ -434,6 +438,7 @@ func _start_drop() -> void:
 	_drop_cd = drop_cooldown
 	_drops.append({"pos": p, "t": 0.0, "done": false, "dir": Vector2.from_angle(randf() * TAU)})
 	msg("BOT DROP INCOMING!")
+	Sfx.play("bot_drop", p, 4.0)
 
 
 func _safe_respawn_point() -> Vector2:

@@ -238,6 +238,7 @@ func reload() -> void:
 		return
 	_reload_empty = not _has_round()
 	_mag_dropped = false
+	Sfx.play_ui("mag_out", -6.0, 0.05)
 	_set_state(State.RELOADING, stats.reload_time_empty if _reload_empty else stats.reload_time_tactical)
 
 
@@ -424,6 +425,8 @@ func _update_trigger(delta: float) -> void:
 	if pressed and mode != FirearmStats.FireMode.AUTO:
 		_burst_left = stats.burst_count if mode == FirearmStats.FireMode.BURST else 1
 	if held and state == State.READY and not jammed and not _has_round():
+		if pressed:
+			Sfx.play_ui("dry_fire", -4.0)
 		dry_flash = 0.8
 
 	_cooldown -= delta
@@ -469,6 +472,7 @@ func _try_fire() -> bool:
 	if stats.bullet_type != FirearmStats.BulletType.ROCKET:
 		_projectiles.spawn_casing(to_global(Vector2(3, -12)), global_rotation)
 	get_tree().call_group("enemies", "hear", global_position, stats.sound, stats.sound_falloff)
+	Sfx.play_ui(stats.shot_sound, -5.0, 0.05)
 
 	# Vertical: eased stacking, each shot adds less the closer the stack is to 1.
 	recoil_stack = minf(1.0, recoil_stack + stats.vertical_recoil * pow(1.0 - recoil_stack, 1.5))
@@ -521,6 +525,9 @@ func _update_state(delta: float) -> void:
 	match state:
 		State.RELOADING:
 			_finish_reload()
+			Sfx.play_ui("mag_in", -6.0, 0.05)
+			if _reload_empty:
+				Sfx.play_ui("bolt", -6.0, 0.05)
 		State.CLEARING:
 			jammed = false
 			# The stuck round is thrown out; chamber the next one.

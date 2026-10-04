@@ -40,6 +40,7 @@ weight = 2.9
 weapon_length = 0.69
 sound = 80.0
 sound_falloff = 15.0
+shot_sound = "smg_shot"
 ads_fov = 60.0
 ads_range = 20.0
 ads_spread_mult = 0.6

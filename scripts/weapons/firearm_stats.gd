@@ -88,6 +88,8 @@ enum BulletType { NORMAL, PELLETS, FLECHETTE, INCENDIARY, ROCKET }
 @export var sound := 100.0
 ## % of loudness lost per meter from the muzzle (compounding).
 @export_range(0.0, 100.0) var sound_falloff := 4.0
+## Sfx slot played per shot (audio/<name>.ogg).
+@export var shot_sound := "rifle_shot"
 
 @export_group("Aim down sights")
 ## Sight cone while aiming (degrees).

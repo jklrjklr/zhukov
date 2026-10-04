@@ -104,6 +104,7 @@ func dive() -> void:
 	_dive_dir = dir.normalized()
 	_dive_t = dive_time
 	weapon.trigger = false
+	Sfx.play_ui("dive", -4.0, 0.08)
 
 
 func is_diving() -> bool:
@@ -116,6 +117,7 @@ func use_stim() -> void:
 	stims -= 1
 	_heal_left = max_hp
 	Game.add_stat("stims")
+	Sfx.play_ui("stim", -6.0)
 
 
 func throw_grenade() -> void:
@@ -123,6 +125,7 @@ func throw_grenade() -> void:
 		return
 	grenades -= 1
 	Game.add_stat("grenades")
+	Sfx.play_ui("throw", -4.0, 0.1)
 	var forward := Vector2.UP.rotated(rotation)
 	var target := global_position + forward * throw_distance * Firearm.PX_PER_M
 	if weapon.ads_amount() >= 0.5:
@@ -159,6 +162,8 @@ func take_damage(amount: float, from: Vector2, knock := true) -> void:
 	if dead or deploying:
 		return
 	hp = maxf(hp - amount, 0.0)
+	if amount >= 3.0:
+		Sfx.play_ui("player_hit", -4.0, 0.1)
 	hurt = maxf(hurt, minf(1.0, amount / 20.0))
 	if knock:
 		velocity += (global_position - from).normalized() * 160.0
