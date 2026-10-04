@@ -2,7 +2,8 @@ extends Node2D
 ## Simulates and draws all bullets, ejected casings and impact puffs in one node
 ## (cheap on web). Bullets are ray-stepped each physics tick, so fast rounds never tunnel.
 ## Targets implement take_hit(hit: Dictionary): damage (after falloff), base_damage,
-## armor_penetration, armor_damage, destruction_level, dir, meters, aim_point.
+## armor_penetration, armor_damage, destruction_level, stagger (after falloff), dir,
+## meters, aim_point.
 ## Aimed (ADS) bullets have a landing point: they stop there (hit the ground) unless
 ## something is in the way first. aim_point lets targets decide on critical hits.
 
@@ -75,6 +76,7 @@ func _physics_process(delta: float) -> void:
 				"damage": st.damage_at(meters), "base_damage": st.damage,
 				"armor_penetration": st.armor_penetration, "armor_damage": st.armor_damage,
 				"destruction_level": st.destruction_level,
+				"stagger": st.stagger * st.damage_at(meters) / st.damage,
 				"dir": (b.vel as Vector2).normalized(), "meters": meters, "aim_point": b.land,
 			})
 		_puffs.append({"pos": hit_pos, "t": 0.0})

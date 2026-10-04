@@ -15,10 +15,22 @@ extends CharacterBody2D
 ## - Packs: zombies spawn in groups that wander after a leader; when one spots the
 ##   player or gets shot, the rest of the pack nearby joins the chase.
 ## - Far from the player (> LOD_FAR_M) it thinks and steers less often (performance).
+## - Stagger: each hit has impact = weapon stagger (x1.5 crit) / weight.
+##     knockback  = impact * KNOCKBACK px/s
+##     slowdown   = 25% speed for impact * SLOW_PER_IMPACT s
+##     interrupt  = a single hit with impact >= INTERRUPT_IMPACT cancels a wind-up
+##     stun       = impacts fill a meter (drains STUN_DECAY/s); at 1.0 -> stunned
+##                  STUN_TIME s (no move/turn/attack), meter resets
 
 enum State { WANDER, CHASE, SEARCH, ATTACK, RECOVER, DEAD }
 
 const LOD_FAR_M := 30.0
+const KNOCKBACK := 450.0
+const SLOW_PER_IMPACT := 1.2
+const INTERRUPT_IMPACT := 0.25
+const STUN_DECAY := 0.5
+const STUN_TIME := 0.9
+const CRIT_STAGGER_MULT := 1.5
 ## m: pack members this close get alerted together.
 const PACK_ALERT_M := 20.0
 
@@ -35,6 +47,8 @@ const CLOTH := Color(0.36, 0.31, 0.4)
 const OUTLINE := Color(0.08, 0.08, 0.08)
 
 @export var max_hp := 120.0
+## kg: resists stagger (impact = weapon stagger / weight).
+@export var weight := 70.0
 ## Speeds as a fraction of the player's base walk speed (Player.move_speed).
 @export var wander_ratio := 0.25
 @export var run_ratio := 1.1
@@ -67,6 +81,9 @@ var pack_id := -1
 var leader: Zombie = null
 var _pack_offset := Vector2.ZERO
 var _recover_t := 0.0
+## 0..1 stun meter and remaining stun time.
+var _stun_meter := 0.0
+var _stun_t := 0.0
 ## m/s, derived from the player's walk speed in _ready.
 var wander_speed := 1.0
 var run_speed := 4.5
@@ -142,8 +159,7 @@ func take_hit(hit: Dictionary) -> void:
 	var dmg: float = hit.damage * FirearmStats.armor_factor(hit.armor_penetration, 0) * (CRIT_MULT if crit else 1.0)
 	hp -= dmg
 	_flash = 0.1
-	_stagger = 0.3 if crit else 0.18
-	velocity += (hit.dir as Vector2) * (90.0 if crit else 45.0)
+	_apply_stagger(hit, crit)
 	_numbers.append({"text": ("CRIT %d" if crit else "%d") % roundi(dmg), "t": 0.0, "crit": crit, "x": randf_range(-10, 10)})
 	if hp <= 0.0:
 		_die(hit.dir)
@@ -151,6 +167,25 @@ func take_hit(hit: Dictionary) -> void:
 	# Shot: turn on the shooter (and bring the pack).
 	if not _engaged() and _player:
 		_engage(_player.global_position)
+
+
+func _apply_stagger(hit: Dictionary, crit: bool) -> void:
+	var impact: float = hit.get("stagger", 0.0) * (CRIT_STAGGER_MULT if crit else 1.0) / weight
+	velocity += (hit.dir as Vector2) * impact * KNOCKBACK
+	_stagger = maxf(_stagger, impact * SLOW_PER_IMPACT)
+	if state == State.ATTACK and not _struck and impact >= INTERRUPT_IMPACT:
+		state = State.CHASE # swing cancelled
+		_cooldown = attack_cooldown
+	_stun_meter += impact
+	if _stun_meter >= 1.0:
+		_stun_meter = 0.0
+		_stun_t = STUN_TIME
+		if state == State.ATTACK:
+			state = State.CHASE
+
+
+func is_stunned() -> bool:
+	return _stun_t > 0.0
 
 
 func _physics_process(delta: float) -> void:
@@ -167,6 +202,13 @@ func _physics_process(delta: float) -> void:
 
 	_cooldown = maxf(_cooldown - delta, 0.0)
 	_stagger = maxf(_stagger - delta, 0.0)
+	_stun_meter = maxf(_stun_meter - STUN_DECAY * delta, 0.0)
+	if _stun_t > 0.0:
+		_stun_t -= delta
+		velocity = velocity.move_toward(Vector2.ZERO, 900.0 * delta)
+		move_and_slide()
+		queue_redraw()
+		return
 	hearing_now = minf(hearing_now + hearing_recovery * delta, hearing)
 	_tick += 1
 	var far := _player != null and global_position.distance_squared_to(_player.global_position) > pow(LOD_FAR_M * PX, 2)
@@ -417,6 +459,8 @@ func _draw() -> void:
 
 	# Hands: reach forward when chasing; attack = right hand winds back then swipes across.
 	var reach := 1.0 if state == State.CHASE or state == State.ATTACK else 0.35
+	if is_stunned():
+		reach = 0.0
 	var left := Vector2(-8, -10 - 10 * reach)
 	var right := Vector2(8, -10 - 10 * reach)
 	if state == State.ATTACK:
@@ -432,9 +476,10 @@ func _draw() -> void:
 
 	# Head with eyes
 	var head := SKIN.lerp(Color.WHITE, 0.6) if _flash > 0.0 else SKIN
-	_circle(Vector2.ZERO, 7.0, head)
-	draw_circle(Vector2(-2.5, -4), 1.3, Color(0.85, 0.15, 0.1))
-	draw_circle(Vector2(2.5, -4), 1.3, Color(0.85, 0.15, 0.1))
+	var wobble := Vector2(sin(_stun_t * 30.0) * 2.5, 0) if is_stunned() else Vector2.ZERO
+	_circle(wobble, 7.0, head)
+	draw_circle(wobble + Vector2(-2.5, -4), 1.3, Color(0.85, 0.15, 0.1))
+	draw_circle(wobble + Vector2(2.5, -4), 1.3, Color(0.85, 0.15, 0.1))
 
 	_draw_numbers()
 

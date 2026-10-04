@@ -32,6 +32,10 @@ enum BulletType { NORMAL, PELLETS, FLECHETTE, INCENDIARY, ROCKET }
 @export_range(0.0, 1.0) var falloff_min_damage := 0.5
 ## m/s
 @export var muzzle_velocity := 400.0
+## Impact power of one hit (knockback, slowdown, interrupt, stun build-up).
+## Effect on a target = stagger / target weight; scales with range falloff,
+## x1.5 on criticals. See Zombie for the rules.
+@export var stagger := 10.0
 
 @export_group("Fire control")
 @export var rpm := 800.0

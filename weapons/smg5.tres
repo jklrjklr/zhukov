@@ -17,6 +17,7 @@ range_min = 20.0
 range_max = 120.0
 falloff_min_damage = 0.45
 muzzle_velocity = 400.0
+stagger = 12.0
 rpm = 800.0
 fire_modes = PackedInt32Array(0, 1, 2)
 burst_count = 3
