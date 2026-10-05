@@ -54,6 +54,12 @@ var _slow_t := 0.0
 var _dive_t := 0.0
 var _prone_t := 0.0
 var _dive_dir := Vector2.UP
+## Stratagem auto-typing (set by Stratagems): arm-raised pose, progress 0..1, glyph colour.
+var typing := false
+var typing_prog := 0.0
+var typing_col := Color.WHITE
+## Seconds left of a stagger / knock-down (interrupts stratagem typing).
+var stagger_t := 0.0
 var _edge_t := 0.0
 
 ## Movement input in screen/local space, set by TouchControls.
@@ -75,6 +81,13 @@ const FORWARD_SPEED := 1.0
 const STRAFE_SPEED := 0.6
 const BACK_SPEED := 0.7
 
+## Recent damage sources for the HUD's direction indicator: {from: Vector2, t: s, amt}.
+var hit_dirs: Array[Dictionary] = []
+## Hip laser: length to the first obstacle (px), updated every physics tick.
+var _laser_len := 0.0
+var _laser_hit := false
+var _heal_pulse := 0.0
+var _ov: Node2D
 var _step_t := 0.0
 var _walk_phase := 0.0 # radians, advances with distance moved
 var _walk_amount := 0.0 # 0 idle .. 1 full stride, eased
@@ -90,6 +103,13 @@ func _ready() -> void:
 	stims = max_stims
 	grenades = max_grenades
 	_head.draw.connect(_draw_head)
+	_ov = Node2D.new()
+	_ov.name = "FxOverlay"
+	var m := CanvasItemMaterial.new()
+	m.light_mode = CanvasItemMaterial.LIGHT_MODE_UNSHADED
+	_ov.material = m
+	_ov.draw.connect(_draw_overlay)
+	add_child(_ov)
 	look_angle = rotation
 
 
@@ -104,6 +124,7 @@ func dive() -> void:
 	var dir := move_input.rotated(look_angle) if move_input.length() > 0.2 else Vector2.UP.rotated(rotation)
 	_dive_dir = dir.normalized()
 	_dive_t = dive_time
+	Fx.dust_puff(self, global_position, 1.2)
 	weapon.trigger = false
 	Sfx.play_ui("dive", -4.0, 0.08)
 
@@ -151,6 +172,8 @@ func revive(pos: Vector2) -> void:
 	_dive_t = 0.0
 	_prone_t = 0.0
 	hurt = 0.0
+	stagger_t = 0.0
+	typing = false
 	_heal_left = 0.0
 	stims = max_stims
 	grenades = max_grenades
@@ -166,7 +189,15 @@ func take_damage(amount: float, from: Vector2, knock := true) -> void:
 	if amount >= 3.0:
 		Sfx.play_ui("player_hit", -4.0, 0.1)
 	hurt = maxf(hurt, minf(1.0, amount / 20.0))
+	if from.distance_to(global_position) > 4.0:
+		hit_dirs.append({"from": from, "t": 0.0, "amt": amount})
+		if hit_dirs.size() > 6:
+			hit_dirs.pop_front()
+	if amount >= 3.0:
+		Fx.shake(self, clampf(amount * 0.12, 1.0, 5.0))
 	if knock:
+		if amount >= 8.0:
+			stagger_t = 0.5
 		velocity += (global_position - from).normalized() * 160.0
 		kick(randf_range(-0.06, 0.06))
 	if hp <= 0.0:
@@ -181,7 +212,14 @@ func take_damage(amount: float, from: Vector2, knock := true) -> void:
 
 func _physics_process(delta: float) -> void:
 	hurt = maxf(hurt - delta * 1.5, 0.0)
+	for h in hit_dirs:
+		h.t += delta
+	if not hit_dirs.is_empty() and (hit_dirs[0].t as float) > 1.6:
+		hit_dirs = hit_dirs.filter(func(h): return h.t < 1.6)
+	_heal_pulse = fmod(_heal_pulse + delta, 1.0) if _heal_left > 0.0 else 0.0
+	_update_laser()
 	_slow_t = maxf(_slow_t - delta, 0.0)
+	stagger_t = maxf(stagger_t - delta, 0.0)
 	if deploying:
 		velocity = Vector2.ZERO
 		return
@@ -196,7 +234,7 @@ func _physics_process(delta: float) -> void:
 		input = kb
 	input = input.limit_length(1.0)
 
-	var kb_turn := float(Input.is_physical_key_pressed(KEY_E)) - float(Input.is_physical_key_pressed(KEY_Q))
+	var kb_turn := float(Input.is_physical_key_pressed(KEY_RIGHT)) - float(Input.is_physical_key_pressed(KEY_LEFT))
 	if kb_turn != 0.0:
 		turn_look(kb_turn * keyboard_turn_speed * delta)
 
@@ -226,7 +264,7 @@ func _physics_process(delta: float) -> void:
 	# Sprint: stick held at the edge (or Shift), not aiming, with stamina left.
 	_edge_t = _edge_t + delta if input.length() >= 0.97 else 0.0
 	var want_sprint := (_edge_t > 0.12 or Input.is_physical_key_pressed(KEY_SHIFT)) and input.length() > 0.5
-	sprinting = want_sprint and stamina > 0.0 and ads < 0.1 and not dead
+	sprinting = want_sprint and stamina > 0.0 and ads < 0.1 and not dead and not typing
 	if sprinting:
 		stamina = maxf(stamina - delta / stamina_seconds, 0.0)
 		_stamina_idle = 0.0
@@ -312,6 +350,7 @@ func _animate(delta: float) -> void:
 	if speed > 30.0 and not dead and _dive_t <= 0.0 and _prone_t <= 0.0:
 		if _step_t <= 0.0:
 			_step_t = 0.35 if not sprinting else 0.26
+			Fx.dust_puff(self, global_position - velocity.normalized() * 8.0, 0.35 if sprinting else 0.18)
 			Sfx.play_ui("footstep_run" if sprinting else "footstep", -8.0, 0.08)
 	else:
 		_step_t = minf(_step_t, 0.1)
@@ -320,11 +359,33 @@ func _animate(delta: float) -> void:
 	# Walking swings the weapon left/right (aim only, camera stays).
 	weapon.sway = sin(_walk_phase) * _walk_amount
 	queue_redraw()
+	_ov.queue_redraw()
+
+
+## Ray from the muzzle along the weapon to the first obstacle (laser sight length).
+func _update_laser() -> void:
+	if dead or deploying or weapon == null:
+		_laser_len = 0.0
+		return
+	var from := weapon.to_global(weapon.muzzle_local())
+	var dir := Vector2.UP.rotated(weapon.global_rotation)
+	var reach := 14.0 * Firearm.PX_PER_M
+	var q := PhysicsRayQueryParameters2D.create(from, from + dir * reach, 3)
+	q.exclude = [get_rid()]
+	var hit := get_world_2d().direct_space_state.intersect_ray(q)
+	_laser_hit = not hit.is_empty()
+	_laser_len = from.distance_to(hit.position) if _laser_hit else reach
 
 
 func _draw() -> void:
 	var swing := sin(_walk_phase) * _walk_amount
 	var bob := absf(cos(_walk_phase)) * _walk_amount
+	if not dead:
+		# Drop shadow (world-fixed light) and aim laser.
+		var so := Vector2(6, 8).rotated(-global_rotation)
+		draw_set_transform_matrix(Transform2D(Vector2(19, 0), Vector2(0, 14), so))
+		draw_circle(Vector2.ZERO, 1.0, Color(0, 0, 0, 0.28))
+		draw_set_transform(Vector2.ZERO)
 
 	# Feet (alternate forward/back while walking)
 	_shape_ellipse(Vector2(-9, -6 - swing * 9), Vector2(4.5, 6.5), BOOT)
@@ -332,7 +393,17 @@ func _draw() -> void:
 
 	# Torso (wide shoulders, sways slightly opposite to feet)
 	draw_set_transform(Vector2.ZERO, -swing * 0.12)
+	# Backpack, then the torso, shoulder pads and chest plate.
+	draw_rect(Rect2(-8.5, 5.0, 17, 10.5), OUTLINE)
+	draw_rect(Rect2(-7.5, 6.0, 15, 8.5), Color(0.28, 0.3, 0.22))
+	draw_line(Vector2(-7.5, 10), Vector2(7.5, 10), OUTLINE, 1.0)
+	draw_rect(Rect2(-3, 7, 6, 3), Color(0.5, 0.45, 0.2))
 	_shape_ellipse(Vector2(0, 1), Vector2(16, 10), ARMOR)
+	draw_arc(Vector2(0, 1), 12.5, PI * 1.1, PI * 1.9, 12, ARMOR.lightened(0.35), 1.5)
+	for sx in [-1.0, 1.0]:
+		_shape_circle(self, Vector2(sx * 14.0, 0.5), 5.0, ARMOR.darkened(0.15))
+		draw_circle(Vector2(sx * 14.0 - 1.0, -1.0), 2.0, ARMOR.lightened(0.3))
+	draw_line(Vector2(-15, 5), Vector2(15, 5), ARMOR.darkened(0.45), 1.5) # belt
 	draw_set_transform(Vector2.ZERO)
 
 	# Chest mag pouches
@@ -352,6 +423,17 @@ func _draw() -> void:
 	# Hands, under the weapon
 	for p in weapon.hand_points():
 		_shape_circle(self, p + Vector2(0, bob * 1.5), 4.0, SKIN)
+
+	# Typing a stratagem code: left arm raised to the wrist console, fingers tapping.
+	if typing and not dead:
+		var tap := sin(typing_prog * 40.0) * 1.6
+		var sh := Vector2(-14, 0.5)
+		var hand := Vector2(-12, -17 + tap)
+		draw_line(sh, hand, OUTLINE, 6.5)
+		draw_line(sh, hand, ARMOR.darkened(0.1), 4.0)
+		draw_rect(Rect2(hand.x - 5.5, hand.y - 3.5, 11, 8), OUTLINE)
+		draw_rect(Rect2(hand.x - 4.5, hand.y - 2.5, 9, 6), typing_col.darkened(0.2))
+		_shape_circle(self, hand + Vector2(3, -6 + tap * 0.5), 3.4, SKIN)
 
 
 func _draw_head() -> void:
@@ -375,3 +457,50 @@ func _ellipse_points(c: Vector2, radii: Vector2) -> PackedVector2Array:
 		var a := TAU * i / 20.0
 		pts.append(c + Vector2(cos(a) * radii.x, sin(a) * radii.y))
 	return pts
+
+
+## Faint laser sight along the weapon; stronger when hip-firing, almost gone when aimed.
+func _draw_laser() -> void:
+	if _laser_len < 20.0 or sprinting or is_diving() or weapon.state == Firearm.State.RELOADING:
+		return
+	var a := lerpf(0.5, 0.12, weapon.ads_amount())
+	var from := to_local(weapon.to_global(weapon.muzzle_local()))
+	var dir := Vector2.UP.rotated(weapon.global_rotation - global_rotation)
+	var n := 6
+	for i in n:
+		var t0 := _laser_len * float(i) / n
+		var t1 := _laser_len * float(i + 1) / n
+		var fade := 1.0 - float(i) / n
+		_ov.draw_line(from + dir * t0, from + dir * t1, Color(1.0, 0.15, 0.1, a * fade * 0.8), 1.6)
+	var end := from + dir * _laser_len
+	if _laser_hit:
+		_ov.draw_circle(end, 5.0, Color(1.0, 0.2, 0.1, a * 0.4))
+		_ov.draw_circle(end, 2.0, Color(1.0, 0.5, 0.4, a * 1.4))
+
+
+func _draw_overlay() -> void:
+	if dead or deploying:
+		return
+	_draw_laser()
+	_draw_rings()
+
+
+## Reload ring, stamina arc and stim pulse around the player.
+func _draw_rings() -> void:
+	var busy := weapon.state == Firearm.State.RELOADING or weapon.state == Firearm.State.CLEARING
+	if busy:
+		var k := weapon.state_progress()
+		_ov.draw_arc(Vector2.ZERO, 32.0, 0.0, TAU, 40, Color(0, 0, 0, 0.45), 6.0)
+		_ov.draw_arc(Vector2.ZERO, 32.0, -PI / 2.0, -PI / 2.0 + TAU * k, 40, UiStyle.BLUE if not weapon.jammed else UiStyle.RED, 4.0)
+		_ov.draw_circle(Vector2.from_angle(-PI / 2.0 + TAU * k) * 32.0, 3.0, Color.WHITE)
+	if stamina < 0.995:
+		var col := Color(0.4, 0.8, 1.0, 0.85) if stamina > 0.25 else Color(1.0, 0.55, 0.2, 0.9)
+		_ov.draw_arc(Vector2.ZERO, 26.0, PI * 0.15, PI * 0.85, 12, Color(0, 0, 0, 0.35), 4.0)
+		_ov.draw_arc(Vector2.ZERO, 26.0, PI * 0.15, PI * 0.15 + PI * 0.7 * stamina, 12, col, 3.0)
+	if _heal_left > 0.0:
+		var p := _heal_pulse
+		_ov.draw_arc(Vector2.ZERO, 20.0 + p * 18.0, 0.0, TAU, 24, Color(0.4, 1.0, 0.4, 0.7 * (1.0 - p)), 3.0)
+		for i in 2:
+			var c := Vector2(-10.0 + i * 20.0, -22.0 - fmod(p + i * 0.5, 1.0) * 16.0)
+			_ov.draw_line(c + Vector2(-4, 0), c + Vector2(4, 0), Color(0.4, 1.0, 0.4, 0.9), 2.5)
+			_ov.draw_line(c + Vector2(0, -4), c + Vector2(0, 4), Color(0.4, 1.0, 0.4, 0.9), 2.5)

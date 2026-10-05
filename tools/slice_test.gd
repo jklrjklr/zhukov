@@ -88,9 +88,9 @@ func _run() -> void:
 	check("passage warns about uncleared objectives before the midline", m.hud_state().passage_warning.size() >= 1 and not m.passages[0].is_sealed)
 	check("passage is roofed", m.is_roofed(p.global_position))
 	var eagle0: int = s.charges("eagle_airstrike")
-	s.toggle_menu()
-	for d in [0, 3, 1, 3]: # up right down right
-		s.push(d)
+	check("roofed passage: Eagle is not pickable (tooltip says why)", s.pick_error("eagle_airstrike").contains("NO SKY"))
+	s.select_quick("eagle_airstrike")
+	await wait(0.6)
 	check("eagle beacon refused in the roofed passage (nothing spent)", s.charges("eagle_airstrike") == eagle0 and s.last_called == "")
 	var banner_text := ""
 	for b in m.banners:
@@ -187,8 +187,8 @@ func _run() -> void:
 	await wait(1.0)
 	check("departed at 0:00", m.hud_state().stage == "departed" and m.time_left == 0.0)
 	check("all stratagems lock", s.locked)
-	s.toggle_menu()
-	check("menu refuses to open when locked", not s.entering)
+	s.open_menu()
+	check("menu refuses to open when locked", not s.ui_open())
 	check("none available", not s.available("eat17") and not s.available("eagle_airstrike"))
 	var meter_before: float = s.status.eat17.meter
 	s.add_points(500.0)
@@ -263,6 +263,105 @@ func _run() -> void:
 	await wait(0.9)
 	check("upload brings attack waves", get_nodes_in_group("enemies").size() > n0 and m.main_objective(1).progress > 0.0)
 
+	await _stratagem_input_tests()
+
 	print("")
 	print("%d checks, %d failed" % [checks, fails])
 	quit(1 if fails > 0 else 0)
+
+
+## Stratagem input: auto-typed codes (0.1 s per arrow), quick throw, menu + aim mode, interruptions.
+func _stratagem_input_tests() -> void:
+	await fresh()
+	var open: Vector2 = m.zones[0].rect.get_center()
+	p.global_position = open
+	p.rotation = 0.0
+	p.look_angle = 0.0
+	await wait(0.2)
+	check("code time is 0.1 s per arrow", is_equal_approx(s.code_time("eat17"), 0.5) and is_equal_approx(s.code_time("orbital_120"), 0.6) and is_equal_approx(s.code_time("orbital_precision"), 0.3))
+
+	# Quick throw: typed automatically, thrown after length x 0.1 s along the aim direction.
+	var eat: int = s.charges("eat17")
+	check("quick throw selects an available stratagem", s.select_quick("eat17"))
+	await wait(0.25)
+	check("typing in progress: helldiver in typing pose, not thrown yet", p.typing and s.is_typing() and s.charges("eat17") == eat and s.last_called == "")
+	await wait(0.5)
+	check("EAT-17 thrown right after its 5-arrow code (0.5 s)", s.charges("eat17") == eat - 1 and s.last_called == "eat17" and not p.typing)
+	var b: Dictionary = s._beacons[0]
+	var thrown_m: float = (b.to - b.from).length() / PX
+	check("quick throw goes ~12 m forward (or shorter against a wall)", thrown_m <= 12.01 and (b.to - b.from).normalized().dot(Vector2.UP) > 0.99, str(thrown_m))
+	check("quick throw closed the selection UI", not s.ui_open())
+
+	# Menu + aim mode: throw waits for the code, lands at the aimed point clamped to 20 m.
+	await fresh()
+	p.global_position = m.zones[0].rect.get_center()
+	p.rotation = 0.0
+	p.look_angle = 0.0
+	await wait(0.2)
+	s.open_menu()
+	check("tap opens the menu", s.ui == s.Ui.MENU)
+	check("menu entry enters aim mode", s.select_aim("eagle_airstrike") and s.ui == s.Ui.AIM)
+	s.aim_move(Vector2(0, -50.0 * PX))
+	check("aim point is clamped to the max throw range (20 m)", is_equal_approx(s.aim_offset.length(), 20.0 * PX), str(s.aim_offset.length()))
+	var ea: int = s.charges("eagle_airstrike")
+	await wait(0.1)
+	s.aim_throw() # asked before the 4-arrow code (0.4 s) is done
+	await wait(0.1)
+	check("throw waits until typing has finished", s.charges("eagle_airstrike") == ea and s.ui == s.Ui.AIM)
+	await wait(0.45)
+	check("then throws at the aim point", s.charges("eagle_airstrike") == ea - 1 and s.last_called == "eagle_airstrike" and not s.ui_open())
+	b = s._beacons[0]
+	var d: Vector2 = b.to - b.from
+	check("Eagle: line is perpendicular to the throw direction", absf(d.normalized().dot(b.dir)) > 0.99 and d.length() / PX <= 20.01, str(d.length() / PX))
+
+	# Aim mode, aim moved sideways, typing again after an interruption.
+	await fresh()
+	p.global_position = m.zones[0].rect.get_center()
+	await wait(0.2)
+	s.select_aim("eat17")
+	await wait(0.2)
+	p.dive()
+	await wait(0.1)
+	check("diving interrupts typing (it must restart)", s.typing_t < 0.15 and s.ui == s.Ui.AIM and not p.typing)
+	s.aim_throw()
+	await wait(0.8)
+	check("no throw while diving / prone", s.last_called == "")
+	await wait(1.0)
+	check("typing restarts after the dive and the queued throw happens", s.last_called == "eat17")
+
+	# Quick throw dropped by a dive; also by a stagger.
+	await fresh()
+	p.global_position = m.zones[0].rect.get_center()
+	await wait(0.2)
+	var op: int = s.charges("orbital_120")
+	s.select_quick("orbital_120")
+	await wait(0.2)
+	p.dive()
+	await wait(0.2)
+	check("quick throw is cancelled by a dive", s.typing_id == "" and s.charges("orbital_120") == op and s.last_called == "")
+	await wait(1.2)
+	s.select_quick("resupply")
+	await wait(0.1)
+	p.take_damage(30.0, p.global_position + Vector2(40, 0))
+	await wait(0.1)
+	check("stagger / knock-down interrupts typing", s.typing_id == "" and s.last_called == "")
+
+	# Walking is allowed while typing (no sprint).
+	await wait(0.6)
+	s.select_quick("sentry_mg")
+	p.move_input = Vector2(0, -1)
+	await wait(0.15)
+	check("typing does not stop movement but blocks sprinting", p.typing and not p.sprinting and p.velocity.length() > 20.0, "%s %s %s id=%s st=%s" % [p.typing, p.sprinting, p.velocity.length(), s.typing_id, p.stagger_t])
+	p.move_input = Vector2.ZERO
+	await wait(0.6)
+
+	# Locked / unavailable stratagems cannot be picked.
+	await fresh()
+	p.global_position = m.zones[0].rect.get_center()
+	await wait(0.2)
+	s.status.eat17.charges = 0
+	check("no charges: not pickable, reason names the meter", s.pick_error("eat17").begins_with("NO CHARGES"))
+	check("selecting it is refused", not s.select_quick("eat17") and not s.select_aim("eat17") and s.typing_id == "" and s.error_t > 0.0)
+	s.locked = true
+	check("departed: not pickable, reason says offline", s.pick_error("resupply").contains("OFFLINE") and not s.select_quick("resupply"))
+	s.locked = false

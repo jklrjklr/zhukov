@@ -67,6 +67,8 @@ var player: CharacterBody2D
 var objectives: Array[Dictionary] = []
 ## {text, t}
 var banners: Array[Dictionary] = []
+## Recent kills for the HUD feed: {text, pts, t}
+var kill_feed: Array[Dictionary] = []
 var pelican := Pelican.NONE
 var pelican_delay := 4.0
 ## Reset in tests / debugging.
@@ -111,6 +113,7 @@ var _extract_hint := false
 
 
 func _ready() -> void:
+	Fx.reset()
 	add_to_group("mission")
 	player = get_node("../Player")
 	_strat = get_node_or_null("../Stratagems") as Stratagems
@@ -121,6 +124,9 @@ func _ready() -> void:
 	_overlay.name = "Overlay"
 	_overlay.z_index = 20
 	_overlay.z_as_relative = false
+	var mat := CanvasItemMaterial.new()
+	mat.light_mode = CanvasItemMaterial.LIGHT_MODE_UNSHADED
+	_overlay.material = mat
 	_overlay.draw.connect(_draw_overlay)
 	add_child(_overlay)
 
@@ -227,6 +233,7 @@ func hud_state() -> Dictionary:
 		"samples": samples,
 		"kills": int(Game.stats.get("kills", 0)),
 		"banners": banners,
+		"kill_feed": kill_feed,
 		"passage_warning": _passage_warning,
 		"respawn_in": respawn_in,
 		"end": ["", "won", "lost"][end_state],
@@ -239,6 +246,8 @@ func hud_state() -> Dictionary:
 			"rect": z.rect, "player": pp, "look": player.look_angle, "explored": _explored, "cells": FOG_CELLS,
 			"exit": exit_pos, "pois": pois, "enemies": enemies_pos,
 			"targets": _active_targets(),
+			"walls": z.walls, "floors": z.floors, "zone_pos": z.position, "entrance": z.entrance_pt,
+			"main_done": main_objective(current).get("status", "") == "done",
 		},
 	}
 
@@ -315,15 +324,15 @@ func _active_targets() -> Array:
 			"nest":
 				for h in _holes:
 					if h.zone == current and h.objective and is_instance_valid(h.node) and not h.node.is_destroyed():
-						out.append({"pos": h.node.global_position, "optional": false})
+						out.append({"pos": h.node.global_position, "optional": false, "id": "nest"})
 			"upload":
-				out.append({"pos": _terminal.global_position, "optional": false})
+				out.append({"pos": _terminal.global_position, "optional": false, "id": "upload"})
 			"elite":
 				var e = _elites.get(current)
 				if is_instance_valid(e) and not e.is_dead():
-					out.append({"pos": e.global_position, "optional": true})
+					out.append({"pos": e.global_position, "optional": true, "id": "elite"})
 			"extract":
-				out.append({"pos": _console.global_position, "optional": false})
+				out.append({"pos": _console.global_position, "optional": false, "id": "extract"})
 	return out
 
 
@@ -412,6 +421,9 @@ func _physics_process(delta: float) -> void:
 	for b in banners:
 		b.t += delta
 	banners = banners.filter(func(b): return b.t < 5.5)
+	for k in kill_feed:
+		k.t += delta
+	kill_feed = kill_feed.filter(func(k): return k.t < 5.0)
 	_overlay.queue_redraw()
 	_setup_ticks += 1
 	if end_state != End.NONE:
@@ -457,6 +469,7 @@ func _land_pod(at: Vector2) -> void:
 	var proj := get_tree().get_first_node_in_group("projectiles")
 	if proj:
 		proj.explode(at, HELLPOD_BLAST)
+	Fx.landing(self, at, 130.0)
 	Sfx.play("hellpod_impact", at, 2.0)
 	player.visible = true
 
@@ -490,7 +503,7 @@ func _update_stage() -> void:
 		_strat.fill_enabled = stage == Stage.MAIN
 		_strat.locked = stage == Stage.DEPARTED
 		if stage == Stage.DEPARTED:
-			_strat.close_menu()
+			_strat.cancel(false)
 	if stage == _stage_prev:
 		return
 	match stage:
@@ -715,6 +728,7 @@ func _update_breach(delta: float) -> void:
 	_breach_t = -1.0
 	var size := randi_range(4, 6) + (3 if stage == Stage.DEPARTED else 0)
 	var got := Terminid.spawn_pack(_actors, _breach_pos, size, _next_pack(), _free_in_zone, _kinds(size))
+	Fx.landing(self, _breach_pos, 90.0)
 	if not got.is_empty():
 		Sfx.play("burrow", _breach_pos, 2.0)
 	for t in got:
@@ -725,10 +739,17 @@ func _update_breach(delta: float) -> void:
 ## Kill rewards (called by Terminid / Charger).
 func on_kill(bug: Node) -> void:
 	var pts := KILL_POINTS_MEDIUM
+	var nm := "Bug"
 	if bug is Charger:
 		pts = KILL_POINTS_HEAVY
-	elif bug is Terminid and (bug as Terminid).kind == Terminid.Kind.SCAVENGER:
-		pts = KILL_POINTS_LIGHT
+		nm = "Charger"
+	elif bug is Terminid:
+		nm = (bug as Terminid).kind_name()
+		if (bug as Terminid).kind == Terminid.Kind.SCAVENGER:
+			pts = KILL_POINTS_LIGHT
+	kill_feed.append({"text": nm, "pts": int(pts), "t": 0.0})
+	if kill_feed.size() > 5:
+		kill_feed.pop_front()
 	if _strat:
 		_strat.add_points(pts)
 
@@ -887,7 +908,7 @@ func _end(state: End, reason: String) -> void:
 	if state == End.LOST:
 		_music("off")
 	if _strat:
-		_strat.close_menu()
+		_strat.cancel(false)
 	ended.emit(state)
 
 
@@ -958,17 +979,21 @@ func _update_fog(delta: float) -> void:
 # --- World-space overlay ---------------------------------------------------------------
 
 func _draw_overlay() -> void:
+	var up := Fx.screen_up(_overlay)
 	if _pod_t > 0.0 and _pod_pos != Vector2.INF:
 		var k := clampf(1.0 - _pod_t / _pod_total, 0.0, 1.0)
 		_overlay.draw_circle(_pod_pos, 40.0 * (0.4 + k * 0.6), Color(0, 0, 0, 0.35 * k))
-		var top := _pod_pos + Vector2(0, -900.0 * (1.0 - k))
-		_overlay.draw_line(top + Vector2(0, -220), top, Color(1, 0.6, 0.2, 0.7), 10.0)
-		_overlay.draw_circle(top, 16.0, Color(0.25, 0.26, 0.28))
-		_overlay.draw_circle(top, 9.0, UiStyle.YELLOW)
+		_overlay.draw_arc(_pod_pos, 70.0 * (1.2 - k * 0.5), 0.0, TAU, 28, Color(1, 0.6, 0.2, 0.7 * k), 3.0)
+		Fx.draw_pod(_overlay, _pod_pos, up, k, 1000.0, 18.0)
 	if _breach_t >= 0.0 and _breach_pos != Vector2.INF:
 		var k := 1.0 - _breach_t / 1.8
 		_overlay.draw_circle(_breach_pos, 60.0 * k + 10.0, Color(0.35, 0.25, 0.1, 0.35))
 		_overlay.draw_arc(_breach_pos, 70.0 * k + 12.0, 0, TAU, 28, Color(1, 0.6, 0.2, 0.6), 3.0)
+		for i in 6: # cracks radiating from the breach point
+			var a := TAU * i / 6.0 + 0.4
+			_overlay.draw_line(_breach_pos + Vector2.from_angle(a) * 14.0, _breach_pos + Vector2.from_angle(a) * (30.0 + 60.0 * k), Color(0.1, 0.06, 0.03, 0.8), 3.0)
+		if _breach_t > 0.0 and int(_breach_t * 14.0) % 2 == 0:
+			Fx.dust_puff(self, _breach_pos + Vector2.from_angle(randf() * TAU) * 40.0 * k, 0.8)
 	if pelican == Pelican.CALLED or pelican == Pelican.LANDED or pelican == Pelican.TAKEOFF:
 		var pad := zones[2].pad_pos
 		var k := 1.0
@@ -977,14 +1002,24 @@ func _draw_overlay() -> void:
 			k = 1.0 - pow(1.0 - k, 2.0)
 		elif pelican == Pelican.TAKEOFF:
 			k = clampf(1.0 - _takeoff_t / 1.6, 0.0, 1.0)
-		var c := pad + Vector2(0, -(1.0 - k) * 900.0)
+		var c := pad + up * ((1.0 - k) * 900.0)
 		_overlay.draw_circle(pad, 160.0 * (0.4 + k * 0.6), Color(0, 0, 0, 0.35 * k))
 		_draw_pelican(c, 1.0 + (1.0 - k) * 0.5)
-	# Objective beacons (pulsing rings) on active targets of the current zone.
+		if k > 0.5 and int(Time.get_ticks_msec() / 90) % 2 == 0: # rotor wash
+			Fx.dust_puff(self, pad + Vector2.from_angle(randf() * TAU) * randf_range(60.0, 220.0), 1.4)
+	# Objective beacons: pulsing rings, tick marks and a short light column on active targets.
 	var now := Time.get_ticks_msec() * 0.001
 	for t in _active_targets():
 		var col := UiStyle.YELLOW if not t.optional else Color(1, 1, 1, 0.6)
-		_overlay.draw_arc(t.pos, 46.0 + 6.0 * sin(now * 4.0), 0, TAU, 28, Color(col, 0.4), 2.0)
+		var pulse := 0.5 + 0.5 * sin(now * 4.0)
+		_overlay.draw_arc(t.pos, 46.0 + 6.0 * pulse, 0, TAU, 28, Color(col, 0.4), 2.0)
+		for i in 4:
+			var a := now * 1.2 + i * TAU / 4.0
+			_overlay.draw_arc(t.pos, 56.0, a, a + 0.5, 6, Color(col, 0.7), 3.0)
+		var side := up.orthogonal()
+		var pts := PackedVector2Array([t.pos + side * 6.0, t.pos - side * 6.0, t.pos - side * 2.0 + up * 220.0, t.pos + side * 2.0 + up * 220.0])
+		var cols := PackedColorArray([Color(col, 0.28 * (0.6 + pulse * 0.4)), Color(col, 0.28 * (0.6 + pulse * 0.4)), Color(col, 0.0), Color(col, 0.0)])
+		_overlay.draw_polygon(pts, cols)
 
 
 func _draw_pelican(c: Vector2, s: float) -> void:

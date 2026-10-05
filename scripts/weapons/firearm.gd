@@ -80,6 +80,11 @@ var _kick := 0.0
 var _tilt := 0.0
 var _ads := 0.0
 var _cam_zoom := 1.0
+## Stratagem aim mode (set by Stratagems): the camera eases toward the landing point,
+## given relative to the player in the camera rig's frame.
+var strat_cam_on := false
+var strat_cam_local := Vector2.ZERO
+var _strat_cam_a := 0.0
 var _cam_offset := Vector2.ZERO
 var _reload_empty := false
 var _mag_dropped := false
@@ -506,8 +511,18 @@ func _update_recoil(delta: float) -> void:
 		var ads_cam := Vector2(0, -clampf(aim_px - (half - 90.0), -_cam_base.y, half - 90.0))
 		var a := smoothstep(0.0, 1.0, _ads)
 		var k := minf(1.0, delta * 8.0)
-		_cam_zoom = lerpf(_cam_zoom, lerpf(1.0, ads_zoom, a), k)
-		_cam_offset = _cam_offset.lerp(_cam_base.lerp(ads_cam, a), k)
+		var cam_target := _cam_base.lerp(ads_cam, a)
+		var zoom_target := lerpf(1.0, ads_zoom, a)
+		_strat_cam_a = move_toward(_strat_cam_a, 1.0 if strat_cam_on else 0.0, delta * 3.0)
+		if _strat_cam_a > 0.0:
+			var sa := smoothstep(0.0, 1.0, _strat_cam_a)
+			var dist := strat_cam_local.length()
+			var s_zoom := clampf(720.0 / (dist + 300.0), 0.5, 1.0)
+			var s_cam := _cam_base + strat_cam_local * 0.5
+			cam_target = cam_target.lerp(s_cam, sa)
+			zoom_target = lerpf(zoom_target, s_zoom, sa)
+		_cam_zoom = lerpf(_cam_zoom, zoom_target, k)
+		_cam_offset = _cam_offset.lerp(cam_target, k)
 		# Vertical recoil, hip: pushes the view back toward the player (penalty for
 		# spraying on the move). ADS: kicks it forward following the aim circle's
 		# push (less than the circle moves), like muzzle rise.
