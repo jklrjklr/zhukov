@@ -10,8 +10,10 @@ extends CharacterBody2D
 ##   hears sounds whose loudness here >= (100 - hearing) (loud ones deafen it).
 ## - Chases with context steering around obstacles (commits to a side at walls).
 ## - Melee: wind-up, strike if still in reach, then recover (window to act).
-## - Getting shot / spotting the player alerts its pack and reports to the mission
-##   (which may call a bug breach).
+## - Awareness (see Awareness): UNAWARE -> SUSPICIOUS (sounds / partial sightings raise a meter; it
+##   investigates, "?" fills) -> ALERT (player identified: LOS in the sight cone for a dwell time, or
+##   shot). ALERT is per bug and never broadcast; suspicion spreads to bugs within 15 m. Only an
+##   ALERT bug can call a breach, and it must stand and perform a visible ~2 s call first.
 ## - Stagger: impact = weapon stagger (x1.5 crit) / weight -> knockback, slowdown,
 ##   wind-up interrupt, stun meter.
 ## - Performance: perception (LOS ray) and steering (ray fan) run every THINK_NEAR s within
@@ -23,7 +25,7 @@ extends CharacterBody2D
 ##   real-time drawing is on two small overlays (telegraphs, HP bar / icons / numbers).
 
 enum Kind { SCAVENGER, WARRIOR, HUNTER, BILE_SPITTER }
-enum State { WANDER, CHASE, SEARCH, ATTACK, RECOVER, LEAP, SPIT, DEAD }
+enum State { WANDER, CHASE, SEARCH, ATTACK, RECOVER, LEAP, SPIT, DEAD, CALL }
 
 const NEAR_M := 20.0
 const THINK_NEAR := 0.1
@@ -40,7 +42,6 @@ const INTERRUPT_IMPACT := 0.25
 const STUN_DECAY := 0.5
 const STUN_TIME := 0.9
 const CRIT_STAGGER_MULT := 1.5
-const PACK_ALERT_M := 20.0
 const PX := Firearm.PX_PER_M
 const RAYS := 16
 const FEELER := 60.0
@@ -130,6 +131,15 @@ var _numbers: Array[Dictionary] = []
 var _dmg_t := 99.0
 var _bounce_t := 0.0
 var _aware_t := 0.0
+## Awareness: level, suspicion meter 0..1, where the last cue was, seconds without cues, LOS dwell.
+var level := Awareness.Level.UNAWARE
+var suspicion := 0.0
+var _cue_pos := Vector2.ZERO
+var _quiet_t := 0.0
+var _dwell := 0.0
+var _call_t := 0.0
+var _think_acc := 0.0
+var _mission: Node
 var _idle_t := 4.0
 var _hurt_snd := 0.0
 var _player: CharacterBody2D
@@ -230,7 +240,7 @@ func is_dead() -> bool:
 
 ## Chasing / attacking (used for the combat music and the HUD).
 func is_alerted() -> bool:
-	return _engaged()
+	return state != State.DEAD and level == Awareness.Level.ALERT
 
 
 func kind_name() -> String:
@@ -243,29 +253,102 @@ func turn_cap() -> float:
 	return deg_to_rad(_cfg.turn)
 
 
-## Send it somewhere: chase=true runs straight at the player, else it investigates pos.
+## Scripted nudge (spawned patrols / packs): chase=true makes this bug ALERT at once (no call),
+## else it only becomes suspicious of `pos` and investigates it.
 func alert_to(pos: Vector2, chase := false) -> void:
-	if state == State.DEAD or _engaged():
+	if state == State.DEAD or level == Awareness.Level.ALERT:
 		return
 	if chase and _player:
-		_engage(_player.global_position)
+		_become_alert(false)
 	else:
+		add_suspicion(0.5, pos)
+
+
+func hear(pos: Vector2, loudness: float, falloff_pct: float) -> void:
+	hear_sound(pos, loudness, falloff_pct, Awareness.Sound.GUNFIRE)
+
+
+## A sound: suspicion by distance (Awareness.sound_gain, hard caps per kind); never alert by itself.
+func hear_sound(pos: Vector2, loudness: float, falloff_pct: float, kind: int) -> void:
+	if state == State.DEAD or level == Awareness.Level.ALERT:
+		return
+	var meters := global_position.distance_to(pos) / PX
+	var gain := Awareness.sound_gain(kind, loudness, meters)
+	if gain <= 0.0:
+		return
+	var heard := FirearmStats.loudness_at(loudness, falloff_pct, meters)
+	if heard > DEAFEN_LEVEL:
+		hearing_now = maxf(hearing_now - (heard - DEAFEN_LEVEL) * DEAFEN_RATE, MIN_HEARING)
+	gain *= hearing_now / maxf(hearing, 1.0)
+	var vague := lerpf(6.0, 1.0, clampf(gain / 0.6, 0.0, 1.0))
+	add_suspicion(gain, pos + Vector2(randf_range(-vague, vague), randf_range(-vague, vague)) * PX)
+
+
+## Raise the meter (absolute = set to at least `amount`, used by spreading and sightings). A
+## suspicious bug turns and walks to investigate `pos`.
+func add_suspicion(amount: float, pos: Vector2, absolute := false) -> void:
+	if state == State.DEAD or level == Awareness.Level.ALERT:
+		return
+	suspicion = maxf(suspicion, amount) if absolute else clampf(suspicion + amount, 0.0, 1.0)
+	_quiet_t = 0.0
+	_cue_pos = pos
+	_update_level()
+	if suspicion >= Awareness.SUSPICIOUS_AT and (state == State.WANDER or state == State.SEARCH):
 		state = State.SEARCH
 		_goal = pos
 
 
-func hear(pos: Vector2, loudness: float, falloff_pct: float) -> void:
-	if state == State.DEAD:
+func _update_level() -> void:
+	if level == Awareness.Level.ALERT:
 		return
-	var level := FirearmStats.loudness_at(loudness, falloff_pct, global_position.distance_to(pos) / PX)
-	var heard := level >= 100.0 - hearing_now
-	if level > DEAFEN_LEVEL:
-		hearing_now = maxf(hearing_now - (level - DEAFEN_LEVEL) * DEAFEN_RATE, MIN_HEARING)
-	if not heard or _engaged():
+	if suspicion >= Awareness.SUSPICIOUS_AT or (level == Awareness.Level.SUSPICIOUS and suspicion >= Awareness.UNAWARE_BELOW):
+		level = Awareness.Level.SUSPICIOUS
+	else:
+		level = Awareness.Level.UNAWARE
+
+
+## Player identified (LOS dwell) or hit by the player: this bug alone is alert. Then it may call
+## reinforcements (a visible ~2 s action, see _start_call).
+func _become_alert(can_call: bool) -> void:
+	if state == State.DEAD or level == Awareness.Level.ALERT:
 		return
-	state = State.SEARCH
-	var vague := lerpf(6.0, 1.0, clampf(level / 60.0, 0.0, 1.0))
-	_goal = pos + Vector2(randf_range(-vague, vague), randf_range(-vague, vague)) * PX
+	level = Awareness.Level.ALERT
+	suspicion = 1.0
+	_dwell = 0.0
+	_aware_t = 0.0
+	Sfx.play("bug_alert", global_position, -2.0)
+	if state in [State.WANDER, State.SEARCH]:
+		state = State.CHASE
+	if _player:
+		_goal = _player.global_position
+	if can_call and state == State.CHASE and _mission_node() != null and _mission_node().request_call(self):
+		_start_call()
+
+
+func _mission_node() -> Node:
+	if _mission == null or not is_instance_valid(_mission):
+		_mission = get_tree().get_first_node_in_group("mission")
+	return _mission
+
+
+func _start_call() -> void:
+	state = State.CALL
+	_call_t = 0.0
+	Sfx.play("bug_alert", global_position, 3.0)
+
+
+func _finish_call() -> void:
+	state = State.CHASE
+	if _mission_node() != null:
+		_mission_node().finish_call(self)
+
+
+## The caller was killed or staggered: no breach.
+func _cancel_call() -> void:
+	if state == State.CALL:
+		state = State.CHASE
+	if _mission_node() != null:
+		_mission_node().cancel_call(self)
 
 
 func take_hit(hit: Dictionary) -> void:
@@ -294,8 +377,8 @@ func take_hit(hit: Dictionary) -> void:
 	if hp <= 0.0:
 		_die(hit.dir)
 		return
-	if not _engaged() and _player:
-		_engage(_player.global_position)
+	if level != Awareness.Level.ALERT and _player:
+		_become_alert(true)
 
 
 func _apply_stagger(hit: Dictionary, crit: bool) -> void:
@@ -305,10 +388,14 @@ func _apply_stagger(hit: Dictionary, crit: bool) -> void:
 	if (state == State.ATTACK and not _struck or state == State.SPIT) and impact >= INTERRUPT_IMPACT:
 		state = State.CHASE
 		_cooldown = _cfg.cooldown
+	if state == State.CALL and impact >= INTERRUPT_IMPACT:
+		_cancel_call()
 	_stun_meter += impact
 	if _stun_meter >= 1.0:
 		_stun_meter = 0.0
 		_stun_t = STUN_TIME
+		if state == State.CALL:
+			_cancel_call()
 		if state in [State.ATTACK, State.SPIT, State.LEAP]:
 			state = State.CHASE
 
@@ -356,10 +443,13 @@ func _process(delta: float) -> void:
 		State.SPIT:
 			mode = BugRig.M.SPIT
 			k = clampf(_special_t / SPIT_WINDUP, 0.0, 1.0)
+		State.CALL:
+			mode = BugRig.M.CALL
+			k = clampf(_call_t / Awareness.CALL_TIME, 0.0, 1.0)
 	if _stun_t > 0.0:
 		mode = BugRig.M.STUN
 	var move := clampf(velocity.length() / (run_speed * PX), 0.0, 1.0)
-	_rig.animate(delta, move, _turn, mode, k, _engaged(), _flash, hp < max_hp * 0.5)
+	_rig.animate(delta, move, _turn, mode, k, level == Awareness.Level.ALERT, _flash, hp < max_hp * 0.5)
 
 
 func _process_dead(delta: float) -> void:
@@ -404,10 +494,13 @@ func _physics_process(delta: float) -> void:
 			return
 		delta = _sleep_acc
 		_sleep_acc = 0.0
+	_think_acc += delta
 	_think_t -= delta
 	if _think_t <= 0.0:
 		_think_t = maxf(_think_t + (THINK_NEAR if near else THINK_FAR), 0.0)
-		_think(near)
+		var dt := _think_acc
+		_think_acc = 0.0
+		_think(near, dt)
 
 	if state == State.LEAP:
 		_update_leap(delta)
@@ -441,7 +534,7 @@ func _physics_process(delta: float) -> void:
 				# Too close: back off to spitting range.
 				_goal = global_position - to_player.normalized() * 4.0 * PX
 		State.SEARCH:
-			speed = run_speed * 0.8
+			speed = run_speed * (0.8 if level == Awareness.Level.ALERT else 0.5) # investigating is a walk
 			if global_position.distance_to(_goal) < 30.0:
 				_new_wander()
 		State.ATTACK:
@@ -460,6 +553,13 @@ func _physics_process(delta: float) -> void:
 			_recover_t -= delta
 			if _recover_t <= 0.0:
 				state = State.CHASE
+		State.CALL:
+			# Stands, rears up and calls for reinforcements; killed / staggered = cancelled.
+			speed = 0.0
+			face = to_player.normalized()
+			_call_t += delta
+			if _call_t >= Awareness.CALL_TIME:
+				_finish_call()
 
 	if state in [State.WANDER, State.CHASE, State.SEARCH]:
 		# Follow the last steering direction smoothly (the ray fan only runs every think).
@@ -488,8 +588,9 @@ func _physics_process(delta: float) -> void:
 
 ## Perception (one LOS ray), the pack leader and steering (the ray fan): the expensive part,
 ## run at THINK_NEAR / THINK_FAR instead of every frame.
-func _think(near: bool) -> void:
-	_perceive()
+func _think(near: bool, dt: float) -> void:
+	_awareness_tick(dt)
+	_perceive(dt)
 	_follow_leader()
 	if state in [State.WANDER, State.CHASE, State.SEARCH]:
 		_steer_to = _steer_dir((_goal - global_position).normalized())
@@ -530,26 +631,71 @@ func _spit() -> void:
 		proj.spawn_bile(global_position + Vector2.UP.rotated(rotation) * radius, _player.global_position + miss)
 
 
-func _perceive() -> void:
+## Decay without cues, and spreading suspicion to bugs nearby (never the alert itself).
+func _awareness_tick(dt: float) -> void:
+	if state == State.DEAD:
+		return
+	if level != Awareness.Level.ALERT:
+		_quiet_t += dt
+		if suspicion > 0.0 and _quiet_t > Awareness.QUIET_GRACE_S:
+			suspicion = maxf(suspicion - dt / Awareness.DECAY_S, 0.0)
+		_update_level()
+	if level != Awareness.Level.UNAWARE:
+		var src := 1.0 if level == Awareness.Level.ALERT else suspicion
+		var cue := global_position if level == Awareness.Level.ALERT else _goal
+		var lim := pow(Awareness.SPREAD_M * PX, 2)
+		for o in Enemies.list:
+			if o != self and o.has_method("add_suspicion") and o.global_position.distance_squared_to(global_position) <= lim:
+				o.add_suspicion(src * Awareness.SPREAD_FACTOR, cue, true)
+
+
+## Sees the player? Only identification (LOS in the sight cone for a dwell time that grows with
+## distance) makes this bug ALERT; peripheral / half sightings just raise suspicion.
+func _perceive(dt: float) -> void:
 	if not _player or _player.get("dead"):
 		_los = false
-		if _engaged():
+		if level == Awareness.Level.ALERT:
+			_lose_player()
 			_new_wander()
 		return
 	var to := _player.global_position - global_position
 	var dist := to.length()
 	var forward := Vector2.UP.rotated(rotation)
-	var in_cone: bool = dist <= _cfg.sight * PX and absf(forward.angle_to(to)) <= deg_to_rad(_cfg.fov / 2.0)
+	var in_range: bool = dist <= _cfg.sight * PX
+	var in_cone: bool = in_range and absf(forward.angle_to(to)) <= deg_to_rad(_cfg.fov / 2.0)
 	var touching := dist <= 1.5 * PX
-	var want_los: bool = in_cone or touching or (_engaged() and (kind == Kind.HUNTER or kind == Kind.BILE_SPITTER))
+	var peripheral: bool = not in_cone and not touching and dist <= _cfg.sight * 1.4 * PX
+	var alert := level == Awareness.Level.ALERT
+	var want_los: bool = in_cone or touching or peripheral or (alert and (kind == Kind.HUNTER or kind == Kind.BILE_SPITTER))
 	_los = want_los and _line_of_sight(_player)
 	var seen := (in_cone or touching) and _los
-	if seen:
-		if not _engaged():
-			_engage(_player.global_position)
+	if alert:
+		if seen:
+			if state == State.CHASE:
+				_goal = _player.global_position
 		elif state == State.CHASE:
-			_goal = _player.global_position
-	elif state == State.CHASE:
+			_lose_player()
+		return
+	if seen:
+		var need := Awareness.dwell_time(dist / PX)
+		_dwell += dt
+		var frac := clampf(_dwell / need, 0.0, 1.0)
+		add_suspicion(Awareness.SUSPICIOUS_AT + (0.9 - Awareness.SUSPICIOUS_AT) * frac, _player.global_position, true)
+		if _dwell >= need:
+			_become_alert(true)
+	else:
+		_dwell = maxf(_dwell - dt * 2.0, 0.0)
+		if peripheral and _los:
+			add_suspicion(0.5 * dt, _player.global_position)
+
+
+## Lost the player: still suspicious for a while (meter decays over ~8 s), searching.
+func _lose_player() -> void:
+	level = Awareness.Level.SUSPICIOUS
+	suspicion = 1.0
+	_quiet_t = 0.0
+	_dwell = 0.0
+	if state == State.CHASE:
 		state = State.SEARCH
 
 
@@ -639,27 +785,7 @@ func _follow_leader() -> void:
 
 
 func _engaged() -> bool:
-	return state in [State.CHASE, State.ATTACK, State.RECOVER, State.LEAP, State.SPIT]
-
-
-func _engage(pos: Vector2) -> void:
-	Sfx.play("bug_alert", global_position, -2.0)
-	state = State.CHASE
-	_goal = pos
-	_alert_pack(pos)
-	get_tree().call_group("mission", "on_bug_alert", self)
-
-
-func _alert_pack(pos: Vector2) -> void:
-	if pack_id < 0:
-		return
-	for n in Enemies.list:
-		var other := n as Terminid
-		if other == null or other == self or other.pack_id != pack_id or other._engaged():
-			continue
-		if other.global_position.distance_to(global_position) <= PACK_ALERT_M * PX:
-			other.state = State.CHASE
-			other._goal = pos
+	return state in [State.CHASE, State.ATTACK, State.RECOVER, State.LEAP, State.SPIT, State.CALL]
 
 
 func _edge_distance_to_player() -> float:
@@ -693,6 +819,8 @@ func _update_attack(delta: float) -> void:
 
 
 func _die(dir: Vector2) -> void:
+	if state == State.CALL:
+		_cancel_call()
 	state = State.DEAD
 	Game.add_stat("kills")
 	Fx.death(self, global_position, BLOOD[kind], radius * 1.25)
@@ -714,7 +842,7 @@ func _die(dir: Vector2) -> void:
 
 func _update_overlays() -> void:
 	var dead := state == State.DEAD
-	_tele_on = not dead and ((state == State.ATTACK and not _struck) or state == State.SPIT or is_stunned())
+	_tele_on = not dead and ((state == State.ATTACK and not _struck) or state == State.SPIT or state == State.CALL or is_stunned())
 	if _tele_on:
 		_tele.visible = true
 		_tele.queue_redraw()
@@ -727,7 +855,7 @@ func _update_overlays() -> void:
 		_bb.visible = true
 		_bb.global_rotation = -Enemies.cam_rot(self)
 		var sig := int(clampf(hp / max_hp, 0.0, 1.0) * 48.0) | (int(bar_a * 8.0) << 8) | (icon << 12) | (int(_icon_pop() * 8.0) << 14) \
-			| (int(_bounce_t * 30.0) << 22)
+			| (int(_bounce_t * 30.0) << 22) | (int(suspicion * 16.0) << 27)
 		if not _numbers.is_empty():
 			sig = randi()
 		if sig != _bb_sig:
@@ -749,15 +877,15 @@ func _bar_alpha(heavy: bool) -> float:
 func _icon_kind() -> int:
 	if state == State.DEAD:
 		return EnemyUi.Icon.NONE
-	if _engaged():
-		return EnemyUi.Icon.ALERT if (_aware_t < 2.5 or kind == Kind.BILE_SPITTER) else EnemyUi.Icon.NONE
-	if state == State.SEARCH:
+	if level == Awareness.Level.ALERT or state == State.CALL:
+		return EnemyUi.Icon.ALERT if (_aware_t < 2.5 or kind == Kind.BILE_SPITTER or state == State.CALL) else EnemyUi.Icon.NONE
+	if level == Awareness.Level.SUSPICIOUS:
 		return EnemyUi.Icon.SUSPICIOUS
 	return EnemyUi.Icon.NONE
 
 
 func _icon_pop() -> float:
-	return 1.0 + 0.5 * clampf(1.0 - _aware_t / 0.35, 0.0, 1.0) if _engaged() else 1.0
+	return 1.0 + 0.5 * clampf(1.0 - _aware_t / 0.35, 0.0, 1.0) if level == Awareness.Level.ALERT else 1.0
 
 
 ## Melee wind-up arc, bile target circle, stun stars (enemy-local frame).
@@ -784,6 +912,15 @@ func _draw_tele() -> void:
 				var a := from.lerp(tp, float(i) / steps)
 				var b := from.lerp(tp, float(i + 1) / steps)
 				_tele.draw_line(a, b, Color(0.8, 1.0, 0.3, 0.45), 2.0)
+	if state == State.CALL:
+		# Pulsing orange pheromone ring + call progress.
+		var kk := clampf(_call_t / Awareness.CALL_TIME, 0.0, 1.0)
+		var ph := fmod(_call_t * 1.6, 1.0)
+		var base := radius * 1.3
+		_tele.draw_circle(Vector2.ZERO, base * (1.0 + 2.2 * ph), Color(1.0, 0.55, 0.1, 0.16 * (1.0 - ph)))
+		_tele.draw_arc(Vector2.ZERO, base * (1.0 + 2.2 * ph), 0.0, TAU, 40, Color(1.0, 0.6, 0.15, 0.85 * (1.0 - ph)), 3.0 * Vis.VISUAL_SCALE)
+		_tele.draw_arc(Vector2.ZERO, base, 0.0, TAU, 40, Color(1.0, 0.55, 0.1, 0.35), 2.0 * Vis.VISUAL_SCALE)
+		_tele.draw_arc(Vector2.ZERO, base * 1.12, -PI / 2.0, -PI / 2.0 + TAU * kk, 40, Color(1.0, 0.85, 0.3, 0.9), 3.5 * Vis.VISUAL_SCALE)
 	if is_stunned():
 		var a := Time.get_ticks_msec() * 0.006
 		for i in 3:
@@ -801,7 +938,7 @@ func _draw_bb() -> void:
 		top -= 10.0
 	var icon := _icon_kind()
 	if icon != EnemyUi.Icon.NONE:
-		EnemyUi.icon(_bb, icon, Vector2(0, top - 8.0), 9.0, 1.0, _icon_pop())
+		EnemyUi.icon(_bb, icon, Vector2(0, top - 8.0), 9.0, suspicion, _icon_pop())
 	if _bounce_t > 0.0:
 		var ba := clampf(_bounce_t / 0.3, 0.0, 1.0)
 		EnemyUi.shield(_bb, Vector2(rb * 0.9 + 6.0, -rb * 0.5 - (0.7 - _bounce_t) * 22.0), ba)

@@ -6,7 +6,7 @@ extends Rig
 ## procedural animation (walk, turn lean, breathing, wind-up / strike, leap, spit, stagger,
 ## death curl) only writes transforms.
 
-enum M { IDLE, ATTACK, LEAP, SPIT, STUN, DEAD }
+enum M { IDLE, ATTACK, LEAP, SPIT, STUN, DEAD, CALL }
 
 const LEG_Y := [-6.0, 1.0, 8.0]
 const BLOOD_DEAD := 0.45
@@ -305,6 +305,8 @@ func animate(delta: float, move: float, turn: float, mode: int, k: float, aware:
 			spit_t = k
 		M.DEAD:
 			curl_t = 1.0
+		M.CALL:
+			reach_t = 0.9 # rears up, front legs raised, mandibles wide
 	_reach = move_toward(_reach, reach_t, delta * 8.0)
 	_tuck = move_toward(_tuck, tuck_t, delta * 10.0)
 	_curl = move_toward(_curl, curl_t, delta * 2.2)
@@ -342,7 +344,7 @@ func animate(delta: float, move: float, turn: float, mode: int, k: float, aware:
 	_body.position = Vector2(0, bob) * RigAtlas.SS
 	_body.scale = Vector2(1.0 + _reach * 0.05 + _spit * 0.04, breathe + _reach * 0.06 + _tuck * 0.1 + _spit * 0.05)
 	var lean := clampf(turn * 0.05, -0.3, 0.3)
-	var stun := sin(_clock * 9.0) * 0.25 if mode == M.STUN else 0.0
+	var stun := sin(_clock * 9.0) * 0.25 if mode == M.STUN else (sin(_clock * 24.0) * 0.07 if mode == M.CALL else 0.0)
 	Rig.place(_head, Vector2(0, -11.0 - _reach * 4.5 - _spit * 2.5 + (sin(phase * 2.0) * 0.4 * _move)))
 	_head.rotation = lean * 0.6 + stun + sin(phase) * 0.04 * _move
 	_abd.rotation = -lean + sin(phase) * 0.06 * _move

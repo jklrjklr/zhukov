@@ -10,7 +10,7 @@ extends CharacterBody2D
 ##   them; ramming a wall/rock stuns it; it smashes through crates and trees.
 ## - Close up it swipes with its claws instead.
 
-enum State { WANDER, STALK, WINDUP, CHARGE, SKID, STUNNED, SWIPE, DEAD }
+enum State { WANDER, STALK, WINDUP, CHARGE, SKID, STUNNED, SWIPE, DEAD, CALL }
 
 const PX := Firearm.PX_PER_M
 ## Drawing scale (art is authored at 1x) and matching collision radius.
@@ -82,6 +82,16 @@ var _rig: ChargerRig
 var _tele: Node2D
 var _bb: Node2D
 var _bb_sig := 0
+## Awareness (see Awareness): level, suspicion meter, last cue, quiet seconds, LOS dwell, call timer.
+var level := Awareness.Level.UNAWARE
+var suspicion := 0.0
+var _cue_pos := Vector2.ZERO
+var _quiet_t := 0.0
+var _dwell := 0.0
+var _call_t := 0.0
+var _think_acc := 0.0
+var _think_dt := 0.1
+var _mission: Node
 
 
 func _ready() -> void:
@@ -114,29 +124,107 @@ func is_dead() -> bool:
 
 
 func is_alerted() -> bool:
-	return state in [State.STALK, State.WINDUP, State.CHARGE, State.SWIPE, State.SKID, State.STUNNED]
+	return state != State.DEAD and level == Awareness.Level.ALERT
 
 
-func _notice() -> void:
-	Sfx.play("charger_roar", global_position, 0.0)
-	get_tree().call_group("mission", "on_bug_alert", self)
+func _mission_node() -> Node:
+	if _mission == null or not is_instance_valid(_mission):
+		_mission = get_tree().get_first_node_in_group("mission")
+	return _mission
 
 
 func hear(pos: Vector2, loudness: float, falloff_pct: float) -> void:
-	if state != State.WANDER:
+	hear_sound(pos, loudness, falloff_pct, Awareness.Sound.GUNFIRE)
+
+
+## A sound raises suspicion by distance (hard caps per kind); never alert by itself.
+func hear_sound(pos: Vector2, loudness: float, _falloff_pct: float, kind: int) -> void:
+	if state == State.DEAD or level == Awareness.Level.ALERT:
 		return
-	var level := FirearmStats.loudness_at(loudness, falloff_pct, global_position.distance_to(pos) / PX)
-	if level >= 100.0 - hearing:
-		state = State.STALK
-		_goal = pos
-		_notice()
+	var gain := Awareness.sound_gain(kind, loudness, global_position.distance_to(pos) / PX) * hearing / 100.0 / 0.85
+	if gain > 0.0:
+		add_suspicion(minf(gain, 1.0), pos)
 
 
-func alert_to(pos: Vector2, _chase := false) -> void:
+func add_suspicion(amount: float, pos: Vector2, absolute := false) -> void:
+	if state == State.DEAD or level == Awareness.Level.ALERT:
+		return
+	suspicion = maxf(suspicion, amount) if absolute else clampf(suspicion + amount, 0.0, 1.0)
+	_quiet_t = 0.0
+	_cue_pos = pos
+	_update_level()
+	if suspicion >= Awareness.SUSPICIOUS_AT and state == State.WANDER:
+		_goal = pos # investigate: walk to the cue
+		_t = 8.0
+
+
+func _update_level() -> void:
+	if level == Awareness.Level.ALERT:
+		return
+	if suspicion >= Awareness.SUSPICIOUS_AT or (level == Awareness.Level.SUSPICIOUS and suspicion >= Awareness.UNAWARE_BELOW):
+		level = Awareness.Level.SUSPICIOUS
+	else:
+		level = Awareness.Level.UNAWARE
+
+
+func alert_to(pos: Vector2, chase := false) -> void:
+	if state == State.DEAD or level == Awareness.Level.ALERT:
+		return
+	if chase and _player:
+		_become_alert(false)
+	else:
+		add_suspicion(0.5, pos)
+
+
+## Player identified (LOS dwell) or hit by the player: this charger alone is alert; it may call.
+func _become_alert(can_call: bool) -> void:
+	if state == State.DEAD or level == Awareness.Level.ALERT:
+		return
+	level = Awareness.Level.ALERT
+	suspicion = 1.0
+	_dwell = 0.0
+	_aware_t = 0.0
+	Sfx.play("charger_roar", global_position, 0.0)
 	if state == State.WANDER:
 		state = State.STALK
-		_goal = pos
-		_notice()
+	if _player:
+		_goal = _player.global_position
+	if can_call and state == State.STALK and _mission_node() != null and _mission_node().request_call(self):
+		state = State.CALL
+		_call_t = 0.0
+		Sfx.play("bug_alert", global_position, 3.0)
+
+
+func _cancel_call() -> void:
+	if state == State.CALL:
+		state = State.STALK
+	if _mission_node() != null:
+		_mission_node().cancel_call(self)
+
+
+func _lose_player() -> void:
+	level = Awareness.Level.SUSPICIOUS
+	suspicion = 1.0
+	_quiet_t = 0.0
+	_dwell = 0.0
+
+
+## Decay without cues and spreading suspicion (never the alert) to bugs within 15 m.
+func _awareness_tick(dt: float) -> void:
+	if state == State.DEAD:
+		return
+	if level != Awareness.Level.ALERT:
+		_quiet_t += dt
+		if suspicion > 0.0 and _quiet_t > Awareness.QUIET_GRACE_S:
+			suspicion = maxf(suspicion - dt / Awareness.DECAY_S, 0.0)
+		_update_level()
+	if level != Awareness.Level.UNAWARE:
+		var src := 1.0 if level == Awareness.Level.ALERT else suspicion
+		var cue := global_position if level == Awareness.Level.ALERT else _goal
+		var lim := pow(Awareness.SPREAD_M * PX, 2)
+		for o in Enemies.list:
+			if o != self and o.has_method("add_suspicion") and o.global_position.distance_squared_to(global_position) <= lim:
+				o.add_suspicion(src * Awareness.SPREAD_FACTOR, cue, true)
 
 
 ## Which armor a bullet travelling in `dir` meets: front, side or rear.
@@ -181,14 +269,14 @@ func take_hit(hit: Dictionary) -> void:
 	_stun_meter += impact
 	if _stun_meter >= 1.0 and state != State.CHARGE:
 		_stun_meter = 0.0
+		if state == State.CALL:
+			_cancel_call()
 		_go(State.STUNNED, 1.2)
 	if hp <= 0.0:
 		_die()
 		return
-	if state == State.WANDER and _player:
-		state = State.STALK
-		_goal = _player.global_position
-		_notice()
+	if level != Awareness.Level.ALERT and _player:
+		_become_alert(true)
 
 
 func _go(s: State, t := 0.0) -> void:
@@ -215,11 +303,15 @@ func _physics_process(delta: float) -> void:
 	_tick += 1
 	var near := _player != null and global_position.distance_squared_to(_player.global_position) < pow(NEAR_M * PX, 2)
 	_think_hit = false
+	_think_acc += delta
 	_think_t -= delta
 	if _think_t <= 0.0:
 		_think_t = maxf(_think_t + (THINK_NEAR if near else THINK_FAR), 0.0)
 		_think_hit = true
+		_think_dt = _think_acc
+		_think_acc = 0.0
 		_think(near)
+		_awareness_tick(_think_dt)
 	_step_t -= delta
 	if _step_t <= 0.0 and velocity.length() > 40.0 and _player and global_position.distance_to(_player.global_position) < 30.0 * PX:
 		_step_t = 0.55 if state != State.CHARGE else 0.25
@@ -238,9 +330,15 @@ func _physics_process(delta: float) -> void:
 			if _t <= 0.0 or global_position.distance_to(_goal) < 30.0:
 				_new_wander()
 			face = (_goal - global_position).normalized()
-			if _think_hit and player_ok and _sees_player(to_player):
-				state = State.STALK
-				_notice()
+			if _think_hit and player_ok:
+				if _sees_player(to_player):
+					var need := Awareness.dwell_time(to_player.length() / PX)
+					_dwell += _think_dt
+					add_suspicion(Awareness.SUSPICIOUS_AT + (0.9 - Awareness.SUSPICIOUS_AT) * clampf(_dwell / need, 0.0, 1.0), _player.global_position, true)
+					if _dwell >= need:
+						_become_alert(true)
+				else:
+					_dwell = maxf(_dwell - _think_dt * 2.0, 0.0)
 		State.STALK:
 			speed = stalk_speed
 			if player_ok and _think_hit and _los:
@@ -256,7 +354,17 @@ func _physics_process(delta: float) -> void:
 				_go(State.WINDUP, windup_time)
 			elif not player_ok or global_position.distance_to(_goal) < 40.0:
 				if not player_ok or not _los:
+					_lose_player()
 					_new_wander()
+		State.CALL:
+			# Stands, rears up and roars for reinforcements; stunned / killed = cancelled.
+			if player_ok:
+				face = to_player.normalized()
+			_call_t += delta
+			if _call_t >= Awareness.CALL_TIME:
+				state = State.STALK
+				if _mission_node() != null:
+					_mission_node().finish_call(self)
 		State.WINDUP:
 			_t -= delta
 			if player_ok:
@@ -391,6 +499,8 @@ func _has_los(pos: Vector2) -> bool:
 
 
 func _die() -> void:
+	if state == State.CALL:
+		_cancel_call()
 	if state == State.CHARGE:
 		_end_charge()
 	state = State.DEAD
@@ -433,14 +543,15 @@ func _process(delta: float) -> void:
 	var charging := state == State.CHARGE
 	var move := clampf(velocity.length() / (stalk_speed * PX), 0.0, 3.0)
 	var windup := state == State.WINDUP
-	_rig.animate(delta, move, charging, 1.0 if windup else 0.0, windup and int(_t * 10.0) % 2 == 0, state == State.STUNNED,
+	var calling := state == State.CALL
+	_rig.animate(delta, move, charging, 1.0 if (windup or calling) else 0.0, windup and int(_t * 10.0) % 2 == 0, state == State.STUNNED,
 		is_alerted(), _flash, false)
 
 
 func _update_overlays() -> void:
 	var dead := state == State.DEAD
 	var lane := not dead and (state == State.WINDUP or (state == State.CHARGE and _charge_dist < 3.0 * PX))
-	var tele := lane or not _dust.is_empty() or (state == State.STUNNED and not dead)
+	var tele := lane or not _dust.is_empty() or (state == State.STUNNED and not dead) or (state == State.CALL and not dead)
 	if tele:
 		_tele.visible = true
 		_tele.queue_redraw()
@@ -449,7 +560,7 @@ func _update_overlays() -> void:
 	if not dead or not _numbers.is_empty():
 		_bb.visible = true
 		_bb.global_rotation = -Enemies.cam_rot(self)
-		var sig := int(clampf(hp / max_hp, 0.0, 1.0) * 64.0) | (_icon_kind() << 8) | (int(_icon_pop() * 8.0) << 10) | (int(_bounce_t * 30.0) << 16) | (int(dead) << 24)
+		var sig := int(clampf(hp / max_hp, 0.0, 1.0) * 64.0) | (_icon_kind() << 8) | (int(_icon_pop() * 8.0) << 10) | (int(_bounce_t * 30.0) << 16) | (int(dead) << 24) | (int(suspicion * 16.0) << 26)
 		if not _numbers.is_empty():
 			sig = randi()
 		if sig != _bb_sig:
@@ -462,7 +573,9 @@ func _update_overlays() -> void:
 func _icon_kind() -> int:
 	if state == State.DEAD:
 		return EnemyUi.Icon.NONE
-	return EnemyUi.Icon.ALERT if is_alerted() else EnemyUi.Icon.NONE
+	if is_alerted() or state == State.CALL:
+		return EnemyUi.Icon.ALERT
+	return EnemyUi.Icon.SUSPICIOUS if level == Awareness.Level.SUSPICIOUS else EnemyUi.Icon.NONE
 
 
 func _icon_pop() -> float:
@@ -478,6 +591,14 @@ func _draw_tele() -> void:
 		_tele.draw_circle(to_local(d.pos), 8.0 + k * 14.0, Color(0.55, 0.48, 0.38, 0.4 * (1.0 - k)))
 	if state == State.WINDUP or (state == State.CHARGE and _charge_dist < 3.0 * PX):
 		_draw_charge_lane()
+	if state == State.CALL:
+		var kk := clampf(_call_t / Awareness.CALL_TIME, 0.0, 1.0)
+		var ph := fmod(_call_t * 1.6, 1.0)
+		var base := RADIUS * 1.25
+		_tele.draw_circle(Vector2.ZERO, base * (1.0 + 1.6 * ph), Color(1.0, 0.55, 0.1, 0.16 * (1.0 - ph)))
+		_tele.draw_arc(Vector2.ZERO, base * (1.0 + 1.6 * ph), 0.0, TAU, 48, Color(1.0, 0.6, 0.15, 0.85 * (1.0 - ph)), 4.0 * Vis.VISUAL_SCALE)
+		_tele.draw_arc(Vector2.ZERO, base, 0.0, TAU, 48, Color(1.0, 0.55, 0.1, 0.35), 3.0 * Vis.VISUAL_SCALE)
+		_tele.draw_arc(Vector2.ZERO, base * 1.1, -PI / 2.0, -PI / 2.0 + TAU * kk, 48, Color(1.0, 0.85, 0.3, 0.9), 4.5 * Vis.VISUAL_SCALE)
 	if state == State.STUNNED:
 		for i in 3:
 			var a := Time.get_ticks_msec() * 0.005 + i * TAU / 3.0
@@ -521,7 +642,7 @@ func _draw_bb() -> void:
 		EnemyUi.hp_bar(_bb, top, w, 8.0, hp / max_hp, 1.0, true, Color(0.9, 0.3, 0.15))
 		for i in range(1, 4):
 			_bb.draw_line(Vector2(-w * 0.5 + w * i / 4.0, top), Vector2(-w * 0.5 + w * i / 4.0, top + 8.0), Color(0, 0, 0, 0.6), 1.0)
-		EnemyUi.icon(_bb, _icon_kind(), Vector2(0, top - 16.0), 11.0, 1.0, _icon_pop())
+		EnemyUi.icon(_bb, _icon_kind(), Vector2(0, top - 16.0), 11.0, suspicion, _icon_pop())
 		if _bounce_t > 0.0:
 			var a := clampf(_bounce_t / 0.3, 0.0, 1.0)
 			EnemyUi.shield(_bb, Vector2(rb * 0.8 + 10.0, -rb * 0.3 - (0.7 - _bounce_t) * 24.0), a, 1.15)

@@ -187,6 +187,20 @@ func _run() -> void:
 	_p.take_damage(22.0, _p.global_position + Vector2(200, 100))
 	await wait(0.25)
 	await shot("6_damage")
+	# Awareness: a bug calling reinforcements (rears up, pulsing orange ring) and "?" icons filling.
+	_p.hp = 100.0
+	_m.call_chance = 1.0
+	_m._breach_cd = 0.0
+	_m._call_roll_cd = 0.0
+	var cs := spawn([Terminid.Kind.WARRIOR], _p.global_position + Vector2(-3 * P, -8 * P), false)
+	if not cs.is_empty():
+		cs[0].rotation = 0.0
+		cs[0]._become_alert(true)
+	var qs := spawn([Terminid.Kind.SCAVENGER, Terminid.Kind.HUNTER, Terminid.Kind.WARRIOR], _p.global_position + Vector2(5 * P, -9 * P), false)
+	for i in qs.size():
+		qs[i].add_suspicion(0.3 + 0.3 * i, qs[i].global_position + Vector2(0, 40))
+	await wait(0.9)
+	await shot("5b_awareness_call")
 	# Stratagems: beacon + eagle + orbital barrage.
 	_p.weapon.trigger = false
 	_s.status["orbital_120"].charges = 1

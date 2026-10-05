@@ -724,12 +724,58 @@ func passages_blocking() -> bool:
 	return false
 
 
-## A bug saw / heard the player: sometimes calls a breach (pack bursts out of the ground).
+## Reinforcement calls: only an ALERT bug can call, and it has to stand and perform a visible ~2 s
+## call (Terminid / Charger CALL state). request_call() rolls the chance and reserves the single
+## call slot; finish_call() starts the breach (existing countdown, cooldowns and cap stay);
+## cancel_call() (caller killed or staggered) cancels it, no breach.
+var call_chance := 0.4
+var _call_by: Node = null
+var _call_roll_cd := 0.0
+
+
+func _breach_possible() -> bool:
+	return not (end_state != End.NONE or _intro or _breach_t >= 0.0 or _breach_cd > 0.0 or passages_blocking() \
+		or enemy_count() >= ENEMY_CAP - 6)
+
+
+func request_call(by: Node) -> bool:
+	if _call_by != null and is_instance_valid(_call_by):
+		return false
+	if _call_roll_cd > 0.0 or not _breach_possible():
+		return false
+	_call_roll_cd = 4.0
+	if randf() > call_chance:
+		return false
+	_call_by = by
+	return true
+
+
+func finish_call(by: Node) -> void:
+	if _call_by != by:
+		return
+	_call_by = null
+	if _breach_possible():
+		_start_breach()
+
+
+func cancel_call(by: Node) -> void:
+	if _call_by == by:
+		_call_by = null
+		_call_roll_cd = 8.0
+
+
+func is_calling() -> bool:
+	return _call_by != null and is_instance_valid(_call_by)
+
+
+## Old direct trigger (tests, scripted): rolls the chance and starts a breach right away.
 func on_bug_alert(_bug: Node) -> void:
-	if end_state != End.NONE or _intro or _breach_t >= 0.0 or _breach_cd > 0.0 or passages_blocking():
+	if not _breach_possible() or randf() > 0.4:
 		return
-	if randf() > 0.4 or enemy_count() >= ENEMY_CAP - 6:
-		return
+	_start_breach()
+
+
+func _start_breach() -> void:
 	var at := _point_near(player.global_position, 12.0, 18.0)
 	if at == Vector2.INF:
 		return
@@ -742,6 +788,7 @@ func on_bug_alert(_bug: Node) -> void:
 
 func _update_breach(delta: float) -> void:
 	_breach_cd = maxf(_breach_cd - delta, 0.0)
+	_call_roll_cd = maxf(_call_roll_cd - delta, 0.0)
 	if _breach_t < 0.0:
 		return
 	_breach_t -= delta

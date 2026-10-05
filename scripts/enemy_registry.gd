@@ -43,11 +43,15 @@ static func add_corpse(n: Node2D) -> void:
 			old.queue_free()
 
 
-## Sound broadcast: every enemy that can hear it (see Awareness.hearing_range).
+## Sound broadcast: only enemies inside the sound's hard cap (Awareness.cap_m) are asked.
 static func broadcast_sound(pos: Vector2, loudness: float, falloff_pct: float, kind := 0) -> void:
+	var cap := Awareness.cap_m(kind, loudness) * 60.0
 	for e in list:
-		if is_instance_valid(e):
-			e.hear(pos, loudness, falloff_pct)
+		if is_instance_valid(e) and e.global_position.distance_squared_to(pos) <= cap * cap:
+			if e.has_method("hear_sound"):
+				e.hear_sound(pos, loudness, falloff_pct, kind)
+			else:
+				e.hear(pos, loudness, falloff_pct)
 
 
 ## Rotation of the camera (canvas transform), cached once per rendered frame.

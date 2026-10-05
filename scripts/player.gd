@@ -356,6 +356,8 @@ func _animate(delta: float) -> void:
 			_step_t = 0.35 if not sprinting else 0.26
 			Fx.dust_puff(self, global_position - velocity.normalized() * 8.0, 0.35 if sprinting else 0.18)
 			Sfx.play_ui("footstep_run" if sprinting else "footstep", -8.0, 0.08)
+			# Footsteps are only heard from a few metres (walk 6 m, sprint 12 m).
+			Enemies.broadcast_sound(global_position, 100.0 if sprinting else 50.0, 0.0, Awareness.Sound.FOOTSTEP)
 	else:
 		_step_t = minf(_step_t, 0.1)
 	_walk_phase = fmod(_walk_phase + clampf(speed / move_speed, 0.0, 1.0) * STEP_CYCLES_PER_SEC * TAU * delta, TAU)

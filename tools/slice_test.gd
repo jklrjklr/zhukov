@@ -531,6 +531,95 @@ func _stratagem_input_tests() -> void:
 				unreachable += 1
 		check("zone %d: entrance reaches the exit and every spot with the grown body" % zi, unreachable == 0, "%d unreachable" % unreachable)
 
+	# --- J: awareness (unaware -> suspicious -> alert), hearing caps, calls --------------------
+	await fresh()
+	p.global_position = m.zones[0].start_pos
+	await wait(0.2)
+	var T2 = load("res://scripts/terminid.gd")
+	var AW_ALERT := 2
+	var AW_SUSP := 1
+	m.call_chance = 0.0
+	var mk := func(rel_m: Vector2, kind_: int, physics := false):
+		var got2: Array = T2.spawn_pack(m.get_node("Actors"), p.global_position + rel_m * PX, 1, 880 + randi() % 90, func(_q): return true, [kind_])
+		var b2 = got2[0]
+		b2.set_physics_process(physics)
+		return b2
+	var far_b = mk.call(Vector2(0, -60), T2.Kind.HUNTER)
+	var mid_b = mk.call(Vector2(30, 0), T2.Kind.HUNTER)
+	var enemies_before: int = Enemies.count()
+	Enemies.broadcast_sound(p.global_position, 100.0, 13.0, 0)
+	check("gunfire at 60 m: no change (hard cap 50 m)", far_b.suspicion == 0.0 and far_b.level == 0 and far_b.state == far_b.State.WANDER)
+	check("gunfire at 30 m: suspicious, investigating, not alert", mid_b.level == AW_SUSP and mid_b.suspicion >= 0.2 and mid_b.state == mid_b.State.SEARCH, "%d %.2f" % [mid_b.level, mid_b.suspicion])
+	check("gunfire at 30 m: no reinforcement call or breach", not m.is_calling() and m._breach_t < 0.0 and Enemies.count() == enemies_before)
+	var near_b = mk.call(Vector2(3, 0), T2.Kind.SCAVENGER)
+	Enemies.broadcast_sound(p.global_position + Vector2(0, 79 * PX), 100.0, 13.0, 1)
+	var exp_far = mk.call(Vector2(0, 70), T2.Kind.HUNTER)
+	Enemies.broadcast_sound(p.global_position, 100.0, 13.0, 1)
+	check("explosions carry further than gunfire (70 m: suspicious)", exp_far.level == AW_SUSP, "%.2f" % exp_far.suspicion)
+	var foot_b = mk.call(Vector2(0, 9), T2.Kind.SCAVENGER)
+	Enemies.broadcast_sound(p.global_position, 50.0, 0.0, 2)
+	check("footsteps are only heard within a few metres", foot_b.suspicion == 0.0 and near_b.suspicion > 0.0)
+	for b3 in [far_b, mid_b, near_b, exp_far, foot_b]:
+		b3.queue_free()
+	await wait(0.1)
+
+	# Alert needs LOS dwell in the sight cone (0.4 s at <= 10 m); it is never broadcast, suspicion is.
+	var seer = mk.call(Vector2(0, -4), T2.Kind.WARRIOR)
+	seer.rotation = PI # facing the player
+	for i in 3:
+		seer._think(true, 0.1)
+	check("LOS dwell: not alert after 0.3 s at 4 m", seer.level != AW_ALERT and seer.level == AW_SUSP, "level %d susp %.2f" % [seer.level, seer.suspicion])
+	for i in 2:
+		seer._think(true, 0.1)
+	check("LOS dwell: alert after >= 0.4 s", seer.level == AW_ALERT)
+	var buddy = mk.call(Vector2(8, -6), T2.Kind.SCAVENGER)
+	var stranger = mk.call(Vector2(40, -30), T2.Kind.SCAVENGER)
+	seer._awareness_tick(0.1)
+	check("alert does not propagate: neighbour only suspicious, no player position", buddy.level == AW_SUSP and buddy.state == buddy.State.SEARCH and not buddy.is_alerted() \
+		and buddy._goal.distance_to(p.global_position) > 2.0 * PX, "%d %s" % [buddy.level, buddy.state])
+	check("suspicion spreads only within ~15 m", stranger.level == 0 and stranger.suspicion == 0.0)
+	var walled = mk.call(Vector2(-6, 5), T2.Kind.HUNTER)
+	walled.rotation = PI
+	var hit_b = mk.call(Vector2(6, 6), T2.Kind.WARRIOR)
+	hit_b.rotation = 0.0 # facing away
+	hit_b.take_hit({"damage": 1.0, "base_damage": 1.0, "armor_penetration": 5, "armor_damage": 0.0, "destruction_level": 0,
+		"stagger": 0.0, "dir": Vector2.UP, "meters": 0.0, "aim_point": null})
+	check("being hit alerts instantly", hit_b.level == AW_ALERT)
+	for b4 in [seer, buddy, stranger, walled, hit_b]:
+		b4.queue_free()
+	await wait(0.1)
+	# Suspicion decays over ~8 s without cues.
+	var decay_b = mk.call(Vector2(0, -20), T2.Kind.SCAVENGER)
+	decay_b.add_suspicion(1.0, decay_b.global_position)
+	for i in 40:
+		decay_b._awareness_tick(0.2)
+	check("suspicion decays within ~8 s without cues", decay_b.level == 0 and decay_b.suspicion < 0.1, "%.2f" % decay_b.suspicion)
+	decay_b.queue_free()
+
+	# Reinforcement call: needs ~2 s; killing the caller cancels the breach.
+	m.call_chance = 1.0
+	m._breach_cd = 0.0
+	m._call_roll_cd = 0.0
+	p.max_hp = 1.0e6
+	var caller = mk.call(Vector2(0, -14), T2.Kind.WARRIOR, true)
+	caller.rotation = PI
+	caller._become_alert(true)
+	check("alert caller stops and starts a call", caller.state == caller.State.CALL and m.is_calling())
+	await wait(1.0)
+	check("call takes time: no breach after 1 s", caller.state == caller.State.CALL and m._breach_t < 0.0 and m._breach_cd == 0.0)
+	caller.take_hit({"damage": 9999.0, "base_damage": 9999.0, "armor_penetration": 5, "armor_damage": 0.0, "destruction_level": 0,
+		"stagger": 0.0, "dir": Vector2.UP, "meters": 0.0, "aim_point": null})
+	await wait(3.5)
+	check("killing the caller cancels the breach", not m.is_calling() and m._breach_t < 0.0 and m._breach_cd == 0.0 and m._breach_pos == Vector2.INF)
+	m._call_roll_cd = 0.0
+	var caller2 = mk.call(Vector2(0, -14), T2.Kind.HUNTER, true)
+	caller2.rotation = PI
+	caller2._become_alert(true)
+	await wait(1.2)
+	check("caller is still calling at 1.2 s", caller2.state == caller2.State.CALL)
+	await wait(1.1)
+	check("after ~2 s the call completes and the breach starts", caller2.state != caller2.State.CALL and m._breach_cd > 5.0, "cd %.1f state %d" % [m._breach_cd, caller2.state])
+
 
 func _touch(pressed: bool, pos: Vector2, index: int) -> InputEventScreenTouch:
 	var e := InputEventScreenTouch.new()
