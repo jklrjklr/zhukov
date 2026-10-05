@@ -108,6 +108,8 @@ var _walk_phase := 0.0
 var _dead_t := 0.0
 var _flash := 0.0
 var _numbers: Array[Dictionary] = []
+var _idle_t := 4.0
+var _hurt_snd := 0.0
 var _player: CharacterBody2D
 var _col: CollisionShape2D
 
@@ -131,6 +133,7 @@ func _ready() -> void:
 	_col.shape = shape
 	add_child(_col)
 	_tick = randi() % 6
+	_idle_t = randf_range(2.0, 9.0)
 	_walk_phase = randf() * TAU
 	rotation = randf() * TAU
 	_player = get_tree().get_first_node_in_group("player")
@@ -183,6 +186,11 @@ func is_dead() -> bool:
 	return state == State.DEAD
 
 
+## Chasing / attacking (used for the combat music and the HUD).
+func is_alerted() -> bool:
+	return _engaged()
+
+
 func kind_name() -> String:
 	return _cfg.name
 
@@ -220,6 +228,12 @@ func take_hit(hit: Dictionary) -> void:
 	var dmg: float = hit.damage * FirearmStats.armor_factor(hit.armor_penetration, armor) * (_cfg.crit if crit else 1.0)
 	hp -= dmg
 	_flash = 0.1
+	if _hurt_snd <= 0.0:
+		_hurt_snd = 0.15
+		var armored: bool = armor > 0 and dmg < hit.damage * 0.5
+		Sfx.play("hit_armor" if armored else "hit_flesh", global_position, -6.0)
+		if hp > 0.0:
+			Sfx.play("bug_hurt", global_position, -4.0)
 	_apply_stagger(hit, crit)
 	_numbers.append({"text": ("CRIT %d" if crit else "%d") % roundi(dmg), "t": 0.0, "crit": crit, "x": randf_range(-10, 10)})
 	if hp <= 0.0:
@@ -250,6 +264,7 @@ func is_stunned() -> bool:
 
 func _physics_process(delta: float) -> void:
 	_flash = maxf(_flash - delta, 0.0)
+	_hurt_snd = maxf(_hurt_snd - delta, 0.0)
 	for n in _numbers:
 		n.t += delta
 	_numbers = _numbers.filter(func(n): return n.t < 0.9)
@@ -260,6 +275,11 @@ func _physics_process(delta: float) -> void:
 		queue_redraw()
 		return
 
+	_idle_t -= delta
+	if _idle_t <= 0.0:
+		_idle_t = randf_range(5.0, 12.0)
+		if _player and global_position.distance_to(_player.global_position) < 22.0 * PX and state in [State.WANDER, State.SEARCH]:
+			Sfx.play("bug_chitter", global_position, -8.0)
 	_cooldown = maxf(_cooldown - delta, 0.0)
 	_special_cd = maxf(_special_cd - delta, 0.0)
 	_stagger = maxf(_stagger - delta, 0.0)
@@ -354,6 +374,7 @@ func _physics_process(delta: float) -> void:
 
 
 func _start_leap(to_player: Vector2) -> void:
+	Sfx.play("bug_attack", global_position, -4.0)
 	state = State.LEAP
 	_special_t = 0.0
 	_leap_dir = to_player.normalized()
@@ -378,6 +399,7 @@ func _update_leap(delta: float) -> void:
 
 
 func _spit() -> void:
+	Sfx.play("bile_spit", global_position, -4.0)
 	_special_cd = SPIT_COOLDOWN
 	state = State.CHASE
 	var proj := get_tree().get_first_node_in_group("projectiles")
@@ -497,6 +519,7 @@ func _engaged() -> bool:
 
 
 func _engage(pos: Vector2) -> void:
+	Sfx.play("bug_alert", global_position, -2.0)
 	state = State.CHASE
 	_goal = pos
 	_alert_pack(pos)
@@ -524,6 +547,7 @@ func _can_reach_player() -> bool:
 
 
 func _start_attack() -> void:
+	Sfx.play("bug_attack", global_position, -4.0)
 	state = State.ATTACK
 	_attack_t = 0.0
 	_struck = false
@@ -547,6 +571,8 @@ func _update_attack(delta: float) -> void:
 func _die(dir: Vector2) -> void:
 	state = State.DEAD
 	Game.add_stat("kills")
+	Sfx.play("bug_death", global_position, -2.0)
+	get_tree().call_group("mission", "on_kill", self)
 	remove_from_group("terminids")
 	remove_from_group("enemies")
 	_col.set_deferred("disabled", true)

@@ -75,6 +75,7 @@ const FORWARD_SPEED := 1.0
 const STRAFE_SPEED := 0.6
 const BACK_SPEED := 0.7
 
+var _step_t := 0.0
 var _walk_phase := 0.0 # radians, advances with distance moved
 var _walk_amount := 0.0 # 0 idle .. 1 full stride, eased
 
@@ -170,6 +171,7 @@ func take_damage(amount: float, from: Vector2, knock := true) -> void:
 		kick(randf_range(-0.06, 0.06))
 	if hp <= 0.0:
 		dead = true
+		Sfx.play_ui("player_death", 0.0)
 		Game.add_stat("deaths")
 		move_input = Vector2.ZERO
 		interacting = false
@@ -306,6 +308,13 @@ func _keyboard_move() -> Vector2:
 
 func _animate(delta: float) -> void:
 	var speed := get_real_velocity().length()
+	_step_t -= delta
+	if speed > 30.0 and not dead and _dive_t <= 0.0 and _prone_t <= 0.0:
+		if _step_t <= 0.0:
+			_step_t = 0.35 if not sprinting else 0.26
+			Sfx.play_ui("footstep_run" if sprinting else "footstep", -8.0, 0.08)
+	else:
+		_step_t = minf(_step_t, 0.1)
 	_walk_phase = fmod(_walk_phase + clampf(speed / move_speed, 0.0, 1.0) * STEP_CYCLES_PER_SEC * TAU * delta, TAU)
 	_walk_amount = move_toward(_walk_amount, clampf(speed / move_speed, 0.0, 1.0), delta * 6.0)
 	# Walking swings the weapon left/right (aim only, camera stays).

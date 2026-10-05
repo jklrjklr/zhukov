@@ -57,6 +57,8 @@ var _numbers: Array[Dictionary] = []
 var _dust: Array[Dictionary] = []
 var _col: CollisionShape2D
 var _stuck := 0.0
+var _step_t := 0.0
+var _hurt_snd := 0.0
 
 
 func _ready() -> void:
@@ -81,6 +83,15 @@ func is_dead() -> bool:
 	return state == State.DEAD
 
 
+func is_alerted() -> bool:
+	return state in [State.STALK, State.WINDUP, State.CHARGE, State.SWIPE, State.SKID, State.STUNNED]
+
+
+func _notice() -> void:
+	Sfx.play("charger_roar", global_position, 0.0)
+	get_tree().call_group("mission", "on_bug_alert", self)
+
+
 func hear(pos: Vector2, loudness: float, falloff_pct: float) -> void:
 	if state != State.WANDER:
 		return
@@ -88,12 +99,14 @@ func hear(pos: Vector2, loudness: float, falloff_pct: float) -> void:
 	if level >= 100.0 - hearing:
 		state = State.STALK
 		_goal = pos
+		_notice()
 
 
 func alert_to(pos: Vector2, _chase := false) -> void:
 	if state == State.WANDER:
 		state = State.STALK
 		_goal = pos
+		_notice()
 
 
 ## Which armor a bullet travelling in `dir` meets: front, side or rear.
@@ -119,6 +132,11 @@ func take_hit(hit: Dictionary) -> void:
 	var dmg: float = hit.damage * f * (REAR_CRIT_MULT if crit else 1.0)
 	hp -= dmg
 	_flash = 0.08
+	if _hurt_snd <= 0.0:
+		_hurt_snd = 0.15
+		Sfx.play("hit_armor" if f <= 0.3 else "hit_flesh", global_position, -4.0)
+		if hp > 0.0 and f > 0.3:
+			Sfx.play("bug_hurt", global_position, -2.0)
 	var text := "BLOCK" if f <= 0.0 else ("WEAK %d" if crit else "%d") % roundi(dmg)
 	_numbers.append({"text": text, "t": 0.0, "crit": crit, "x": randf_range(-14, 14)})
 	# Stagger: impact / weight; only big hits matter.
@@ -133,6 +151,7 @@ func take_hit(hit: Dictionary) -> void:
 	if state == State.WANDER and _player:
 		state = State.STALK
 		_goal = _player.global_position
+		_notice()
 
 
 func _go(s: State, t := 0.0) -> void:
@@ -148,6 +167,7 @@ func _new_wander() -> void:
 
 func _physics_process(delta: float) -> void:
 	_flash = maxf(_flash - delta, 0.0)
+	_hurt_snd = maxf(_hurt_snd - delta, 0.0)
 	for n in _numbers:
 		n.t += delta
 	_numbers = _numbers.filter(func(n): return n.t < 0.9)
@@ -162,6 +182,10 @@ func _physics_process(delta: float) -> void:
 		return
 
 	_tick += 1
+	_step_t -= delta
+	if _step_t <= 0.0 and velocity.length() > 40.0 and _player and global_position.distance_to(_player.global_position) < 30.0 * PX:
+		_step_t = 0.55 if state != State.CHARGE else 0.25
+		Sfx.play("bug_big_step", global_position, -2.0)
 	_cooldown = maxf(_cooldown - delta, 0.0)
 	_stun_meter = maxf(_stun_meter - STUN_DECAY * delta, 0.0)
 	var speed := 0.0
@@ -178,6 +202,7 @@ func _physics_process(delta: float) -> void:
 			face = (_goal - global_position).normalized()
 			if _tick % 6 == 0 and player_ok and _sees_player(to_player):
 				state = State.STALK
+				_notice()
 		State.STALK:
 			speed = stalk_speed
 			if player_ok and _tick % 6 == 0 and _has_los(_player.global_position):
@@ -189,6 +214,7 @@ func _physics_process(delta: float) -> void:
 			elif player_ok and _cooldown <= 0.0 and dist >= 4.0 and dist <= 20.0 \
 					and absf(Vector2.UP.rotated(rotation).angle_to(to_player)) < 0.35 \
 					and _has_los(_player.global_position):
+				Sfx.play("charger_roar", global_position, 2.0)
 				_go(State.WINDUP, windup_time)
 			elif not player_ok or global_position.distance_to(_goal) < 40.0:
 				if not player_ok or not _has_los(_player.global_position):
@@ -198,6 +224,7 @@ func _physics_process(delta: float) -> void:
 			if player_ok:
 				face = to_player.normalized() # can still aim during the wind-up
 			if _t <= 0.0:
+				Sfx.play("charger_charge", global_position, 2.0)
 				_charge_dir = Vector2.UP.rotated(rotation)
 				_charge_dist = 0.0
 				_hit_player = false
@@ -282,6 +309,7 @@ func _update_charge(delta: float) -> void:
 				"dir": _charge_dir, "meters": 0.0, "aim_point": null})
 		else:
 			_end_charge()
+			Sfx.play("hit_metal", global_position, 0.0)
 			_go(State.STUNNED, 2.5) # rammed something solid
 			velocity = -_charge_dir * 120.0
 			return
@@ -317,6 +345,8 @@ func _die() -> void:
 		_end_charge()
 	state = State.DEAD
 	Game.add_stat("kills")
+	Sfx.play("bug_death", global_position, 2.0)
+	get_tree().call_group("mission", "on_kill", self)
 	remove_from_group("enemies")
 	remove_from_group("chargers")
 	_col.set_deferred("disabled", true)

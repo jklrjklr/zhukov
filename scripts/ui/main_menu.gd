@@ -2,7 +2,7 @@ extends Control
 ## Super Destroyer bridge: title screen -> loadout -> launch hellpod.
 ## Loadout: one primary weapon and up to 4 stratagems (Game.loadout).
 
-const MAX_STRATAGEMS := 4
+const MAX_STRATAGEMS := 5
 
 var _screen := "title"
 var _buttons := {}
@@ -75,7 +75,7 @@ func _draw_backdrop(vp: Vector2) -> void:
 	draw_circle(pc + Vector2(-40, -30), 160.0, Color(0.2, 0.15, 0.09))
 	draw_arc(pc, 220.0, -2.6, -0.6, 48, Color(1, 0.6, 0.2, 0.3), 3.0)
 	if _screen == "title":
-		UiStyle.text(self, pc + Vector2(-110, 250), "illuminate incursion zone", 14, UiStyle.TEXT_DIM, HORIZONTAL_ALIGNMENT_CENTER, 220)
+		UiStyle.text(self, pc + Vector2(-110, 250), "terminid infestation zone", 14, UiStyle.TEXT_DIM, HORIZONTAL_ALIGNMENT_CENTER, 220)
 
 
 func _draw_title(vp: Vector2) -> void:

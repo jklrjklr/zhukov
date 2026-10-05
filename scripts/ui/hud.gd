@@ -1,23 +1,30 @@
 extends Control
-## Helldivers-style HUD (info only; controls are TouchControls).
-## - Top-left: operation name + objectives (count, done/optional)
-## - Top-centre: compass strip with objective markers and distances
-## - Top-right: MAP and PAUSE buttons, mission clock, reinforcements
-## - Centre: message feed, extraction countdown, interact prompt
-## - Bottom-centre: player panel (health, stims, grenades, weapon, ammo, status)
-## - Overlays: map, pause menu, death/reinforcing, mission complete/failed with stats
-## Works without a Mission (firing range): objectives/clock hidden, death -> restart.
+## Helldivers-style HUD (info only; controls are TouchControls). Functional layout, meant
+## to be re-skinned: every number comes from DATA INPUTS, never from game internals:
+##   - Mission.hud_state() (Dictionary, see mission.gd): objectives, timer + stage,
+##     reinforcements, samples, kills, banners, passage warning, minimap data, end data.
+##   - the Player node (hp, stims, grenades, stamina, hurt, interact_target, dead) and
+##     its Firearm (ammo, mags, fire mode, state)
+##   - the Stratagems node (equipped, charges(), cap(), meter_frac(), cost(), locked,
+##     fill_enabled, entering, input, error_t, gained)
+## Layout: top-left objectives (+ passage warning), top-centre timer / lives / samples,
+## top-right pause + minimap, centre banners, bottom stratagem bar + player panel.
+## Overlays: reinforcing, pause, run-lost / mission-complete (RESTART, MENU).
+## Works without a Mission (firing range): mission widgets hidden, death -> restart.
 ## Must come after TouchControls in the tree so it sees touches first.
 
 @export var player_path: NodePath
 
+const MINIMAP_SIZE := 190.0
+const ORANGE := Color(1.0, 0.6, 0.1)
+
 var _player: CharacterBody2D
 var _weapon: Firearm
 var _mission: Mission
-var _map_open := false
 var _paused := false
 var _buttons := {} # name -> Rect2 of the current frame
 var _strat: Stratagems
+var _s := {} # mission.hud_state() of this frame
 
 
 func _ready() -> void:
@@ -26,22 +33,24 @@ func _ready() -> void:
 	_player = get_node(player_path)
 	_weapon = _player.get_node("Firearm")
 	_mission = get_tree().get_first_node_in_group("mission") as Mission
+	_s = _mission.hud_state() if _mission else {}
 
 
 func _process(_delta: float) -> void:
 	if _strat == null:
 		_strat = get_tree().get_first_node_in_group("stratagems") as Stratagems
+	_s = _mission.hud_state() if _mission else {}
 	queue_redraw()
 
 
 func _input(event: InputEvent) -> void:
 	var t := event as InputEventScreenTouch
 	if t == null:
-		if (_map_open or _paused or _overlay_blocking()) and event is InputEventScreenDrag:
+		if (_paused or _overlay_blocking()) and event is InputEventScreenDrag:
 			get_viewport().set_input_as_handled()
 		return
 	if not t.pressed:
-		if _map_open or _paused or _overlay_blocking():
+		if _paused or _overlay_blocking():
 			get_viewport().set_input_as_handled()
 		return
 	var hit := _button_at(t.position)
@@ -56,20 +65,16 @@ func _input(event: InputEvent) -> void:
 				_restart()
 			"menu":
 				Game.goto_menu()
-	elif _mission and _mission.is_over():
+	elif _mission and _mission.end_ready:
 		match hit:
 			"retry":
 				Game.start_mission()
 			"menu":
 				Game.goto_menu()
-	elif _map_open:
-		_map_open = false
 	elif _player.dead and not _mission:
 		_restart()
 	else:
 		match hit:
-			"map":
-				_map_open = true
 			"pause":
 				_set_paused(true)
 			_:
@@ -79,7 +84,7 @@ func _input(event: InputEvent) -> void:
 
 
 func _overlay_blocking() -> bool:
-	return (_mission != null and _mission.is_over()) or (_player.dead and not _mission)
+	return (_mission != null and _mission.end_ready) or (_player.dead and not _mission)
 
 
 func _set_paused(p: bool) -> void:
@@ -107,25 +112,24 @@ func _draw() -> void:
 	_draw_hurt(vp)
 	if _mission:
 		_draw_objectives()
-		_draw_compass(vp)
-		_draw_clock(vp)
-		_draw_defense(vp)
-		_draw_extraction(vp)
+		_draw_passage_warning()
+		_draw_timer(vp)
+		_draw_minimap(vp)
+		_draw_banners(vp)
+		_draw_board_progress(vp)
 	else:
 		UiStyle.panel(self, Rect2(16, 16, 240, 40))
 		UiStyle.accent(self, Rect2(16, 16, 240, 40))
 		UiStyle.text(self, Vector2(30, 43), "firing range", 20, UiStyle.YELLOW)
 	_draw_top_buttons(vp)
-	_draw_messages(vp)
 	_draw_interact_prompt(vp)
-	_draw_stratagems(vp)
+	_draw_stratagem_code()
+	_draw_stratagem_bar(vp)
 	_draw_player_panel(vp)
 	_draw_perf(vp)
 	if _player.dead:
 		_draw_death(vp)
-	if _map_open:
-		_draw_map(vp)
-	if _mission and _mission.is_over():
+	if _mission and _mission.end_ready:
 		_draw_end(vp)
 	if _paused:
 		_draw_pause(vp)
@@ -140,139 +144,203 @@ func _draw_hurt(vp: Vector2) -> void:
 		draw_rect(r, Color(0.8, 0, 0, a))
 
 
+# --- Mission widgets ----------------------------------------------------------------
+
+## Top-left: zone name and its objectives (main / optional, status, count or progress).
 func _draw_objectives() -> void:
 	var x := 16.0
 	var y := 16.0
 	var w := 400.0
-	var rows := _mission.objectives.filter(func(o): return o.active)
-	var h := 44.0 + rows.size() * 30.0
+	var rows: Array = _s.objectives
+	var h := 50.0 + rows.size() * 34.0
 	UiStyle.panel(self, Rect2(x, y, w, h))
 	UiStyle.accent(self, Rect2(x, y, w, h))
-	UiStyle.text(self, Vector2(x + 16, y + 28), Mission.NAME, 18, UiStyle.YELLOW)
-	var yy := y + 58.0
+	UiStyle.text(self, Vector2(x + 16, y + 26), _s.zone_name, 18, UiStyle.YELLOW)
+	var yy := y + 56.0
 	for o in rows:
-		var done: bool = o.done
-		var col := UiStyle.TEXT_DIM if done else (UiStyle.TEXT_DIM.lerp(UiStyle.TEXT, 0.6) if o.optional else UiStyle.TEXT)
+		var status: String = o.status
+		var done := status == "done"
+		var failed := status == "failed"
+		var col := UiStyle.TEXT
+		if done:
+			col = UiStyle.TEXT_DIM
+		elif failed:
+			col = UiStyle.RED
+		elif o.type == "optional":
+			col = UiStyle.TEXT_DIM.lerp(UiStyle.TEXT, 0.6)
 		var box := Rect2(x + 16, yy - 13, 14, 14)
 		if done:
 			draw_rect(box, UiStyle.YELLOW)
+		elif failed:
+			draw_rect(box, UiStyle.RED, false, 2.0)
+			draw_line(box.position, box.end, UiStyle.RED, 2.0)
+			draw_line(Vector2(box.end.x, box.position.y), Vector2(box.position.x, box.end.y), UiStyle.RED, 2.0)
 		else:
 			draw_rect(box, UiStyle.YELLOW, false, 2.0)
-		var label: String = ("(optional) " if o.optional else "") + o.text
+		var label: String = ("(optional) " if o.type == "optional" else "") + o.text
 		if o.total > 1:
 			label += "  %d/%d" % [o.count, o.total]
+		if failed:
+			label += "  - failed"
 		UiStyle.text(self, Vector2(x + 40, yy), label, 15, col)
 		if done:
-			draw_line(Vector2(x + 40, yy - 5), Vector2(x + 40 + UiStyle.font().get_string_size(label.to_upper(), HORIZONTAL_ALIGNMENT_LEFT, -1, 15).x, yy - 5), col, 1.5)
-		yy += 30.0
+			var tw := UiStyle.font().get_string_size(label.to_upper(), HORIZONTAL_ALIGNMENT_LEFT, -1, 15).x
+			draw_line(Vector2(x + 40, yy - 5), Vector2(x + 40 + tw, yy - 5), col, 1.5)
+		if status == "active" and o.progress > 0.0 and o.total == 1:
+			UiStyle.bar(self, Rect2(x + 40, yy + 5, w - 60, 6), o.progress, UiStyle.YELLOW)
+		yy += 34.0
 
 
-## Heading strip: 140 deg wide, objective diamonds with distance.
-func _draw_compass(vp: Vector2) -> void:
-	var w := 560.0
-	var cx := vp.x * 0.5
-	var y := 14.0
-	var span := 140.0
-	var ppd := w / span
-	UiStyle.panel(self, Rect2(cx - w / 2, y, w, 44), Color(0, 0, 0, 0.45), 8.0)
-	var heading := fposmod(rad_to_deg(_player.look_angle), 360.0)
-	var names := {0: "N", 45: "NE", 90: "E", 135: "SE", 180: "S", 225: "SW", 270: "W", 315: "NW"}
-	for b in range(0, 360, 15):
-		var d := wrapf(b - heading, -180.0, 180.0)
-		if absf(d) > span / 2:
-			continue
-		var x := cx + d * ppd
-		if names.has(b):
-			UiStyle.text(self, Vector2(x - 20, y + 22), names[b], 16, UiStyle.YELLOW if b == 0 else UiStyle.TEXT, HORIZONTAL_ALIGNMENT_CENTER, 40)
-		else:
-			draw_line(Vector2(x, y + 8), Vector2(x, y + 16), UiStyle.TEXT_DIM, 2.0)
-	draw_colored_polygon(PackedVector2Array([Vector2(cx - 6, y + 44), Vector2(cx + 6, y + 44), Vector2(cx, y + 36)]), UiStyle.YELLOW)
-	# Objective markers
-	# Objective markers: a diamond per target, distance only for the nearest one.
-	for o in _mission.objectives:
-		if o.done or not o.active or o.targets.is_empty():
-			continue
-		var col := UiStyle.YELLOW if not o.optional else UiStyle.TEXT_DIM
-		var nearest := INF
-		var nearest_x := 0.0
-		for t in o.targets:
-			var to: Vector2 = (t as Vector2) - _player.global_position
-			var bearing := rad_to_deg(Vector2.UP.angle_to(to))
-			var d := clampf(wrapf(bearing - heading, -180.0, 180.0), -span / 2, span / 2)
-			var x := cx + d * ppd
-			UiStyle.diamond(self, Vector2(x, y + 33), 6.0, col)
-			if to.length() < nearest:
-				nearest = to.length()
-				nearest_x = x
-		UiStyle.text(self, Vector2(nearest_x - 30, y + 62), "%dm" % roundi(nearest / Firearm.PX_PER_M), 13, col, HORIZONTAL_ALIGNMENT_CENTER, 60)
+## Under the objectives while standing in a passage before its midline.
+func _draw_passage_warning() -> void:
+	var list: Array = _s.passage_warning
+	if list.is_empty():
+		return
+	var rows: Array = _s.objectives
+	var y := 16.0 + 50.0 + rows.size() * 34.0 + 10.0
+	var r := Rect2(16, y, 400, 40.0 + list.size() * 24.0)
+	UiStyle.panel(self, r, Color(0.35, 0.04, 0.02, 0.8))
+	UiStyle.accent(self, r, UiStyle.RED)
+	UiStyle.text(self, r.position + Vector2(16, 26), "passage seals ahead - will fail:", 15, UiStyle.RED)
+	var yy := r.position.y + 50.0
+	for t in list:
+		UiStyle.text(self, Vector2(r.position.x + 24, yy), "- " + str(t), 15, UiStyle.TEXT)
+		yy += 24.0
 
 
-func _draw_clock(vp: Vector2) -> void:
-	var r := Rect2(vp.x - 276, 72, 260, 62)
+## Top-centre: mission timer (colour by stage), reinforcements, samples, kills.
+func _draw_timer(vp: Vector2) -> void:
+	var r := Rect2(vp.x * 0.5 - 170, 12, 340, 92)
 	UiStyle.panel(self, r)
-	var t := maxf(_mission.time_left, 0.0)
-	var low := t < 120.0
-	UiStyle.text(self, r.position + Vector2(14, 24), "mission time", 13, UiStyle.TEXT_DIM)
-	UiStyle.text(self, r.position + Vector2(14, 50), "%02d:%02d" % [int(t) / 60, int(t) % 60], 24, UiStyle.RED if low else UiStyle.TEXT)
-	UiStyle.text(self, r.position + Vector2(140, 24), "reinforce", 13, UiStyle.TEXT_DIM)
-	UiStyle.text(self, r.position + Vector2(140, 50), "x %d" % _mission.reinforcements, 24, UiStyle.YELLOW)
+	var t: float = maxf(_s.time_left, 0.0)
+	var stage: String = _s.stage
+	var col := UiStyle.TEXT
+	var label := "mission time"
+	if stage == "departure":
+		col = ORANGE if int(Time.get_ticks_msec() / 400) % 2 == 0 else UiStyle.YELLOW
+		label = "destroyer leaving"
+	elif stage == "departed":
+		col = UiStyle.RED
+		label = "destroyer departed"
+	UiStyle.text(self, Vector2(r.position.x, r.position.y + 20), label, 13, UiStyle.TEXT_DIM, HORIZONTAL_ALIGNMENT_CENTER, r.size.x)
+	UiStyle.text(self, Vector2(r.position.x, r.position.y + 58), "%d:%02d" % [int(t) / 60, int(t) % 60], 40, col, HORIZONTAL_ALIGNMENT_CENTER, r.size.x)
+	var y := r.position.y + 82.0
+	UiStyle.text(self, Vector2(r.position.x + 16, y), "reinforce %d" % _s.reinforcements, 14,
+		UiStyle.RED if _s.reinforcements <= 1 else UiStyle.YELLOW)
+	UiStyle.text(self, Vector2(r.position.x, y), "samples %d" % _s.samples, 14, UiStyle.BLUE, HORIZONTAL_ALIGNMENT_CENTER, r.size.x)
+	UiStyle.text(self, Vector2(r.position.x, y), "kills %d" % _s.kills, 14, UiStyle.TEXT, HORIZONTAL_ALIGNMENT_RIGHT, r.size.x - 16)
 
 
-## Wave status and generator health under the clock.
-func _draw_defense(vp: Vector2) -> void:
-	var gens: Array = _mission.generators
-	var r := Rect2(vp.x - 276, 142, 260, 44 + gens.size() * 20)
-	UiStyle.panel(self, r)
-	UiStyle.text(self, r.position + Vector2(14, 26), _mission.wave_status(), 15,
-		UiStyle.RED if _mission.wave_active else UiStyle.YELLOW)
-	var y := r.position.y + 44
-	for g in gens:
-		var gen := g as Generator
-		UiStyle.text(self, Vector2(r.position.x + 14, y + 10), "gen " + gen.label, 13, UiStyle.TEXT_DIM)
-		var bar := Rect2(r.position.x + 70, y, r.size.x - 86, 10)
-		if gen.is_destroyed():
-			draw_rect(bar, Color(0.3, 0.05, 0.05))
+## Announcement banners (newest at the bottom), fading out.
+func _draw_banners(vp: Vector2) -> void:
+	var y := 150.0
+	for b in _s.banners:
+		var a := clampf(5.5 - b.t, 0.0, 1.0)
+		var w := UiStyle.font().get_string_size(str(b.text).to_upper(), HORIZONTAL_ALIGNMENT_LEFT, -1, 22).x + 40.0
+		UiStyle.panel(self, Rect2(vp.x * 0.5 - w * 0.5, y - 24, w, 36), Color(0, 0, 0, 0.5 * a), 8.0)
+		UiStyle.text(self, Vector2(0, y), b.text, 22, Color(UiStyle.YELLOW, a), HORIZONTAL_ALIGNMENT_CENTER, vp.x)
+		y += 42.0
+
+
+func _draw_board_progress(vp: Vector2) -> void:
+	if _s.pelican == "landed" and _s.board_progress > 0.0:
+		UiStyle.bar(self, Rect2(vp.x * 0.5 - 150, vp.y * 0.6, 300, 14), _s.board_progress, UiStyle.YELLOW)
+	elif _s.pelican == "landed":
+		UiStyle.text(self, Vector2(0, vp.y * 0.6), "board pelican-1", 18, UiStyle.YELLOW, HORIZONTAL_ALIGNMENT_CENTER, vp.x)
+
+
+## Top-right minimap of the current zone: fog, objectives, POIs, exit, bugs, player.
+func _draw_minimap(vp: Vector2) -> void:
+	var m: Dictionary = _s.minimap
+	var rect: Rect2 = m.rect
+	var size := MINIMAP_SIZE
+	var origin := Vector2(vp.x - 16.0 - size, 100.0)
+	var to_map := func(p: Vector2) -> Vector2: return origin + (p - rect.position) / rect.size * size
+	draw_rect(Rect2(origin, Vector2(size, size)), Color(0.12, 0.11, 0.08, 0.85))
+	# Fog of war: unexplored cells darkened (runs merged per row).
+	var cells: int = m.cells
+	var explored: PackedByteArray = m.explored
+	var cs := size / cells
+	for yy in cells:
+		var x := 0
+		while x < cells:
+			if explored[yy * cells + x] == 0:
+				var x0 := x
+				while x < cells and explored[yy * cells + x] == 0:
+					x += 1
+				draw_rect(Rect2(origin + Vector2(x0 * cs, yy * cs), Vector2((x - x0) * cs, cs)), Color(0, 0, 0, 0.75))
+			else:
+				x += 1
+	draw_rect(Rect2(origin, Vector2(size, size)), UiStyle.YELLOW_DIM, false, 2.0)
+	for t in m.targets:
+		UiStyle.diamond(self, to_map.call(t.pos), 6.0, UiStyle.YELLOW if not t.optional else UiStyle.TEXT)
+	for p in m.pois:
+		var c: Vector2 = to_map.call(p.pos)
+		if p.kind == "sample":
+			draw_circle(c, 3.5, UiStyle.BLUE)
 		else:
-			UiStyle.bar(self, bar, gen.hp / gen.max_hp, Color(0.35, 0.85, 1.0) if gen.hp / gen.max_hp > 0.35 else UiStyle.RED)
-		y += 20
+			draw_rect(Rect2(c - Vector2(3, 3), Vector2(6, 6)), UiStyle.GREEN)
+	var exit_pos: Vector2 = m.exit
+	if exit_pos != Vector2.INF:
+		var ec: Vector2 = to_map.call(exit_pos)
+		draw_arc(ec, 7.0, 0, TAU, 16, UiStyle.BLUE, 2.5)
+	for e in m.enemies:
+		draw_circle(to_map.call(e.pos), 2.5, UiStyle.RED if e.alert else Color(1, 0.5, 0.3, 0.7))
+	var pc: Vector2 = to_map.call(m.player)
+	var f := Vector2.UP.rotated(m.look)
+	draw_colored_polygon(PackedVector2Array([pc + f * 8.0, pc + f.rotated(2.5) * 6.0, pc + f.rotated(-2.5) * 6.0]), UiStyle.GREEN)
 
 
 func _draw_top_buttons(vp: Vector2) -> void:
 	var right := vp.x - (100.0 if OS.has_feature("web") else 16.0)
 	_buttons["pause"] = UiStyle.button(self, Rect2(right - 70, 12, 70, 50), "II", false, 20)
-	if _mission:
-		_buttons["map"] = UiStyle.button(self, Rect2(right - 160, 12, 80, 50), "MAP", false, 18)
 
 
-func _draw_messages(vp: Vector2) -> void:
-	var y := 120.0
-	if _mission == null:
+# --- Stratagems ---------------------------------------------------------------------
+
+## Bottom bar: icon colour, short name, charges (/cap), meter fill toward the next charge.
+func _draw_stratagem_bar(vp: Vector2) -> void:
+	if _strat == null or _strat.equipped.is_empty():
 		return
-	for m in _mission.messages:
-		var a := clampf(5.0 - m.t, 0.0, 1.0)
-		UiStyle.text(self, Vector2(0, y), m.text, 18, Color(UiStyle.YELLOW, a), HORIZONTAL_ALIGNMENT_CENTER, vp.x)
-		y += 26.0
+	var n := _strat.equipped.size()
+	var cw := 104.0
+	var gap := 8.0
+	var h := 64.0
+	var x0 := vp.x * 0.5 - (n * cw + (n - 1) * gap) * 0.5
+	var y := vp.y - 100.0 - 14.0 - h - 6.0
+	for i in n:
+		var id: String = _strat.equipped[i]
+		var def: Dictionary = Stratagems.DEFS[id]
+		var r := Rect2(x0 + i * (cw + gap), y, cw, h)
+		var charges := _strat.charges(id)
+		var cap := _strat.cap(id)
+		var col: Color = def.color
+		var usable := charges > 0 and not _strat.locked
+		UiStyle.panel(self, r, Color(col, 0.28) if usable else UiStyle.PANEL_SOLID, 8.0)
+		var flash: float = _strat.gained.get(id, 99.0)
+		UiStyle.panel_outline(self, r, UiStyle.YELLOW if flash < 1.0 else (col if usable else Color(1, 1, 1, 0.2)), 8.0, 3.0 if flash < 1.0 else 2.0)
+		draw_rect(Rect2(r.position + Vector2(8, 8), Vector2(18, 18)), col if usable else Color(0.4, 0.4, 0.4))
+		UiStyle.text(self, r.position + Vector2(32, 22), def.short, 14, UiStyle.TEXT if usable else UiStyle.TEXT_DIM)
+		UiStyle.text(self, r.position + Vector2(0, 30), "x%d" % charges, 24, UiStyle.YELLOW if usable else UiStyle.TEXT_DIM,
+			HORIZONTAL_ALIGNMENT_RIGHT, cw - 10)
+		UiStyle.text(self, r.position + Vector2(0, 44), "/%d" % cap, 11, UiStyle.TEXT_DIM, HORIZONTAL_ALIGNMENT_RIGHT, cw - 10)
+		var bar := Rect2(r.position + Vector2(8, h - 14), Vector2(cw - 16, 7))
+		var frac := _strat.meter_frac(id)
+		UiStyle.bar(self, bar, frac, col if _strat.fill_enabled else Color(0.5, 0.5, 0.5))
+		if _strat.locked:
+			UiStyle.text(self, r.position + Vector2(8, 42), "locked", 12, UiStyle.RED)
+		elif not _strat.fill_enabled:
+			UiStyle.text(self, r.position + Vector2(8, 42), "meter off", 12, ORANGE)
 
 
-func _draw_extraction(vp: Vector2) -> void:
-	if _mission.phase == Mission.Phase.EXTRACTING:
-		var t := maxf(_mission.extract_left, 0.0)
-		var r := Rect2(vp.x * 0.5 - 150, 84, 300, 30)
-		UiStyle.panel(self, r, UiStyle.PANEL_SOLID, 6.0)
-		UiStyle.text(self, Vector2(r.position.x, r.position.y + 22), "extraction  %d:%02d" % [int(t) / 60, int(t) % 60], 18, UiStyle.YELLOW, HORIZONTAL_ALIGNMENT_CENTER, r.size.x)
-	elif _mission.phase == Mission.Phase.SHUTTLE and _mission.board_progress() > 0.0:
-		var r := Rect2(vp.x * 0.5 - 150, vp.y * 0.6, 300, 14)
-		UiStyle.bar(self, r, _mission.board_progress(), UiStyle.YELLOW)
-
-
-## Stratagem list while entering a code: name, arrows (matched part lit), cooldown.
-func _draw_stratagems(_vp: Vector2) -> void:
+## Code entry list while the stratagem menu is open: name, arrows (matched part lit), cost.
+func _draw_stratagem_code() -> void:
 	if _strat == null or not _strat.entering:
 		return
 	var x := 150.0
 	var y := 200.0
 	var row := 46.0
-	var r := Rect2(x, y, 400, 20 + row * _strat.equipped.size())
+	var r := Rect2(x, y, 420, 20 + row * _strat.equipped.size())
 	UiStyle.panel(self, r, UiStyle.PANEL_SOLID)
 	UiStyle.accent(self, r, UiStyle.RED if _strat.error_t > 0.0 else UiStyle.YELLOW)
 	var yy := y + 18.0
@@ -283,19 +351,12 @@ func _draw_stratagems(_vp: Vector2) -> void:
 		var col: Color = def.color if ok else Color(0.5, 0.5, 0.5)
 		draw_rect(Rect2(x + 14, yy, 30, 30), Color(col, 0.85))
 		UiStyle.text(self, Vector2(x + 54, yy + 12), def.name, 14, UiStyle.TEXT if ok else UiStyle.TEXT_DIM)
-		if ok:
-			var code: Array = def.code
-			for i in code.size():
-				var on := lit and i < _strat.input.size()
-				var c := Vector2(x + 62 + i * 22, yy + 24)
-				_code_arrow(c, int(code[i]), UiStyle.YELLOW if on else (UiStyle.TEXT if lit else UiStyle.TEXT_DIM))
-			var st: Dictionary = _strat.status[id]
-			if st.uses > 0:
-				UiStyle.text(self, Vector2(x + 300, yy + 24), "x%d" % st.uses, 13, UiStyle.TEXT_DIM)
-		else:
-			var w := _strat.wait_time(id)
-			var what := "rearming" if (_strat.status[id] as Dictionary).uses == 0 else "cooldown"
-			UiStyle.text(self, Vector2(x + 54, yy + 30), "%s %d:%02d" % [what, int(w) / 60, int(w) % 60], 13, UiStyle.TEXT_DIM)
+		var code: Array = def.code
+		for i in code.size():
+			var on := lit and i < _strat.input.size()
+			var c := Vector2(x + 62 + i * 22, yy + 24)
+			_code_arrow(c, int(code[i]), UiStyle.YELLOW if on else (UiStyle.TEXT if lit else UiStyle.TEXT_DIM))
+		UiStyle.text(self, Vector2(x, yy + 24), "x%d" % _strat.charges(id), 14, UiStyle.TEXT if ok else UiStyle.RED, HORIZONTAL_ALIGNMENT_RIGHT, 400)
 		yy += row
 
 
@@ -309,7 +370,7 @@ func _draw_interact_prompt(vp: Vector2) -> void:
 	var it: Interactable = _player.interact_target
 	if it == null or _player.dead:
 		return
-	var r := Rect2(vp.x * 0.5 - 170, vp.y - 160, 340, 46)
+	var r := Rect2(vp.x * 0.5 - 170, vp.y - 260, 340, 46)
 	UiStyle.panel(self, r, UiStyle.PANEL_SOLID)
 	UiStyle.accent(self, r)
 	UiStyle.text(self, r.position + Vector2(16, 22), "hold  " + it.label, 16, UiStyle.YELLOW)
@@ -331,7 +392,6 @@ func _draw_player_panel(vp: Vector2) -> void:
 		draw_rect(Rect2(x, y + 50, 200 * _player.stamina, 3), UiStyle.BLUE)
 	if _player.is_healing():
 		UiStyle.text(self, Vector2(x + 120, y + 24), "stimmed", 13, UiStyle.GREEN)
-	# Stims / grenades pips
 	UiStyle.text(self, Vector2(x, y + 72), "stim", 13, UiStyle.TEXT_DIM)
 	for i in _player.max_stims:
 		draw_rect(Rect2(x + 42 + i * 13, y + 60, 9, 14), UiStyle.GREEN if i < _player.stims else Color(1, 1, 1, 0.15))
@@ -339,7 +399,6 @@ func _draw_player_panel(vp: Vector2) -> void:
 	for i in _player.max_grenades:
 		draw_circle(Vector2(x + 158 + i * 14, y + 67), 5.0, UiStyle.YELLOW if i < _player.grenades else Color(1, 1, 1, 0.15))
 
-	# Weapon block
 	var wx := r.position.x + 250
 	draw_line(Vector2(wx - 14, y + 12), Vector2(wx - 14, y + 74), Color(1, 1, 1, 0.15), 2.0)
 	var w := _weapon
@@ -348,7 +407,6 @@ func _draw_player_panel(vp: Vector2) -> void:
 		var other: FirearmStats = w.slots[1 - w.slot].stats
 		UiStyle.text(self, Vector2(wx + 150, y + 78), "swap: " + other.display_name, 12, UiStyle.GREEN)
 	var total := w.rounds_loaded()
-	# "+1" only when a tactical reload put a full mag behind a chambered round.
 	var rounds := "%d+1" % w.stats.mag_size if total > w.stats.mag_size else "%d" % total
 	var low := total <= w.stats.mag_size / 4
 	UiStyle.text(self, Vector2(wx, y + 62), rounds, 34, UiStyle.RED if low else UiStyle.TEXT)
@@ -384,59 +442,21 @@ func _draw_perf(vp: Vector2) -> void:
 	UiStyle.text(self, Vector2(16, vp.y - 8), "%d fps  proc %.1f  phys %.1f" % [Engine.get_frames_per_second(), proc_ms, phys_ms], 12, UiStyle.TEXT_DIM)
 
 
+# --- Overlays -----------------------------------------------------------------------
+
 func _draw_death(vp: Vector2) -> void:
+	if _mission and _mission.end_ready:
+		return
 	draw_rect(Rect2(Vector2.ZERO, vp), Color(0, 0, 0, 0.5))
 	UiStyle.text(self, Vector2(0, vp.y * 0.42), "you died", 52, UiStyle.RED, HORIZONTAL_ALIGNMENT_CENTER, vp.x)
 	var sub := "tap to restart"
 	if _mission:
-		if _mission.respawn_in >= 0.0:
-			sub = "reinforcing in %d" % ceili(_mission.respawn_in)
+		var rin: float = _s.respawn_in
+		if rin >= 0.0:
+			sub = "reinforcing in %d" % ceili(rin)
 		else:
 			sub = ""
 	UiStyle.text(self, Vector2(0, vp.y * 0.42 + 46), sub, 22, UiStyle.TEXT, HORIZONTAL_ALIGNMENT_CENTER, vp.x)
-
-
-func _draw_map(vp: Vector2) -> void:
-	draw_rect(Rect2(Vector2.ZERO, vp), Color(0, 0, 0, 0.75))
-	var m := _mission.map
-	var size := minf(vp.y - 70, vp.x - 70)
-	var origin := vp * 0.5 - Vector2(size, size) * 0.5
-	var s := size / (MissionMap.HALF * 2.0)
-	var to_screen := func(p: Vector2) -> Vector2: return origin + (p + Vector2(MissionMap.HALF, MissionMap.HALF)) * s
-	draw_rect(Rect2(origin, Vector2(size, size)), MissionMap.GROUND.darkened(0.2))
-	for f in m.forest_areas:
-		draw_circle(to_screen.call(f.pos), f.r * s, Color(0.12, 0.2, 0.1))
-	for road in m.roads:
-		var pts := PackedVector2Array()
-		for p in road:
-			pts.append(to_screen.call(p))
-		draw_polyline(pts, MissionMap.DIRT, 3.0)
-	for rk in m.rocks:
-		draw_circle(to_screen.call(rk.pos), maxf((rk.r as float) * s, 1.5), Color(0.45, 0.43, 0.4))
-	for w in m.walls:
-		draw_rect(Rect2(to_screen.call(w.position), w.size * s), Color(0.75, 0.72, 0.65))
-	draw_rect(Rect2(origin, Vector2(size, size)), UiStyle.YELLOW_DIM, false, 2.0)
-	# Objectives
-	for o in _mission.objectives:
-		if o.done or not o.active:
-			continue
-		for t in o.targets:
-			UiStyle.diamond(self, to_screen.call(t), 8.0, UiStyle.YELLOW if not o.optional else UiStyle.TEXT_DIM)
-	for g in _mission.generators:
-		var gp: Vector2 = to_screen.call((g as Node2D).global_position)
-		draw_rect(Rect2(gp - Vector2(6, 5), Vector2(12, 10)), Color(0.35, 0.85, 1.0) if not g.is_destroyed() else UiStyle.RED)
-	for sp in m.spawn_points:
-		draw_arc(to_screen.call(sp), 9.0, 0, TAU, 20, Color(0.75, 0.5, 1.0, 0.8), 2.0)
-	for e in get_tree().get_nodes_in_group("illuminate"):
-		draw_circle(to_screen.call((e as Node2D).global_position), 2.5, UiStyle.RED)
-	var ex: Vector2 = to_screen.call(m.extraction)
-	draw_arc(ex, 10.0, 0, TAU, 24, UiStyle.BLUE, 3.0)
-	UiStyle.text(self, ex + Vector2(-40, 26), "extract", 13, UiStyle.BLUE, HORIZONTAL_ALIGNMENT_CENTER, 80)
-	# Player arrow (points where the camera looks)
-	var pp: Vector2 = to_screen.call(_player.global_position)
-	var f := Vector2.UP.rotated(_player.look_angle)
-	draw_colored_polygon(PackedVector2Array([pp + f * 12.0, pp + f.rotated(2.5) * 9.0, pp + f.rotated(-2.5) * 9.0]), UiStyle.GREEN)
-	UiStyle.text(self, Vector2(0, origin.y + size + 26), "tap to close", 16, UiStyle.TEXT_DIM, HORIZONTAL_ALIGNMENT_CENTER, vp.x)
 
 
 func _draw_pause(vp: Vector2) -> void:
@@ -449,36 +469,42 @@ func _draw_pause(vp: Vector2) -> void:
 	_buttons["menu"] = UiStyle.button(self, Rect2(x, vp.y * 0.36 + 160, w, 64), "ABANDON MISSION" if _mission else "MAIN MENU")
 
 
+## Run lost / mission complete: objectives done or failed, kills, samples, time.
 func _draw_end(vp: Vector2) -> void:
 	draw_rect(Rect2(Vector2.ZERO, vp), Color(0, 0, 0, 0.7))
-	var ok := _mission.phase == Mission.Phase.COMPLETE
-	var r := Rect2(vp.x * 0.5 - 330, vp.y * 0.5 - 250, 660, 500)
+	var ok: bool = _s.end == "won"
+	var all: Array = _s.all_objectives
+	var shown: Array = all.filter(func(o): return o.type != "extract")
+	var h := 400.0 + shown.size() * 28.0
+	var r := Rect2(vp.x * 0.5 - 330, maxf(vp.y * 0.5 - h * 0.5, 8.0), 660, h)
 	UiStyle.panel(self, r, UiStyle.PANEL_SOLID, 16.0)
 	UiStyle.panel_outline(self, r, UiStyle.YELLOW if ok else UiStyle.RED, 16.0)
-	UiStyle.text(self, Vector2(r.position.x, r.position.y + 62), "mission complete" if ok else "mission failed", 42,
+	UiStyle.text(self, Vector2(r.position.x, r.position.y + 62), "mission complete" if ok else "run lost", 42,
 		UiStyle.YELLOW if ok else UiStyle.RED, HORIZONTAL_ALIGNMENT_CENTER, r.size.x)
-	UiStyle.text(self, Vector2(r.position.x, r.position.y + 92), Mission.NAME if ok else _mission.fail_reason, 16,
+	UiStyle.text(self, Vector2(r.position.x, r.position.y + 92), _s.mission_name if ok else _s.end_reason, 16,
 		UiStyle.TEXT_DIM, HORIZONTAL_ALIGNMENT_CENTER, r.size.x)
-	var s := Game.stats
-	var t := int(_mission.elapsed)
-	var main_done := _mission.objectives.filter(func(o): return o.done and not o.optional).size()
-	var main_total := _mission.objectives.filter(func(o): return not o.optional).size()
+	var y := r.position.y + 130
+	for o in shown:
+		var st: String = o.status
+		var col := UiStyle.YELLOW if st == "done" else (UiStyle.RED if st == "failed" else UiStyle.TEXT_DIM)
+		UiStyle.text(self, Vector2(r.position.x + 70, y), ("(optional) " if o.type == "optional" else "") + o.text, 16, UiStyle.TEXT)
+		UiStyle.text(self, Vector2(r.position.x + 70, y), "done" if st == "done" else ("failed" if st == "failed" else "not done"),
+			16, col, HORIZONTAL_ALIGNMENT_RIGHT, r.size.x - 140)
+		y += 28.0
+	y += 14.0
+	var t := int(_s.elapsed)
+	var done_n := shown.filter(func(o): return o.status == "done").size()
 	var rows := [
-		["mission time", "%02d:%02d" % [t / 60, t % 60]],
-		["objectives", "%d / %d" % [main_done, main_total]],
-		["optional", "%d / %d" % [_mission.objectives.filter(func(o): return o.done and o.optional).size(),
-			_mission.objectives.filter(func(o): return o.optional).size()]],
-		["kills", str(s.kills)],
-		["accuracy", "%d%%" % roundi(Game.accuracy())],
-		["shots fired", str(s.shots)],
-		["deaths", str(s.deaths)],
-		["grenades / stims", "%d / %d" % [s.grenades, s.stims]],
+		["objectives done / failed", "%d / %d" % [done_n, shown.filter(func(o): return o.status != "done").size()]],
+		["kills", str(_s.kills)],
+		["samples", str(_s.samples)],
+		["reinforcements left", str(_s.reinforcements)],
+		["time", "%d:%02d" % [t / 60, t % 60]],
 	]
-	var y := r.position.y + 140
 	for row in rows:
 		UiStyle.text(self, Vector2(r.position.x + 70, y), row[0], 18, UiStyle.TEXT_DIM)
 		UiStyle.text(self, Vector2(r.position.x + 70, y), row[1], 18, UiStyle.TEXT, HORIZONTAL_ALIGNMENT_RIGHT, r.size.x - 140)
 		y += 32
 	var bw := 250.0
-	_buttons["retry"] = UiStyle.button(self, Rect2(r.get_center().x - bw - 10, r.end.y - 84, bw, 60), "PLAY AGAIN", true)
-	_buttons["menu"] = UiStyle.button(self, Rect2(r.get_center().x + 10, r.end.y - 84, bw, 60), "MAIN MENU")
+	_buttons["retry"] = UiStyle.button(self, Rect2(r.get_center().x - bw - 10, r.end.y - 84, bw, 60), "RESTART", true)
+	_buttons["menu"] = UiStyle.button(self, Rect2(r.get_center().x + 10, r.end.y - 84, bw, 60), "MENU")

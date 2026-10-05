@@ -137,6 +137,7 @@ func _update_bile(delta: float) -> void:
 		b.pos = (b.from as Vector2).lerp(b.to, clampf(b.t / BILE_FLIGHT, 0.0, 1.0))
 		if b.t >= BILE_FLIGHT:
 			_acid.append({"pos": b.to, "t": 0.0})
+			Sfx.play("bile_splash", b.to, -2.0)
 			if player and player.global_position.distance_to(b.to) < ACID_RADIUS_M * PX:
 				player.take_damage(BILE_SPLASH_DAMAGE, b.to)
 	_biles = _biles.filter(func(b): return b.t < BILE_FLIGHT)

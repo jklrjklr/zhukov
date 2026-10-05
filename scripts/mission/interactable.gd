@@ -5,7 +5,7 @@ extends StaticBody2D
 
 signal activated(it: Interactable)
 
-enum Kind { TERMINAL, EXTRACT_CONSOLE, AMMO, RESUPPLY_POD, SUPPORT_POD }
+enum Kind { TERMINAL, EXTRACT_CONSOLE, AMMO, RESUPPLY_POD, SUPPORT_POD, SAMPLE }
 
 @export var kind := Kind.TERMINAL
 @export var hold_time := 6.0
@@ -38,6 +38,10 @@ static func make(k: Kind) -> Interactable:
 		Kind.AMMO:
 			it.hold_time = 0.6
 			it.label = "RESUPPLY"
+			it.reach_m = 1.8
+		Kind.SAMPLE:
+			it.hold_time = 0.5
+			it.label = "COLLECT SAMPLE"
 			it.reach_m = 1.8
 		Kind.RESUPPLY_POD:
 			it.hold_time = 0.6
@@ -108,6 +112,13 @@ func _draw() -> void:
 			draw_circle(Vector2.ZERO, 10.0, fin.darkened(0.2) if not used else Color(0.15, 0.15, 0.15))
 			for i in uses:
 				draw_circle(Vector2(-6 + i * 12, 0), 3.0, UiStyle.YELLOW)
+		Kind.SAMPLE:
+			if not used:
+				var glow := 0.5 + 0.5 * sin(_blink * 4.0)
+				draw_circle(Vector2.ZERO, 16.0 + glow * 4.0, Color(0.3, 0.9, 1.0, 0.18))
+				draw_circle(Vector2.ZERO, 9.5, outline)
+				draw_circle(Vector2.ZERO, 8.0, Color(0.35, 0.95, 0.9))
+				draw_circle(Vector2(-2, -2), 3.0, Color(0.9, 1.0, 1.0, 0.8))
 		Kind.AMMO:
 			var c := Color(0.25, 0.35, 0.2) if not used else Color(0.18, 0.2, 0.17)
 			draw_rect(Rect2(-16.5, -12.5, 33, 25), outline)
