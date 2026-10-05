@@ -428,6 +428,41 @@ func _stratagem_input_tests() -> void:
 	check("sprint resumes after FIRE is released", p.sprinting)
 	p.move_input = Vector2.ZERO
 
+	# --- H: performance structure (registry, turn cap, cadence, rig, perf overlay) --------------
+	await fresh()
+	p.global_position = m.zones[0].rect.get_center()
+	await wait(0.2)
+	var actors: Node = m.get_node("Actors")
+	var T = load("res://scripts/terminid.gd")
+	var got: Array = T.spawn_pack(actors, p.global_position + Vector2(0, -10 * PX), 4, 777, func(_q): return true,
+		[T.Kind.SCAVENGER, T.Kind.WARRIOR, T.Kind.HUNTER, T.Kind.BILE_SPITTER])
+	check("Enemies registry tracks every enemy in the group", root.get_tree().get_nodes_in_group("enemies").size() == Enemies.count())
+	var worst := 0.0
+	var over := 0
+	for t in got:
+		t.alert_to(p.global_position, true)
+	for f in 120:
+		await physics_frame
+		for t in got:
+			if is_instance_valid(t) and not t.is_dead():
+				var cap: float = t.turn_cap() / 60.0
+				worst = maxf(worst, t.last_turn / cap)
+				if t.last_turn > cap * 1.02 + 1e-4:
+					over += 1
+	check("per-frame heading change never exceeds the turn-rate cap", over == 0, "worst %.2f of cap" % worst)
+	var bug1 = got[1]
+	check("bug has a cutout rig with parts", bug1._rig != null and bug1._rig.nodes.size() > 20)
+	check("bug think cadence is 0.1 s near / 0.2 s far", T.THINK_NEAR == 0.1 and T.THINK_FAR == 0.2 and T.NEAR_M == 20.0)
+	check("mission checks combat music every 0.5 s, minimap every 0.2 s", m.MUSIC_CHECK_S == 0.5 and m.MINIMAP_S == 0.2)
+	bug1.take_hit({"damage": 9999.0, "base_damage": 9999.0, "armor_penetration": 5, "armor_damage": 0.0, "destruction_level": 0,
+		"stagger": 0.0, "dir": Vector2.UP, "meters": 0.0, "aim_point": null})
+	check("dead bug leaves the registry and stops physics", bug1.is_dead() and not Enemies.list.has(bug1) and not bug1.is_physics_processing())
+	await wait(1.5)
+	check("dead bug freezes into one corpse sprite and stops processing", bug1._rig.corpse_sprite != null and not bug1.is_processing())
+	check("perf overlay is off by default", not root.get_node("Game").perf_overlay)
+	var hud := _scene.get_node("HUD/Hud")
+	check("HUD has a camera overlay layer and a redraw signature", hud._overlay != null and hud._signature() != 0)
+
 
 func _touch(pressed: bool, pos: Vector2, index: int) -> InputEventScreenTouch:
 	var e := InputEventScreenTouch.new()
