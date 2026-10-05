@@ -6,10 +6,10 @@ extends StaticBody2D
 
 signal destroyed(g: Generator)
 
-@export var max_hp := 1500.0
+@export var max_hp := 2500.0
 @export var label := "A"
 
-var hp := 1500.0
+var hp := 2500.0
 ## px: how far from the centre attackers can reach it.
 var hit_radius := 38.0
 var _flash := 0.0

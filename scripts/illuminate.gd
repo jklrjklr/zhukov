@@ -57,7 +57,7 @@ const KINDS := {
 		"weapon": "crush", "reach": 0.4, "dps": 70.0, "fly": false},
 	Kind.HARVESTER: {"name": "Harvester", "hp": 2400.0, "weight": 6000.0, "radius": 36.0, "speed": 0.35,
 		"sight": 30.0, "fov": 200.0, "armor": [4, 4, 4], "head": 9.0, "crit": 2.0, "eye_armor": 3, "turn": 60.0,
-		"weapon": "beam", "range": 30.0, "keep": Vector2(12.0, 24.0), "beam_dps": 55.0, "charge": 1.2,
+		"weapon": "beam", "range": 30.0, "keep": Vector2(12.0, 24.0), "beam_dps": 45.0, "charge": 1.2,
 		"fire": 2.2, "beam_cd": 3.0, "sweep": 22.0, "shield": 900.0, "shield_delay": 5.0, "shield_regen": 300.0,
 		"shield_r": 70.0, "fly": true},
 }
@@ -299,7 +299,9 @@ func _physics_process(delta: float) -> void:
 			face = to_t.normalized()
 			if to_t.length() <= reach_px:
 				speed *= 0.25
-				target.take_damage(_cfg.dps * delta, global_position, false)
+				# Claws do less to machines than to Helldivers.
+				var mult := 1.0 if target == _player else 0.5
+				target.take_damage(_cfg.dps * mult * delta, global_position, false)
 				if kind == Kind.VOTELESS and _tick % 30 == 0:
 					Sfx.play("claw", global_position, -8.0, 0.15)
 			if kind == Kind.FLESHMOB and _player and target != _player \
