@@ -89,6 +89,9 @@ func _process(delta: float) -> void:
 
 func _draw() -> void:
 	var outline := Color(0.08, 0.08, 0.08)
+	var so := Vector2(6, 8).rotated(-global_rotation)
+	if not (kind == Kind.SAMPLE and used):
+		draw_rect(Rect2(Vector2(-17, -13) + so, Vector2(34, 27)), Color(0, 0, 0, 0.28))
 	match kind:
 		Kind.TERMINAL, Kind.EXTRACT_CONSOLE:
 			draw_rect(Rect2(-18.5, -14.5, 37, 29), outline)
@@ -97,6 +100,11 @@ func _draw() -> void:
 			if enabled and not used and int(_blink * 2.0) % 2 == 0:
 				screen = screen.darkened(0.4)
 			draw_rect(Rect2(-12, -9, 24, 12), screen)
+			for i in 3: # screen text lines
+				draw_line(Vector2(-10, -6 + i * 3.5), Vector2(-10 + 8 + (i * 5) % 10, -6 + i * 3.5), Color(0.05, 0.1, 0.05, 0.6), 1.2)
+			for i in 4: # keys
+				draw_rect(Rect2(-11 + i * 6, 6, 4, 4), Color(0.15, 0.16, 0.16))
+			draw_rect(Rect2(-17, -13, 34, 3), Color(1, 1, 1, 0.12))
 			if kind == Kind.TERMINAL:
 				draw_line(Vector2(10, -13), Vector2(16, -30), outline, 3.0) # antenna
 				draw_circle(Vector2(16, -30), 3.0, Color(0.9, 0.2, 0.15) if not used else Color(0.2, 0.9, 0.4))
@@ -126,3 +134,7 @@ func _draw() -> void:
 			if not used:
 				for i in 3:
 					draw_line(Vector2(-12 + i * 9, -11), Vector2(-6 + i * 9, 11), UiStyle.YELLOW, 3.0)
+				draw_rect(Rect2(-15, -11, 30, 3), Color(1, 1, 1, 0.14))
+				draw_rect(Rect2(-5, -3, 10, 6), Color(0.1, 0.12, 0.08)) # handle plate
+				var gl := 0.5 + 0.5 * sin(_blink * 3.0)
+				draw_arc(Vector2.ZERO, 22.0 + gl * 3.0, 0.0, TAU, 20, Color(UiStyle.YELLOW, 0.25), 2.0)

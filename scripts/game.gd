@@ -20,8 +20,24 @@ func primary_stats() -> FirearmStats:
 	return load(loadout.primary) as FirearmStats
 
 
+## Visual settings (user://settings.cfg): screen shake / hit-stop on big explosions.
+var shake_enabled := true
+const SETTINGS_PATH := "user://settings.cfg"
+
+
 func _ready() -> void:
 	reset_stats()
+	var cfg := ConfigFile.new()
+	if cfg.load(SETTINGS_PATH) == OK:
+		shake_enabled = bool(cfg.get_value("video", "shake", true))
+
+
+func set_shake(on: bool) -> void:
+	shake_enabled = on
+	var cfg := ConfigFile.new()
+	cfg.load(SETTINGS_PATH)
+	cfg.set_value("video", "shake", on)
+	cfg.save(SETTINGS_PATH)
 
 
 func reset_stats() -> void:

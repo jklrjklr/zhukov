@@ -102,6 +102,16 @@ func is_destroyed() -> bool:
 
 func _destroy(dir: Vector2) -> void:
 	destroyed.emit(self)
+	match kind:
+		Kind.NEST:
+			Fx.death(self, global_position, Color(0.5, 0.36, 0.36), 44.0)
+			Fx.landing(self, global_position, 80.0)
+			Fx.splat(self, global_position, Vector2.UP, Color(0.55, 0.4, 0.3), true)
+		Kind.CRATE, Kind.TREE:
+			Fx.dust_puff(self, global_position, 1.8)
+			Fx.decal(self, "pool", global_position, 20.0, Color(0.3, 0.22, 0.12))
+		_:
+			Fx.dust_puff(self, global_position, 2.0)
 	if _occluder:
 		_occluder.queue_free()
 	remove_from_group("nests")
@@ -138,6 +148,16 @@ func _draw() -> void:
 		draw_set_transform(Vector2.ZERO)
 		return
 	var dmg := 1.0 - hp / max_hp
+	var so := Vector2(7, 9).rotated(-global_rotation)
+	match kind:
+		Kind.CRATE:
+			draw_rect(Rect2(Vector2(-21, -21) + so, Vector2(43, 43)), Color(0, 0, 0, 0.3))
+		Kind.FABRICATOR:
+			draw_rect(Rect2(Vector2(-41, -29) + so, Vector2(83, 59)), Color(0, 0, 0, 0.3))
+		Kind.NEST:
+			draw_circle(so * 0.5, 34.0, Color(0, 0, 0, 0.25))
+		Kind.TREE:
+			draw_circle(so * 2.2, 40.0, Color(0, 0, 0, 0.22))
 	var hit_tint := Color(1, 1, 1, 0.5) if _flash > 0.0 else Color(0, 0, 0, 0)
 	match kind:
 		Kind.CRATE:
@@ -145,6 +165,14 @@ func _draw() -> void:
 			draw_rect(Rect2(-20, -20, 40, 40), Color(0.62, 0.45, 0.25))
 			draw_rect(Rect2(-20, -20, 40, 40), Color(0.4, 0.27, 0.12), false, 3.0)
 			draw_line(Vector2(-18, -18), Vector2(18, 18), Color(0.4, 0.27, 0.12), 3.0)
+			draw_line(Vector2(-20, -7), Vector2(20, -7), Color(0.5, 0.36, 0.18), 1.2)
+			draw_line(Vector2(-20, 7), Vector2(20, 7), Color(0.5, 0.36, 0.18), 1.2)
+			draw_rect(Rect2(-20, -20, 40, 3), Color(0.8, 0.62, 0.38)) # lit top edge
+			draw_rect(Rect2(-20, 17, 40, 3), Color(0.3, 0.2, 0.09)) # shaded bottom edge
+			for c in [Vector2(-16, -16), Vector2(16, -16), Vector2(-16, 16), Vector2(16, 16)]:
+				draw_circle(c, 1.8, Color(0.75, 0.72, 0.65)) # nails
+			draw_rect(Rect2(-6, -3, 12, 7), Color(0.85, 0.75, 0.3, 0.8)) # stencil label
+			draw_rect(Rect2(-6, -3, 12, 7), Color(0.2, 0.15, 0.05), false, 1.0)
 			if dmg > 0.3:
 				draw_line(Vector2(-14, 6), Vector2(2, -3), outline, 1.5)
 			if dmg > 0.6:
@@ -169,9 +197,16 @@ func _draw() -> void:
 			draw_circle(Vector2(-6, -4), 22.0, Color(0.5, 0.36, 0.38))
 			draw_circle(Vector2(3, 2), 13.0, Color(0.12, 0.05, 0.06))
 			draw_circle(Vector2(3, 2), 7.0, Color(0.05, 0.02, 0.02))
+			var glow := 0.5 + 0.5 * sin(Time.get_ticks_msec() * 0.004 + position.x)
+			draw_circle(Vector2(3, 2), 4.0 + glow * 2.0, Color(0.7, 0.35, 0.1, 0.35))
+			for i in 8: # teeth around the mouth
+				var ta := TAU * i / 8.0
+				draw_line(Vector2(3, 2) + Vector2.from_angle(ta) * 13.0, Vector2(3, 2) + Vector2.from_angle(ta) * 8.0, Color(0.85, 0.8, 0.65), 2.0)
 			for i in 6:
 				var a := TAU * i / 6.0 + 0.3
 				draw_circle(Vector2.from_angle(a) * 27.0, 4.0, Color(0.6, 0.45, 0.4))
+			if dmg > 0.0:
+				draw_arc(Vector2.ZERO, 36.0, -PI / 2.0, -PI / 2.0 + TAU * (1.0 - dmg), 28, Color(0.9, 0.3, 0.2, 0.9), 3.0)
 			draw_circle(Vector2.ZERO, 32.0, hit_tint)
 		Kind.TREE:
 			draw_circle(Vector2.ZERO, 13.5, outline)

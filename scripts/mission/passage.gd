@@ -87,6 +87,8 @@ func seal() -> void:
 		_rocks.append({"pos": Vector2(randf_range(-4.0, 4.0) * PX, seal_rect.get_center().y - position.y + randf_range(-0.4, 0.4) * PX),
 			"r": randf_range(0.6, 1.3) * PX, "delay": randf() * 0.5, "shade": randf_range(0.3, 0.45)})
 	Sfx.play("passage_seal", seal_rect.get_center(), 4.0, 0.03)
+	Fx.shake(self, 8.0)
+	Fx.dust_puff(self, seal_rect.get_center(), 3.0)
 	sealed.emit(self)
 
 
@@ -105,15 +107,46 @@ func _process(delta: float) -> void:
 func _draw() -> void:
 	var half_len := LEN_M * 0.5 * PX
 	var hw := HALF_W_M * PX
+	var wall_col := Zone.WALL
 	draw_rect(Rect2(-hw - 2.0 * PX, -half_len, (hw + 2.0 * PX) * 2.0, half_len * 2.0), Color(0.3, 0.29, 0.27))
 	draw_rect(Rect2(-hw, -half_len, hw * 2.0, half_len * 2.0), Color(0.36, 0.34, 0.31))
+	# Floor: plate seams, scuffs, guiding chevrons toward the next zone, cable runs.
+	var y := -half_len
+	while y < half_len:
+		draw_line(Vector2(-hw, y), Vector2(hw, y), Color(0, 0, 0, 0.18), 2.0)
+		y += 1.5 * PX
+	for x in [-hw * 0.5, hw * 0.5]:
+		draw_line(Vector2(x, -half_len), Vector2(x, half_len), Color(0.1, 0.1, 0.1, 0.35), 3.0)
+	var prng := RandomNumberGenerator.new()
+	prng.seed = 1000 + index
+	for i in 22:
+		draw_circle(Vector2(prng.randf_range(-hw, hw), prng.randf_range(-half_len, half_len)), prng.randf_range(8, 24), Color(0.05, 0.05, 0.04, 0.12))
+	for i in 5:
+		var cy := -half_len + (i + 0.5) * half_len * 2.0 / 5.0
+		draw_polyline(PackedVector2Array([Vector2(-26, cy + 16), Vector2(0, cy - 8), Vector2(26, cy + 16)]), Color(UiStyle.YELLOW, 0.4), 6.0)
 	for side in [-1.0, 1.0]:
 		var r := Rect2(Vector2((hw if side > 0.0 else -hw - 2.0 * PX), -half_len), Vector2(2.0 * PX, half_len * 2.0))
+		draw_rect(Rect2(r.position + Vector2(7, 9), r.size), Color(0, 0, 0, 0.3))
 		draw_rect(r.grow(2.0), Color(0.08, 0.08, 0.08))
-		draw_rect(r, Zone.WALL)
+		draw_rect(r, wall_col.darkened(0.3))
+		var top := Rect2(r.position, r.size - Vector2(6, 0))
+		draw_rect(top, wall_col)
+		draw_rect(Rect2(top.position, Vector2(3, top.size.y)), wall_col.lightened(0.2))
+		var t := 2.0 * PX
+		while t < r.size.y:
+			draw_line(Vector2(top.position.x + 3, r.position.y + t), Vector2(top.end.x, r.position.y + t), wall_col.darkened(0.3), 1.5)
+			t += 2.0 * PX
+		# Warning lamps along the inner edge.
+		var lx := (hw - 5.0) if side > 0.0 else (-hw + 5.0)
+		var ly := -half_len + 40.0
+		while ly < half_len:
+			draw_circle(Vector2(lx, ly), 5.0, Color(0.1, 0.1, 0.1))
+			draw_circle(Vector2(lx, ly), 3.4, Color(1.0, 0.65, 0.15) if not is_sealed else Color(0.4, 0.15, 0.1))
+			ly += 4.0 * PX
 	# Hazard line at the midline.
 	for i in 8:
 		draw_rect(Rect2(-hw + i * hw * 0.25, -3, hw * 0.125, 6), UiStyle.YELLOW.darkened(0.4))
+	draw_rect(Rect2(-hw, -6, hw * 2.0, 12), Color(0, 0, 0, 0.15))
 	for r in _rocks:
 		var k := clampf((_seal_t - r.delay) / 0.4, 0.0, 1.0)
 		if k <= 0.0:

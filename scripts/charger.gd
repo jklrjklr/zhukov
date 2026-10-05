@@ -59,6 +59,12 @@ var _col: CollisionShape2D
 var _stuck := 0.0
 var _step_t := 0.0
 var _hurt_snd := 0.0
+## Graphics.
+var _dmg_t := 99.0
+var _bounce_t := 0.0
+var _aware_t := 0.0
+var _base := Transform2D.IDENTITY
+const BLOOD := Color(0.9, 0.5, 0.1)
 
 
 func _ready() -> void:
@@ -132,6 +138,13 @@ func take_hit(hit: Dictionary) -> void:
 	var dmg: float = hit.damage * f * (REAR_CRIT_MULT if crit else 1.0)
 	hp -= dmg
 	_flash = 0.08
+	_dmg_t = 0.0
+	var hit_pos: Vector2 = hit.get("pos", global_position)
+	if f <= 0.3:
+		Fx.spark(self, hit_pos, hit.dir, 9 if f <= 0.0 else 5)
+		_bounce_t = 0.7
+	else:
+		Fx.splat(self, hit_pos, hit.dir, BLOOD, crit)
 	if _hurt_snd <= 0.0:
 		_hurt_snd = 0.15
 		Sfx.play("hit_armor" if f <= 0.3 else "hit_flesh", global_position, -4.0)
@@ -167,6 +180,9 @@ func _new_wander() -> void:
 
 func _physics_process(delta: float) -> void:
 	_flash = maxf(_flash - delta, 0.0)
+	_dmg_t += delta
+	_bounce_t = maxf(_bounce_t - delta, 0.0)
+	_aware_t = _aware_t + delta if is_alerted() else 0.0
 	_hurt_snd = maxf(_hurt_snd - delta, 0.0)
 	for n in _numbers:
 		n.t += delta
@@ -297,6 +313,7 @@ func _update_charge(delta: float) -> void:
 		var to := _player.global_position - global_position
 		if to.length() < RADIUS + 22.0 and to.dot(_charge_dir) > 0.0:
 			_hit_player = true
+			Fx.shake(self, 9.0)
 			_player.take_damage(charge_damage, global_position - _charge_dir * 40.0)
 			_player.velocity += _charge_dir * 500.0
 	var col := move_and_collide(step)
@@ -310,6 +327,8 @@ func _update_charge(delta: float) -> void:
 		else:
 			_end_charge()
 			Sfx.play("hit_metal", global_position, 0.0)
+			Fx.landing(self, global_position + _charge_dir * RADIUS, 70.0)
+			Fx.shake_at(self, global_position, 8.0)
 			_go(State.STUNNED, 2.5) # rammed something solid
 			velocity = -_charge_dir * 120.0
 			return
@@ -345,6 +364,9 @@ func _die() -> void:
 		_end_charge()
 	state = State.DEAD
 	Game.add_stat("kills")
+	Fx.death(self, global_position, BLOOD, RADIUS * 1.5)
+	Fx.shake_at(self, global_position, 5.0)
+	Fx.hit_stop(self, 0.07)
 	Sfx.play("bug_death", global_position, 2.0)
 	get_tree().call_group("mission", "on_kill", self)
 	remove_from_group("enemies")
@@ -354,61 +376,107 @@ func _die() -> void:
 	velocity = Vector2.ZERO
 
 
+## Ellipse as a scaled unit circle in art space (ART_SCALE applied), with a dark outline.
+func _ell(c: Vector2, r: Vector2, col: Color, outline := true) -> void:
+	if outline:
+		draw_set_transform_matrix(_base * Transform2D(Vector2(r.x + 1.6, 0), Vector2(0, r.y + 1.6), c))
+		draw_circle(Vector2.ZERO, 1.0, Color(0.07, 0.06, 0.06))
+	draw_set_transform_matrix(_base * Transform2D(Vector2(r.x, 0), Vector2(0, r.y), c))
+	draw_circle(Vector2.ZERO, 1.0, col)
+	draw_set_transform_matrix(_base)
+
+
 func _draw() -> void:
 	var outline := Color(0.07, 0.06, 0.06)
 	var plate := Color(0.45, 0.32, 0.22)
 	var dark := Color(0.28, 0.2, 0.15)
 	var sac := Color(1.0, 0.55, 0.15)
-	if state == State.DEAD:
+	var dead := state == State.DEAD
+	_base = Transform2D(Vector2(ART_SCALE, 0), Vector2(0, ART_SCALE), Vector2.ZERO)
+	if dead:
 		plate = plate.darkened(0.5)
 		dark = dark.darkened(0.5)
 		sac = Color(0.35, 0.15, 0.08)
-		draw_circle(Vector2(0, 10), 40.0, Color(0.35, 0.18, 0.05, 0.4 * clampf(60.0 - _dead_t, 0.0, 1.0)))
-	if _flash > 0.0:
+	elif _flash > 0.0:
 		plate = plate.lerp(Color.WHITE, 0.5)
+		dark = dark.lerp(Color.WHITE, 0.25)
 	for d in _dust:
 		var k: float = d.t / 0.6
 		var p: Vector2 = to_local(d.pos)
 		draw_circle(p, 8.0 + k * 14.0, Color(0.55, 0.48, 0.38, 0.4 * (1.0 - k)))
-
-	draw_set_transform(Vector2.ZERO, 0.0, Vector2(ART_SCALE, ART_SCALE))
+	if state == State.WINDUP or (state == State.CHARGE and _charge_dist < 3.0 * PX):
+		_draw_charge_lane()
+	if not dead:
+		var so := Vector2(7, 10).rotated(-global_rotation)
+		draw_set_transform_matrix(Transform2D(Vector2(RADIUS * 1.0, 0), Vector2(0, RADIUS * 1.3), so))
+		draw_circle(Vector2.ZERO, 1.0, Color(0, 0, 0, 0.3))
+	draw_set_transform_matrix(_base)
 	var charging := state == State.CHARGE
 	var rear := state == State.WINDUP
 	var stride := sin(_walk_phase)
-	# Legs (4 claws)
+	# Legs: 4 jointed claws.
 	for side in [-1.0, 1.0]:
-		var front_leg := Vector2(side * 26.0, -16.0 + stride * side * (9.0 if charging else 5.0))
-		var back_leg := Vector2(side * 24.0, 18.0 - stride * side * (9.0 if charging else 5.0))
+		var front_leg := Vector2(side * 28.0, -16.0 + stride * side * (9.0 if charging else 5.0))
+		var back_leg := Vector2(side * 26.0, 18.0 - stride * side * (9.0 if charging else 5.0))
 		for leg in [front_leg, back_leg]:
+			var root := Vector2(side * 18.0, leg.y * 0.7)
+			draw_line(root, leg, outline, 7.0)
+			draw_line(root, leg, dark, 4.5)
 			draw_circle(leg, 8.5, outline)
 			draw_circle(leg, 7.0, dark)
-	# Rear sac (weak spot), pulsing
+			for c in 3:
+				draw_line(leg, leg + Vector2(side * 6.0, (c - 1) * 5.0), outline, 2.2)
+			draw_circle(leg + Vector2(-1.5, -1.5), 2.5, dark.lightened(0.25))
+	# Rear sac (weak spot), pulsing, with veins and a faint target ring.
 	var pulse := 1.0 + 0.08 * sin(Time.get_ticks_msec() * 0.006)
-	draw_circle(Vector2(0, 30), 17.0 * pulse, outline)
-	draw_circle(Vector2(0, 30), 15.5 * pulse, sac.darkened(0.25))
-	draw_circle(Vector2(0, 32), 9.0 * pulse, sac)
-	# Body carapace
-	_ellipse(Vector2(0, 4), Vector2(25, 30), outline)
-	_ellipse(Vector2(0, 4), Vector2(23, 28), dark)
-	# Front armor plates (overlapping, wide)
+	_ell(Vector2(0, 31), Vector2(16, 15) * pulse, sac.darkened(0.25))
+	_ell(Vector2(0, 33), Vector2(9, 9) * pulse, sac, false)
+	if not dead:
+		for a in [-0.7, 0.0, 0.7]:
+			draw_line(Vector2(0, 33), Vector2(sin(a) * 13.0, 33.0 + cos(a) * 10.0), Color(0.6, 0.2, 0.05, 0.7), 1.2)
+		draw_arc(Vector2(0, 33), 12.0 * pulse, 0.0, TAU, 20, Color(1, 0.85, 0.3, 0.3), 1.0)
+	# Body carapace with segment ridges.
+	_ell(Vector2(0, 4), Vector2(24, 29), dark)
+	for k in 4:
+		var y := -2.0 + k * 7.0
+		draw_arc(Vector2(0, y + 6.0), 22.0 - k * 1.5, PI * 1.12, PI * 1.88, 12, outline, 1.6)
+	# Side plates (AC3): lighter armour slabs with rivets.
+	for side in [-1.0, 1.0]:
+		_ell(Vector2(side * 21.0, 2.0), Vector2(7.5, 18.0), plate.darkened(0.12))
+		draw_line(Vector2(side * 19.0, -12.0), Vector2(side * 19.0, 14.0), plate.lightened(0.25), 1.2)
+		for y in [-8.0, 0.0, 8.0]:
+			draw_circle(Vector2(side * 22.0, y), 1.3, plate.lightened(0.4))
+	# Front armour plates (AC5): overlapping, wide, edge-lit.
 	var lift := -6.0 if rear else 0.0
 	for i in 3:
 		var y := -18.0 + i * 9.0 + lift
-		_ellipse(Vector2(0, y), Vector2(27 - i * 3, 9), outline)
-		_ellipse(Vector2(0, y), Vector2(25.5 - i * 3, 7.5), plate.darkened(i * 0.1))
-	# Head with mandibles
-	draw_circle(Vector2(0, -30 + lift), 11.0, outline)
-	draw_circle(Vector2(0, -30 + lift), 9.5, plate.darkened(0.15))
+		var pc := plate.darkened(i * 0.1)
+		_ell(Vector2(0, y), Vector2(27 - i * 3, 9), pc)
+		draw_arc(Vector2(0, y), 24.0 - i * 3.0, PI * 1.1, PI * 1.9, 14, pc.lightened(0.35), 1.6)
+		for x in [-14.0 + i * 3.0, 14.0 - i * 3.0]:
+			draw_circle(Vector2(x, y + 1.0), 1.4, pc.lightened(0.45))
+	# Head with horns, mandibles and eyes.
+	var hc := Vector2(0, -30 + lift)
 	for side in [-1.0, 1.0]:
-		draw_line(Vector2(side * 6, -36 + lift), Vector2(side * 11, -46 + lift), outline, 4.0)
+		var h0 := hc + Vector2(side * 7.0, -3.0)
+		var h1 := hc + Vector2(side * 14.0, -10.0)
+		draw_line(h0, h1, outline, 5.0)
+		draw_line(h0, h1, plate.lightened(0.15), 2.8)
+	_ell(hc, Vector2(10, 9.5), plate.darkened(0.15))
+	for side in [-1.0, 1.0]:
+		draw_line(hc + Vector2(side * 6, -6), hc + Vector2(side * 11, -16), outline, 4.0)
+		draw_line(hc + Vector2(side * 6, -6), hc + Vector2(side * 11, -16), Color(0.8, 0.72, 0.55) if not dead else dark, 1.8)
+		var ec := Color(1, 0.2, 0.1) if (is_alerted() and not dead) else Color(0.1, 0.05, 0.04)
+		draw_circle(hc + Vector2(side * 4.0, -1.0), 2.0, ec)
 	if state == State.WINDUP and int(_t * 10.0) % 2 == 0:
-		draw_circle(Vector2(0, -30 + lift), 4.0, Color(1, 0.25, 0.1))
+		draw_circle(hc, 4.0, Color(1, 0.25, 0.1))
 	if state == State.STUNNED:
 		for i in 3:
 			var a := Time.get_ticks_msec() * 0.005 + i * TAU / 3.0
 			draw_circle(Vector2(0, -30) + Vector2.from_angle(a) * 16.0, 3.0, UiStyle.YELLOW)
 	draw_set_transform(Vector2.ZERO)
-
+	if not dead:
+		_draw_billboards()
 	if not _numbers.is_empty():
 		var font := ThemeDB.fallback_font
 		draw_set_transform(Vector2.ZERO, -get_viewport().get_canvas_transform().get_rotation() - global_rotation)
@@ -419,9 +487,74 @@ func _draw() -> void:
 		draw_set_transform(Vector2.ZERO)
 
 
-func _ellipse(c: Vector2, radii: Vector2, col: Color) -> void:
-	var pts := PackedVector2Array()
-	for i in 18:
-		var a := TAU * i / 18.0
-		pts.append(c + Vector2(cos(a) * radii.x, sin(a) * radii.y))
-	draw_colored_polygon(pts, col)
+## Charge wind-up: red lane straight ahead (where the charge will go) with moving chevrons.
+func _draw_charge_lane() -> void:
+	draw_set_transform(Vector2.ZERO)
+	var k := 1.0
+	if state == State.WINDUP:
+		k = clampf(1.0 - _t / windup_time, 0.0, 1.0)
+	else:
+		k = 1.0 - _charge_dist / (3.0 * PX)
+	var len := charge_max_m * PX
+	var hw := RADIUS * 0.95
+	var pulse := 0.5 + 0.5 * sin(Time.get_ticks_msec() * 0.02)
+	var pts := PackedVector2Array([Vector2(-hw, -RADIUS), Vector2(hw, -RADIUS), Vector2(hw, -len), Vector2(-hw, -len)])
+	var cols := PackedColorArray([Color(1, 0.2, 0.1, 0.1 + 0.25 * k), Color(1, 0.2, 0.1, 0.1 + 0.25 * k),
+		Color(1, 0.2, 0.1, 0.0), Color(1, 0.2, 0.1, 0.0)])
+	draw_polygon(pts, cols)
+	var edge := Color(1, 0.3, 0.15, 0.35 + 0.4 * k * (0.6 + 0.4 * pulse))
+	draw_line(Vector2(-hw, -RADIUS), Vector2(-hw, -len * 0.7), edge, 2.5)
+	draw_line(Vector2(hw, -RADIUS), Vector2(hw, -len * 0.7), edge, 2.5)
+	var off := fmod(Time.get_ticks_msec() * 0.25, 90.0)
+	var y := -RADIUS - 30.0 - off
+	for i in 8:
+		var yy := y - i * 90.0
+		if yy < -len:
+			break
+		var a := (0.7 - float(i) * 0.08) * k
+		draw_polyline(PackedVector2Array([Vector2(-hw * 0.6, yy + 18), Vector2(0, yy), Vector2(hw * 0.6, yy + 18)]),
+			Color(1, 0.35, 0.2, maxf(a, 0.05)), 4.0)
+
+
+## Screen-aligned icons: HP bar (always on the heavy), awareness, ricochet shield.
+func _draw_billboards() -> void:
+	draw_set_transform(Vector2.ZERO, -get_viewport().get_canvas_transform().get_rotation() - global_rotation)
+	var font := ThemeDB.fallback_font
+	var top := -RADIUS - 34.0
+	var w := 64.0
+	var r := Rect2(-w * 0.5, top, w, 8.0)
+	draw_rect(r.grow(2.0), Color(0, 0, 0, 0.75))
+	var f := clampf(hp / max_hp, 0.0, 1.0)
+	var col := Color(0.9, 0.3, 0.15) if f > 0.3 else Color(1.0, 0.15, 0.1)
+	draw_rect(Rect2(r.position, Vector2(r.size.x * f, r.size.y)), col)
+	draw_rect(r, Color(1, 1, 1, 0.3), false, 1.0)
+	for i in range(1, 4):
+		draw_line(Vector2(r.position.x + w * i / 4.0, r.position.y), Vector2(r.position.x + w * i / 4.0, r.end.y), Color(0, 0, 0, 0.6), 1.0)
+	var ic := Vector2(0, top - 16.0)
+	var icon := ""
+	var icol := UiStyle.YELLOW
+	var pop := 1.0
+	if state == State.WINDUP or state == State.CHARGE:
+		icon = "!"
+		icol = Color(1.0, 0.2, 0.1)
+		pop = 1.3
+	elif is_alerted():
+		icon = "!"
+		icol = Color(1.0, 0.45, 0.15)
+		pop = 1.0 + 0.5 * clampf(1.0 - _aware_t / 0.35, 0.0, 1.0)
+	if icon != "":
+		var rr := 11.0 * pop
+		draw_circle(ic, rr + 1.5, Color(0.05, 0.04, 0.04, 0.9))
+		draw_circle(ic, rr, Color(icol, 0.92))
+		draw_string(font, ic + Vector2(-rr, 7.0 * pop), icon, HORIZONTAL_ALIGNMENT_CENTER, rr * 2.0, int(20 * pop), Color(0.08, 0.05, 0.03))
+	if _bounce_t > 0.0:
+		var a := clampf(_bounce_t / 0.3, 0.0, 1.0)
+		var c := Vector2(RADIUS * 0.8 + 10.0, -RADIUS * 0.3 - (0.7 - _bounce_t) * 24.0)
+		var shield := PackedVector2Array([c + Vector2(-7, -8), c + Vector2(7, -8), c + Vector2(7, 2), c + Vector2(0, 9), c + Vector2(-7, 2)])
+		var sh_o := PackedVector2Array()
+		for v in shield:
+			sh_o.append(c + (v - c) * 1.3)
+		draw_colored_polygon(sh_o, Color(0.05, 0.05, 0.05, 0.9 * a))
+		draw_colored_polygon(shield, Color(1.0, 0.88, 0.2, a))
+		draw_line(c + Vector2(-5, 5), c + Vector2(5, -5), Color(0.1, 0.08, 0.04, a), 2.2)
+	draw_set_transform(Vector2.ZERO)

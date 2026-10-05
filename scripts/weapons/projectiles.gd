@@ -52,6 +52,10 @@ const GRENADE_BLAST := {
 
 func _ready() -> void:
 	add_to_group("projectiles")
+	# Tracers, bolts and grenades glow through the sight darkness.
+	var m := CanvasItemMaterial.new()
+	m.light_mode = CanvasItemMaterial.LIGHT_MODE_UNSHADED
+	material = m
 
 
 func spawn_bullet(pos: Vector2, vel: Vector2, stats: FirearmStats, shooter: CollisionObject2D, land: Variant = null) -> void:
@@ -60,6 +64,7 @@ func spawn_bullet(pos: Vector2, vel: Vector2, stats: FirearmStats, shooter: Coll
 		"exclude": [shooter.get_rid()], "dead": false, "mine": shooter.is_in_group("player"),
 		"land": land, "land_dist": pos.distance_to(land) if land != null else INF,
 	})
+	Fx.muzzle(self, pos, vel.normalized())
 
 
 ## Casing flies out to the right of the weapon.
@@ -67,7 +72,7 @@ func spawn_casing(pos: Vector2, rot: float) -> void:
 	_casings.append({
 		"pos": pos, "vel": Vector2(randf_range(110, 170), randf_range(-10, 40)).rotated(rot),
 		"rot": randf() * TAU, "spin": randf_range(-25, 25), "t": 0.0,
-		"size": Vector2(2.4, 5), "color": Color(0.85, 0.65, 0.25), "life": 3.0,
+		"size": Vector2(2.4, 5), "color": Color(0.85, 0.65, 0.25), "life": 0.55, "shell": true,
 	})
 
 
@@ -122,6 +127,7 @@ func _update_bolts(delta: float) -> void:
 				continue
 			body.take_damage(b.damage, pos - (b.vel as Vector2).normalized() * 40.0)
 		_puffs.append({"pos": hit.position, "t": 0.0, "bolt": true})
+		Fx.spark(self, hit.position, b.vel, 4)
 		b.t = 99.0
 	_bolts = _bolts.filter(func(b): return b.t < 3.0)
 
@@ -138,6 +144,7 @@ func _update_bile(delta: float) -> void:
 		if b.t >= BILE_FLIGHT:
 			_acid.append({"pos": b.to, "t": 0.0})
 			Sfx.play("bile_splash", b.to, -2.0)
+			Fx.bile_splash(self, b.to)
 			if player and player.global_position.distance_to(b.to) < ACID_RADIUS_M * PX:
 				player.take_damage(BILE_SPLASH_DAMAGE, b.to)
 	_biles = _biles.filter(func(b): return b.t < BILE_FLIGHT)
@@ -145,6 +152,9 @@ func _update_bile(delta: float) -> void:
 		a.t += delta
 		if player and not player.dead and player.global_position.distance_to(a.pos) < ACID_RADIUS_M * PX:
 			player.take_damage(ACID_DPS * delta, a.pos, false)
+	for a in _acid:
+		if a.t >= ACID_TIME:
+			Fx.bile_pool(self, a.pos, ACID_RADIUS_M * PX * 0.7)
 	_acid = _acid.filter(func(a): return a.t < ACID_TIME)
 
 
@@ -174,6 +184,8 @@ func _physics_process(delta: float) -> void:
 			b.dist += step.length()
 			if b.dead and b.land != null:
 				_puffs.append({"pos": b.pos, "t": 0.0, "ground": true})
+				if b.mine:
+					Fx.impact(self, b.pos, b.vel, "dust")
 			if b.dead:
 				_rocket_blast(st, b.pos)
 			continue
@@ -188,8 +200,13 @@ func _physics_process(delta: float) -> void:
 				"armor_penetration": st.armor_penetration, "armor_damage": st.armor_damage,
 				"destruction_level": st.destruction_level,
 				"stagger": st.stagger * st.damage_at(meters) / st.damage,
-				"dir": (b.vel as Vector2).normalized(), "meters": meters, "aim_point": b.land,
+				"dir": (b.vel as Vector2).normalized(), "meters": meters, "aim_point": b.land, "pos": hit_pos,
 			})
+		if not (collider as Node).is_in_group("enemies"):
+			var surface := "rock" if collider is StaticBody2D and not (collider is Destructible) else "dust"
+			if collider is Destructible and (collider as Destructible).kind == Destructible.Kind.FABRICATOR:
+				surface = "metal"
+			Fx.impact(self, hit_pos, b.vel, surface)
 		_puffs.append({"pos": hit_pos, "t": 0.0})
 		b.pos = hit_pos
 		b.dead = true
@@ -202,6 +219,9 @@ func _physics_process(delta: float) -> void:
 		c.spin *= damp
 		c.pos += c.vel * delta
 		c.rot += c.spin * delta
+	for c in _casings:
+		if c.t >= c.life and c.get("shell", false):
+			Fx.casing(self, c.pos, c.rot)
 	_casings = _casings.filter(func(c): return c.t < c.life)
 	if _casings.size() > 150:
 		_casings = _casings.slice(_casings.size() - 150)
@@ -240,8 +260,8 @@ func _update_grenades(delta: float) -> void:
 ## sound, sound_falloff, self_mult (fraction of damage the player takes).
 func explode(center: Vector2, p: Dictionary) -> void:
 	var r: float = p.radius_m * PX
-	_blasts.append({"pos": center, "t": 0.0, "r": r})
-	_scorches.append({"pos": center, "t": 0.0, "r": r * 0.35})
+	var pl := get_tree().get_first_node_in_group("player") as Node2D
+	Fx.explosion(self, center, r, pl.global_position if pl else Vector2.INF)
 	Sfx.play("explosion_big" if p.radius_m >= 4.0 else "explosion", center, 2.0, 0.1)
 	get_tree().call_group("enemies", "hear", center, p.sound, p.sound_falloff)
 	var space := get_world_2d().direct_space_state
@@ -287,10 +307,12 @@ func _draw() -> void:
 	for b in _biles:
 		var k: float = b.t / BILE_FLIGHT
 		var lift := sin(k * PI) * 40.0
+		var mr := ACID_RADIUS_M * PX
+		draw_arc(b.to, mr, 0.0, TAU, 32, Color(0.75, 1.0, 0.25, 0.55), 2.0)
+		draw_arc(b.to, mr * (1.0 - k * 0.9), 0.0, TAU, 28, Color(1.0, 0.95, 0.3, 0.9), 2.5)
+		draw_circle(b.to, mr, Color(0.6, 0.85, 0.15, 0.12))
 		draw_circle(b.pos, 4.0, Color(0, 0, 0, 0.3))
 		draw_circle(b.pos + Vector2(0, -lift), 6.0, Color(0.7, 0.95, 0.2, 0.9))
-	for s in _scorches:
-		draw_circle(s.pos, s.r, Color(0.05, 0.04, 0.03, 0.45 * clampf(40.0 - s.t, 0.0, 1.0)))
 	for g in _grenades:
 		var k := clampf(g.t / g.flight, 0.0, 1.0)
 		var lift := sin(k * PI) * 18.0
@@ -300,10 +322,6 @@ func _draw() -> void:
 		draw_circle(p, 4.0 + lift * 0.1, Color(0.3, 0.38, 0.22))
 		if g.t > GRENADE_FUSE - 0.6 and int(g.t * 12.0) % 2 == 0:
 			draw_circle(p, 2.0, Color(1, 0.2, 0.1))
-	for b in _blasts:
-		var k: float = b.t / 0.5
-		draw_circle(b.pos, b.r * (0.3 + k * 0.7), Color(1, 0.75, 0.3, 0.55 * (1.0 - k)))
-		draw_circle(b.pos, b.r * 0.35 * (1.0 - k), Color(1, 0.95, 0.7, 0.9 * (1.0 - k)))
 	for b in _bolts:
 		var head: Vector2 = b.pos
 		var dir := (b.vel as Vector2).normalized()
@@ -317,7 +335,8 @@ func _draw() -> void:
 	for c in _casings:
 		var size: Vector2 = c.size
 		var col: Color = c.color
-		col.a = clampf(c.life - c.t, 0.0, 1.0)
+		if not c.get("shell", false):
+			col.a = clampf(c.life - c.t, 0.0, 1.0)
 		draw_set_transform(c.pos, c.rot)
 		draw_rect(Rect2(-size / 2.0, size), col)
 	draw_set_transform(Vector2.ZERO)
@@ -332,8 +351,10 @@ func _draw() -> void:
 			continue
 		if head.distance_to(tail) > TRACER_LEN:
 			tail = head - (head - tail).normalized() * TRACER_LEN
-		draw_line(tail, head, Color(1, 0.85, 0.45, 0.25), 3.0)
-		draw_line(head.lerp(tail, 0.4), head, Color(1, 0.95, 0.7, 0.9), 1.5)
+		draw_line(tail, head, Color(1, 0.7, 0.25, 0.14), 6.0)
+		draw_line(tail, head, Color(1, 0.85, 0.45, 0.3), 3.0)
+		draw_line(head.lerp(tail, 0.4), head, Color(1, 0.97, 0.8, 0.95), 1.6)
+		draw_circle(head, 1.8, Color(1, 1, 0.9, 0.9))
 	for p in _puffs:
 		var k: float = p.t / 0.25
 		if p.get("bolt", false):
