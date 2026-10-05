@@ -99,6 +99,10 @@ var _walk_amount := 0.0 # 0 idle .. 1 full stride, eased
 
 func _ready() -> void:
 	add_to_group("player")
+	# The body is drawn VISUAL_SCALE bigger (the whole node, so the collision circle too); the
+	# camera rig cancels it so the camera maths stays in world pixels.
+	scale = Vector2.ONE * Game.VISUAL_SCALE
+	_rig.scale = Vector2.ONE / Game.VISUAL_SCALE
 	hp = max_hp
 	stims = max_stims
 	grenades = max_grenades
@@ -153,7 +157,7 @@ func throw_grenade() -> void:
 	if weapon.ads_amount() >= 0.5:
 		target = weapon.aim_overlay().center
 	var projectiles := get_tree().get_first_node_in_group("projectiles")
-	projectiles.spawn_grenade(global_position + forward * 22.0, target, self)
+	projectiles.spawn_grenade(global_position + forward * 22.0 * Game.VISUAL_SCALE, target, self)
 
 
 ## Ammo box: spare mags full, +2 grenades, +1 stim.
@@ -467,12 +471,13 @@ func _draw_laser() -> void:
 	var from := to_local(weapon.to_global(weapon.muzzle_local()))
 	var dir := Vector2.UP.rotated(weapon.global_rotation - global_rotation)
 	var n := 6
+	var len_local := _laser_len / Game.VISUAL_SCALE # world px -> this node's scaled space
 	for i in n:
-		var t0 := _laser_len * float(i) / n
-		var t1 := _laser_len * float(i + 1) / n
+		var t0 := len_local * float(i) / n
+		var t1 := len_local * float(i + 1) / n
 		var fade := 1.0 - float(i) / n
 		_ov.draw_line(from + dir * t0, from + dir * t1, Color(1.0, 0.15, 0.1, a * fade * 0.8), 1.6)
-	var end := from + dir * _laser_len
+	var end := from + dir * len_local
 	if _laser_hit:
 		_ov.draw_circle(end, 5.0, Color(1.0, 0.2, 0.1, a * 0.4))
 		_ov.draw_circle(end, 2.0, Color(1.0, 0.5, 0.4, a * 1.4))

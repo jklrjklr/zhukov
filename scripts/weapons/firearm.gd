@@ -8,6 +8,8 @@ const PX_PER_M := 60.0
 const CAM_PUSH := 70.0
 ## Extra zoom at full vertical recoil stack.
 const CAM_ZOOM := 0.08
+## World px visible vertically at the base camera zoom (720 px screen / CAM_ZOOM).
+const VIEW_H := 720.0 / 0.5
 ## ADS: nearest aim distance (m).
 const ADS_MIN := 2.0
 ## ADS muzzle rise: at full vertical recoil stack the aim circle (and where bullets
@@ -282,7 +284,8 @@ func aim_overlay() -> Dictionary:
 
 ## Centre of the aim circle (weapon space), including vertical recoil push.
 func aim_center_local() -> Vector2:
-	return muzzle_local() + Vector2(0, -aim_distance * PX_PER_M - ads_recoil_push())
+	# The player (our parent) is drawn VISUAL_SCALE bigger: distances in world px / scale here.
+	return muzzle_local() + Vector2(0, (-aim_distance * PX_PER_M - ads_recoil_push()) / Game.VISUAL_SCALE)
 
 
 ## px the aim circle is currently pushed out by vertical recoil.
@@ -511,8 +514,8 @@ func _update_recoil(delta: float) -> void:
 		var eased := _eased_stack()
 		# ADS: zoom out / shift forward so both the player and the aim circle fit.
 		var aim_px := aim_distance * PX_PER_M
-		var ads_zoom := clampf(720.0 / (aim_px + 220.0), 0.5, 1.0)
-		var half := 360.0 / ads_zoom
+		var ads_zoom := clampf(VIEW_H / (aim_px + 220.0), 0.5, 1.0)
+		var half := VIEW_H * 0.5 / ads_zoom
 		var ads_cam := Vector2(0, -clampf(aim_px - (half - 90.0), -_cam_base.y, half - 90.0))
 		var a := smoothstep(0.0, 1.0, _ads)
 		var k := minf(1.0, delta * 8.0)
@@ -522,7 +525,7 @@ func _update_recoil(delta: float) -> void:
 		if _strat_cam_a > 0.0:
 			var sa := smoothstep(0.0, 1.0, _strat_cam_a)
 			var dist := strat_cam_local.length()
-			var s_zoom := clampf(720.0 / (dist + 300.0), 0.5, 1.0)
+			var s_zoom := clampf(VIEW_H / (dist + 300.0), 0.5, 1.0)
 			var s_cam := _cam_base + strat_cam_local * 0.5
 			cam_target = cam_target.lerp(s_cam, sa)
 			zoom_target = lerpf(zoom_target, s_zoom, sa)
@@ -533,7 +536,7 @@ func _update_recoil(delta: float) -> void:
 		# push (less than the circle moves), like muzzle rise.
 		var push := lerpf(eased * CAM_PUSH, -ads_recoil_push() * ADS_CAM_FOLLOW, a)
 		_camera.position = _cam_offset + Vector2(0, push) + _shake
-		_camera.zoom = Vector2.ONE * _cam_zoom * (1.0 + eased * CAM_ZOOM)
+		_camera.zoom = Vector2.ONE * Game.CAM_ZOOM * _cam_zoom * (1.0 + eased * CAM_ZOOM)
 
 
 func _update_state(delta: float) -> void:
@@ -608,7 +611,7 @@ func _update_block() -> void:
 
 
 func _hold_transform() -> Transform2D:
-	return Transform2D(_tilt, Vector2(0, minf(blocked, MAX_PULL) + _kick))
+	return Transform2D(_tilt, Vector2(0, minf(blocked, MAX_PULL) / Game.VISUAL_SCALE + _kick))
 
 
 func _draw() -> void:

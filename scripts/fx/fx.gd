@@ -18,6 +18,8 @@ const FADE_TIME := 4.0
 const PARTICLE_CAP := 380
 const SHAKE_MAX := 12.0
 const PX := 60.0
+## Sizes of dots / streaks / chips / decals are drawn VISUAL_SCALE bigger (blast radii stay).
+const K := Vis.VISUAL_SCALE
 
 const BLOOD_GREEN := Color(0.45, 0.62, 0.12)
 const BLOOD_ORANGE := Color(0.88, 0.45, 0.1)
@@ -330,6 +332,7 @@ func _update_decals(delta: float) -> void:
 func _draw_chunk(ch: Dictionary) -> void:
 	var n: Node2D = ch.n
 	for d in ch.items:
+		n.draw_set_transform((d.p as Vector2) * (1.0 - K), 0.0, Vector2(K, K))
 		var a := 1.0
 		var f: float = d.f
 		if f >= 0.0:
@@ -439,7 +442,7 @@ func _draw_particles(n: Node2D, arr: Array[Dictionary]) -> void:
 		match q.k:
 			P.DOT:
 				col.a *= 1.0 - k
-				var rr := lerpf(s0, s1, k)
+				var rr := lerpf(s0, s1, k) * K
 				if q.get("soft", false):
 					n.draw_texture_rect(Zone.soft_texture(), Rect2(p - Vector2(rr, rr), Vector2(rr, rr) * 2.0), false, col)
 				else:
@@ -447,16 +450,16 @@ func _draw_particles(n: Node2D, arr: Array[Dictionary]) -> void:
 			P.SPARK:
 				var v: Vector2 = q.v
 				col.a *= 1.0 - k
-				n.draw_line(p, p - v.normalized() * s0 * (1.0 - k * 0.6), col, s1)
+				n.draw_line(p, p - v.normalized() * s0 * K * (1.0 - k * 0.6), col, s1 * K)
 			P.CHIP:
 				col.a *= 1.0 - k * k
 				n.draw_set_transform(p, q.rot)
-				n.draw_rect(Rect2(-s0 * 0.5, -s1 * 0.5, s0, s1), col)
+				n.draw_rect(Rect2(-s0 * 0.5 * K, -s1 * 0.5 * K, s0 * K, s1 * K), col)
 				n.draw_set_transform(Vector2.ZERO)
 			P.RING:
 				var e := 1.0 - pow(1.0 - k, 3.0)
 				col.a *= 1.0 - k
-				n.draw_arc(p, lerpf(s0, s1, e), 0.0, TAU, 40, col, maxf((q.w as float) * (1.0 - k * 0.7), 1.0))
+				n.draw_arc(p, lerpf(s0, s1, e), 0.0, TAU, 40, col, maxf((q.w as float) * K * (1.0 - k * 0.7), 1.0))
 			P.FLASH:
 				col.a *= 1.0 - k
 				var r := lerpf(s0, s1, sqrt(k))

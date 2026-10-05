@@ -13,6 +13,10 @@ var loadout := {
 	"stratagems": ["resupply", "eat17", "eagle_airstrike", "orbital_120", "sentry_mg"],
 }
 
+const VISUAL_SCALE := Vis.VISUAL_SCALE
+const CAM_ZOOM := Vis.CAM_ZOOM
+const BILLBOARD_SCALE := Vis.BILLBOARD_SCALE
+
 const PRIMARIES := ["res://weapons/liberator.tres", "res://weapons/smg5.tres"]
 
 

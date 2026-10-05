@@ -154,7 +154,7 @@ func _ready() -> void:
 	max_hp = _cfg.hp
 	hp = max_hp
 	weight = _cfg.weight
-	radius = _cfg.radius
+	radius = _cfg.radius * Game.VISUAL_SCALE # drawn (and colliding) bigger; ranges unchanged
 	hearing_now = hearing
 	add_to_group("terminids")
 	add_to_group("enemies")
@@ -181,6 +181,7 @@ func _ready() -> void:
 	add_child(_rig)
 	_tele = Enemies.make_overlay(self, _draw_tele)
 	_bb = Enemies.make_overlay(self, _draw_bb)
+	_bb.scale = Vector2.ONE * Game.BILLBOARD_SCALE
 	_new_wander()
 
 
@@ -209,7 +210,7 @@ static func spawn_pack(parent: Node, center: Vector2, size: int, pack: int, is_f
 	for attempt in size * 6:
 		if out.size() >= size:
 			break
-		var p := center if out.is_empty() else center + Vector2.from_angle(randf() * TAU) * randf_range(40.0, 140.0)
+		var p := center if out.is_empty() else center + Vector2.from_angle(randf() * TAU) * randf_range(40.0, 140.0) * Vis.VISUAL_SCALE
 		if not is_free.call(p):
 			continue
 		var k: Kind = kinds[out.size() % kinds.size()] if not kinds.is_empty() else random_kind()
@@ -662,7 +663,7 @@ func _alert_pack(pos: Vector2) -> void:
 
 
 func _edge_distance_to_player() -> float:
-	return global_position.distance_to(_player.global_position) - radius - 16.0
+	return global_position.distance_to(_player.global_position) - radius - 16.0 * Game.VISUAL_SCALE
 
 
 func _can_reach_player() -> bool:
@@ -791,7 +792,8 @@ func _draw_tele() -> void:
 
 ## Screen-aligned: HP bar, awareness icon, ricochet shield, damage numbers.
 func _draw_bb() -> void:
-	var top := -radius - 14.0
+	var rb := radius / Game.BILLBOARD_SCALE
+	var top := -rb - 14.0
 	var heavy: bool = kind == Kind.BILE_SPITTER
 	var a := _bar_alpha(heavy)
 	if a > 0.0:
@@ -802,6 +804,6 @@ func _draw_bb() -> void:
 		EnemyUi.icon(_bb, icon, Vector2(0, top - 8.0), 9.0, 1.0, _icon_pop())
 	if _bounce_t > 0.0:
 		var ba := clampf(_bounce_t / 0.3, 0.0, 1.0)
-		EnemyUi.shield(_bb, Vector2(radius * 0.9 + 6.0, -radius * 0.5 - (0.7 - _bounce_t) * 22.0), ba)
+		EnemyUi.shield(_bb, Vector2(rb * 0.9 + 6.0, -rb * 0.5 - (0.7 - _bounce_t) * 22.0), ba)
 	if not _numbers.is_empty():
-		EnemyUi.numbers(_bb, _numbers, -radius - 12.0, Color(1, 0.35, 0.2), 16)
+		EnemyUi.numbers(_bb, _numbers, -rb - 12.0, Color(1, 0.35, 0.2), 16)

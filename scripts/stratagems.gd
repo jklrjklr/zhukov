@@ -24,6 +24,7 @@ extends Node2D
 enum Dir { UP, DOWN, LEFT, RIGHT }
 
 const PX := Firearm.PX_PER_M
+const K := Vis.VISUAL_SCALE
 const U := Dir.UP
 const D := Dir.DOWN
 const L := Dir.LEFT
@@ -609,24 +610,24 @@ func _draw() -> void:
 	for b in _beacons:
 		var col: Color = DEFS[b.id].color
 		var k := clampf(b.t / b.flight, 0.0, 1.0)
-		var p: Vector2 = b.pos + up * (sin(k * PI) * 26.0)
-		if Game.shadows_enabled: draw_circle(b.pos + Vector2(3, 4), 4.0, Color(0, 0, 0, 0.3))
-		draw_circle(p, 5.0, Color(0.1, 0.1, 0.1))
-		draw_circle(p, 3.3, col.lightened(0.2))
+		var p: Vector2 = b.pos + up * (sin(k * PI) * 26.0 * K)
+		if Game.shadows_enabled: draw_circle(b.pos + Vector2(3, 4), 4.0 * K, Color(0, 0, 0, 0.3))
+		draw_circle(p, 5.0 * K, Color(0.1, 0.1, 0.1))
+		draw_circle(p, 3.3 * K, col.lightened(0.2))
 		if b.t >= b.flight:
 			var wait: float = b.t - b.flight
 			var delay: float = DEFS[b.id].delay
 			var pulse := 0.6 + 0.4 * sin(now * 12.0)
 			_pillar(b.pos, col, pulse, up, 560.0)
-			draw_circle(b.pos, 12.0 + pulse * 6.0, Color(col, 0.28))
-			draw_circle(b.pos, 4.5, Color(1, 1, 1, 0.95))
-			draw_circle(b.pos, 3.0, col)
+			draw_circle(b.pos, (12.0 + pulse * 6.0) * K, Color(col, 0.28))
+			draw_circle(b.pos, 4.5 * K, Color(1, 1, 1, 0.95))
+			draw_circle(b.pos, 3.0 * K, col)
 			# Rotating dashes and an arrival countdown ring.
 			for i in 4:
 				var a := now * 2.5 + i * TAU / 4.0
-				draw_arc(b.pos, 24.0, a, a + 0.7, 6, Color(col, 0.8), 3.0)
-			draw_arc(b.pos, 34.0, 0.0, TAU, 28, Color(0, 0, 0, 0.3), 4.0)
-			draw_arc(b.pos, 34.0, -PI / 2.0, -PI / 2.0 + TAU * clampf(wait / delay, 0.0, 1.0), 28, Color(col, 0.95), 4.0)
+				draw_arc(b.pos, 24.0 * K, a, a + 0.7, 6, Color(col, 0.8), 3.0 * K)
+			draw_arc(b.pos, 34.0 * K, 0.0, TAU, 28, Color(0, 0, 0, 0.3), 4.0 * K)
+			draw_arc(b.pos, 34.0 * K, -PI / 2.0, -PI / 2.0 + TAU * clampf(wait / delay, 0.0, 1.0), 28, Color(col, 0.95), 4.0 * K)
 			if b.id == "orbital_120":
 				draw_arc(b.pos, BARRAGE_R_M * PX, 0.0, TAU, 72, Color(col, 0.22 + 0.1 * pulse), 2.0)
 	for f in _fx:
@@ -634,9 +635,9 @@ func _draw() -> void:
 			"pod":
 				if f.t < POD_FALL:
 					var k: float = f.t / POD_FALL
-					draw_circle(f.pos, 34.0 * (0.3 + k * 0.7), Color(0, 0, 0, 0.5 * k))
+					draw_circle(f.pos, 34.0 * K * (0.3 + k * 0.7), Color(0, 0, 0, 0.5 * k))
 					draw_arc(f.pos, 40.0 * (1.2 - k * 0.4), 0.0, TAU, 24, Color(1, 0.6, 0.2, 0.6 * k), 2.0)
-					_falling_pod(f.pos, up, k, 700.0, 14.0)
+					_falling_pod(f.pos, up, k, 700.0, 14.0 * K)
 			"beam":
 				var a := clampf(1.0 - absf(f.t - 0.6) * 2.0, 0.0, 1.0)
 				var warn := clampf(f.t / 0.6, 0.0, 1.0)
@@ -650,7 +651,7 @@ func _draw() -> void:
 				var k := clampf(f.t / 0.9, 0.0, 1.0)
 				var dir: Vector2 = f.dir
 				var c: Vector2 = f.pos + dir * lerpf(-1500.0, 1500.0, k)
-				var sc := 1.5 if f.big else 1.0
+				var sc := (1.5 if f.big else 1.0) * K
 				var t := Transform2D(dir.angle() + PI / 2.0, Vector2(sc, sc), 0.0, c + Vector2(26, 34))
 				var body := PackedVector2Array([Vector2(0, -70), Vector2(8, -30), Vector2(10, 40), Vector2(0, 56), Vector2(-10, 40), Vector2(-8, -30)])
 				var wings := PackedVector2Array([Vector2(-8, -10), Vector2(-86, 34), Vector2(-80, 46), Vector2(-8, 28), Vector2(8, 28), Vector2(80, 46), Vector2(86, 34), Vector2(8, -10)])
@@ -661,17 +662,17 @@ func _draw() -> void:
 					draw_colored_polygon(t * wings, sh)
 					draw_colored_polygon(t * tail, sh)
 				# Dust wake on the ground behind the jet.
-				draw_line(c - dir * 40.0, c - dir * 380.0, Color(0.8, 0.7, 0.5, 0.18 * (1.0 - k * 0.5)), 26.0)
+				draw_line(c - dir * 40.0, c - dir * 380.0, Color(0.8, 0.7, 0.5, 0.18 * (1.0 - k * 0.5)), 26.0 * K)
 			"shell":
 				if f.t >= -0.9 and f.t < 0.0:
 					var k := clampf(1.0 + f.t / 0.9, 0.0, 1.0)
 					var br: float = BARRAGE_BLAST.radius_m * PX
 					draw_arc(f.pos, br, 0.0, TAU, 40, Color(1, 0.45, 0.2, 0.2 + 0.15 * k), 1.5)
 					draw_arc(f.pos, br * (1.0 - k * 0.85), 0.0, TAU, 32, Color(1, 0.8, 0.4, 0.6 * k + 0.2), 2.0)
-					draw_circle(f.pos, 5.0, Color(1, 0.3, 0.2, 0.7))
+					draw_circle(f.pos, 5.0 * K, Color(1, 0.3, 0.2, 0.7))
 					if f.t > -0.28: # incoming shell streak
 						var fall: float = 1.0 - (-f.t / 0.28)
-						draw_line(f.pos + up * (900.0 * (1.0 - fall)), f.pos + up * (900.0 * (1.0 - fall) + 160.0), Color(1, 0.7, 0.4, 0.8), 4.0)
+						draw_line(f.pos + up * (900.0 * (1.0 - fall)), f.pos + up * (900.0 * (1.0 - fall) + 160.0), Color(1, 0.7, 0.4, 0.8), 4.0 * K)
 			"bomb":
 				if f.t < 0.0:
 					var k := clampf(1.0 + f.t / 0.45, 0.0, 1.0)
@@ -681,25 +682,25 @@ func _draw() -> void:
 					# The falling bomb with its small shadow.
 					var h := (1.0 - k) * 500.0
 					if Game.shadows_enabled: draw_circle(f.pos, 5.0, Color(0, 0, 0, 0.3))
-					draw_line(f.pos + up * (h + 10.0), f.pos + up * h, Color(0.2, 0.2, 0.22), 6.0 if f.big else 4.0)
-					draw_line(f.pos + up * (h + 40.0), f.pos + up * (h + 10.0), Color(1, 0.7, 0.3, 0.4), 3.0)
+					draw_line(f.pos + up * (h + 10.0), f.pos + up * h, Color(0.2, 0.2, 0.22), (6.0 if f.big else 4.0) * K)
+					draw_line(f.pos + up * (h + 40.0), f.pos + up * (h + 10.0), Color(1, 0.7, 0.3, 0.4), 3.0 * K)
 
 
 ## Tapered light column in the stratagem colour, fading toward the sky.
 func _pillar(pos: Vector2, col: Color, pulse: float, up: Vector2, height: float) -> void:
 	var side := up.orthogonal()
-	var w0 := 15.0 + pulse * 4.0
+	var w0 := (15.0 + pulse * 4.0) * K
 	var w1 := w0 * 0.35
 	var pts := PackedVector2Array([pos + side * w0, pos - side * w0, pos - side * w1 + up * height, pos + side * w1 + up * height])
 	var cols := PackedColorArray([Color(col, 0.5 * pulse + 0.15), Color(col, 0.5 * pulse + 0.15), Color(col, 0.0), Color(col, 0.0)])
 	draw_polygon(pts, cols)
-	var inner := PackedVector2Array([pos + side * 4.0, pos - side * 4.0, pos - side * 1.5 + up * height * 0.8, pos + side * 1.5 + up * height * 0.8])
+	var inner := PackedVector2Array([pos + side * 4.0 * K, pos - side * 4.0 * K, pos - side * 1.5 * K + up * height * 0.8, pos + side * 1.5 * K + up * height * 0.8])
 	var ic := PackedColorArray([Color(1, 1, 1, 0.55), Color(1, 1, 1, 0.55), Color(1, 1, 1, 0.0), Color(1, 1, 1, 0.0)])
 	draw_polygon(inner, ic)
 	var now := Time.get_ticks_msec() * 0.001
 	for i in 5: # rising motes
 		var tt := fmod(now * 0.9 + i * 0.2, 1.0)
-		draw_circle(pos + up * (tt * height * 0.8) + side * sin(i * 7.0 + now * 3.0) * 8.0, 2.0 * (1.0 - tt) + 0.5, Color(1, 1, 1, 0.8 * (1.0 - tt)))
+		draw_circle(pos + up * (tt * height * 0.8) + side * sin(i * 7.0 + now * 3.0) * 8.0, (2.0 * (1.0 - tt) + 0.5) * K, Color(1, 1, 1, 0.8 * (1.0 - tt)))
 
 
 func _falling_pod(pos: Vector2, up: Vector2, k: float, height: float, size: float) -> void:

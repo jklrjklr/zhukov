@@ -30,5 +30,5 @@ script = ExtResource("4_vision")
 [node name="CameraRig" type="Node2D" parent="."]
 
 [node name="Camera2D" type="Camera2D" parent="CameraRig"]
-position = Vector2(0, -140)
+position = Vector2(0, -280)
 ignore_rotation = false

@@ -413,7 +413,7 @@ func _stratagem_input_tests() -> void:
 
 	# Fire vs sprint: holding FIRE always fires and cancels sprint; sprint resumes after release.
 	await fresh()
-	p.global_position = m.zones[0].rect.get_center()
+	p.global_position = m.zones[0].start_pos
 	p.stamina = 1.0
 	await wait(0.2)
 	var mag0: int = p.weapon.mag
@@ -462,6 +462,74 @@ func _stratagem_input_tests() -> void:
 	check("perf overlay is off by default", not root.get_node("Game").perf_overlay)
 	var hud := _scene.get_node("HUD/Hud")
 	check("HUD has a camera overlay layer and a redraw signature", hud._overlay != null and hud._signature() != 0)
+
+	# --- I: scale (VISUAL_SCALE 1.6, camera 0.5) and zone layouts ------------------------------
+	await fresh()
+	var VS: float = root.get_node("Game").VISUAL_SCALE
+	check("VISUAL_SCALE is 1.6 and the base camera zoom is 0.5", is_equal_approx(VS, 1.6) and is_equal_approx(root.get_node("Game").CAM_ZOOM, 0.5))
+	check("player drawn 1.6x with matching collision", is_equal_approx(p.scale.x, VS) and p.get_node("CollisionShape2D").shape.radius * p.scale.x > 24.0)
+	var cam: Camera2D = p.get_node("CameraRig/Camera2D")
+	await wait(0.5)
+	check("camera zoomed out 2x", absf(cam.zoom.x - 0.5) < 0.05, str(cam.zoom))
+	check("player speed unchanged (3 m/s walk)", is_equal_approx(p.move_speed, 180.0))
+	for zi in 3:
+		var z = m.zones[zi]
+		var pts: Array = [z.start_pos]
+		for k in z.slots:
+			pts.append_array(z.slots[k])
+		for q in [z.terminal_pos, z.pad_pos]:
+			if q != Vector2.INF:
+				pts.append(q)
+		var bad := 0
+		var bad_at := ""
+		for q in pts:
+			var lp: Vector2 = q - z.position
+			for r in z.walls:
+				if r.grow(40.0).has_point(lp):
+					bad += 1
+					bad_at += " %s" % (lp / PX).snapped(Vector2(0.1, 0.1))
+					break
+		check("zone %d: spots, objectives and start are clear of the grown walls" % zi, bad == 0, "%d inside walls:%s" % [bad, bad_at])
+		# Flood fill (30 px cells) for the player's grown body: entrance -> exit and every spot reachable.
+		var cell := 30.0
+		var half: float = z.HALF
+		var gn := int(half * 2.0 / cell)
+		var blocked := PackedByteArray()
+		blocked.resize(gn * gn)
+		for gy in gn:
+			for gx in gn:
+				var c := Vector2(-half + (gx + 0.5) * cell, -half + (gy + 0.5) * cell)
+				var hit := false
+				for r in z.walls:
+					if r.grow(26.0).has_point(c):
+						hit = true
+						break
+				if not hit:
+					for rk in z.rocks:
+						if c.distance_to(rk.pos) < rk.r + 26.0:
+							hit = true
+							break
+				blocked[gy * gn + gx] = 1 if hit else 0
+		var start := Vector2i(int((z.entrance_pt - z.position).x + half) / int(cell), int((z.entrance_pt - z.position).y + half - 120.0) / int(cell))
+		var seen := PackedByteArray()
+		seen.resize(gn * gn)
+		var stack: Array[Vector2i] = [start]
+		while not stack.is_empty():
+			var c: Vector2i = stack.pop_back()
+			if c.x < 0 or c.y < 0 or c.x >= gn or c.y >= gn or seen[c.y * gn + c.x] == 1 or blocked[c.y * gn + c.x] == 1:
+				continue
+			seen[c.y * gn + c.x] = 1
+			stack.append_array([c + Vector2i(1, 0), c + Vector2i(-1, 0), c + Vector2i(0, 1), c + Vector2i(0, -1)])
+		var unreachable := 0
+		var targets: Array = [z.exit_pt - Vector2(0, 120)]
+		for q in pts:
+			targets.append(q)
+		for q in targets:
+			var lp: Vector2 = q - z.position
+			var gc := Vector2i(clampi(int((lp.x + half) / cell), 0, gn - 1), clampi(int((lp.y + half) / cell), 0, gn - 1))
+			if seen[gc.y * gn + gc.x] == 0 and blocked[gc.y * gn + gc.x] == 0:
+				unreachable += 1
+		check("zone %d: entrance reaches the exit and every spot with the grown body" % zi, unreachable == 0, "%d unreachable" % unreachable)
 
 
 func _touch(pressed: bool, pos: Vector2, index: int) -> InputEventScreenTouch:

@@ -12,6 +12,8 @@ extends Node2D
 enum Type { INSERTION, MIDDLE, EXTRACTION }
 
 const PX := Firearm.PX_PER_M
+## Props, walls and buildings are VISUAL_SCALE bigger (positions, ranges and the 8 m openings are not).
+const K := Vis.VISUAL_SCALE
 const SIZE_M := 120.0
 const HALF_M := SIZE_M * 0.5
 const HALF := HALF_M * PX
@@ -90,7 +92,7 @@ func _m(x: float, y: float) -> Vector2:
 # --- Layouts (metres, zone-local) --------------------------------------------------
 
 func _border() -> void:
-	var t := 2.0
+	var t := 2.0 * K
 	var h := HALF_M
 	var g := GAP_M * 0.5
 	# North and south walls with the passage openings.
@@ -117,7 +119,7 @@ func _layout_insertion(s: Dictionary) -> void:
 	_seg(Vector2(-26, 40), Vector2(-17, 40))
 	s.nest = [Vector2(-34, -38), Vector2(32, -40), Vector2(2, -32), Vector2(-46, -10), Vector2(46, -12)]
 	s.sample = [Vector2(-48, 42), Vector2(48, 40), Vector2(0, -50), Vector2(-24, -4)]
-	s.ammo = [Vector2(-22, 38), Vector2(22, 38), Vector2(-46, 24), Vector2(46, 26)]
+	s.ammo = [Vector2(-22, 38), Vector2(22, 38), Vector2(-52, 30), Vector2(52, 30)]
 	s.pack = [Vector2(-30, -8), Vector2(30, -8), Vector2(12, -36), Vector2(-16, -32), Vector2(-42, 28),
 		Vector2(40, 4), Vector2(0, 12)]
 	s.edge = [Vector2(-56, -12), Vector2(56, -12), Vector2(-56, 20), Vector2(56, 20), Vector2(-30, -56),
@@ -145,7 +147,7 @@ func _layout_middle(s: Dictionary) -> void:
 	s.edge = [Vector2(-56, -26), Vector2(56, -26), Vector2(-56, 4), Vector2(56, 4), Vector2(-30, -56),
 		Vector2(30, -56)]
 	s.elite = [Vector2(-24, -46), Vector2(26, -44), Vector2(0, 36)]
-	s.nest = [Vector2(-30, -48), Vector2(32, -48), Vector2(-52, 36), Vector2(52, 36)]
+	s.nest = [Vector2(-30, -48), Vector2(32, -48), Vector2(-54, 46), Vector2(54, 46)]
 	_keep_clear(s)
 
 
@@ -153,8 +155,8 @@ func _layout_extraction(s: Dictionary) -> void:
 	start_pos = position + _m(0, 54)
 	pad_pos = position + _m(0, -30)
 	terminal_pos = position + _m(16, -16)
-	_clear.append({"pos": _m(0, -30), "r": 11.0 * PX})
-	floors.append(Rect2(_m(-9, -39), _m(18, 18)))
+	_clear.append({"pos": _m(0, -30), "r": 11.0 * K * PX})
+	floors.append(Rect2(_m(-9 * K, -30 - 9 * K), _m(18 * K, 18 * K)))
 	_compound(Vector2(16, -16), 12, 10, 5.0)
 	_ruin(Vector2(-38, -4), 14, 10)
 	_ruin(Vector2(38, 10), 14, 10)
@@ -178,16 +180,18 @@ func _layout_extraction(s: Dictionary) -> void:
 func _keep_clear(s: Dictionary) -> void:
 	for k in s:
 		for p in s[k]:
-			_clear.append({"pos": (p as Vector2) * PX, "r": 3.5 * PX})
+			_clear.append({"pos": (p as Vector2) * PX, "r": 3.5 * K * PX})
 
 
 ## Wall from a to b (metres), 1 m thick.
 func _seg(a: Vector2, b: Vector2, thick := 1.0) -> void:
-	_wall_rect(Rect2(a, Vector2.ZERO).expand(b).grow(thick * 0.5))
+	_wall_rect(Rect2(a, Vector2.ZERO).expand(b).grow(thick * K * 0.5))
 
 
 ## Ruined building: broken walls with doorways (half-size w/2 x h/2 around c).
 func _ruin(c: Vector2, w: float, h: float) -> void:
+	w *= K
+	h *= K
 	var hw := w * 0.5
 	var hh := h * 0.5
 	floors.append(Rect2((c - Vector2(hw, hh)) * PX, Vector2(w, h) * PX))
@@ -200,6 +204,8 @@ func _ruin(c: Vector2, w: float, h: float) -> void:
 
 ## Walled square with an opening of `gap` m in the middle of every side.
 func _compound(c: Vector2, w: float, h: float, gap: float) -> void:
+	w *= K
+	h *= K
 	var hw := w * 0.5
 	var hh := h * 0.5
 	var g := gap * 0.5
@@ -223,26 +229,26 @@ func _scatter() -> void:
 		var center: Vector2 = (c as Vector2) * PX + Vector2(_rng.randf_range(-5, 5), _rng.randf_range(-5, 5)) * PX
 		for i in _rng.randi_range(3, 6):
 			var p := center + Vector2.from_angle(_rng.randf() * TAU) * _rng.randf_range(0, 7) * PX
-			if not _blocked(p, 2.5 * PX):
-				_add_rock(p, _rng.randf_range(0.8, 2.4) * PX)
+			if not _blocked(p, 2.5 * K * PX):
+				_add_rock(p, _rng.randf_range(0.8, 2.4) * K * PX)
 	for i in 28:
 		var p := Vector2(_rng.randf_range(-HALF + 120, HALF - 120), _rng.randf_range(-HALF + 120, HALF - 120))
-		if not _blocked(p, 2.5 * PX):
-			_add_rock(p, _rng.randf_range(0.5, 1.4) * PX)
+		if not _blocked(p, 2.5 * K * PX):
+			_add_rock(p, _rng.randf_range(0.5, 1.4) * K * PX)
 	for i in 3:
 		var f := {"pos": Vector2(_rng.randf_range(-48, 48), _rng.randf_range(-48, 48)) * PX, "r": _rng.randf_range(8, 12) * PX}
-		if _blocked(f.pos, 4.0 * PX):
+		if _blocked(f.pos, 4.0 * K * PX):
 			continue
 		_forest.append(f)
-		for j in int(pow(f.r / PX, 2) * 0.07):
+		for j in int(pow(f.r / PX, 2) * 0.07 / (K * K)):
 			var p: Vector2 = f.pos + Vector2.from_angle(_rng.randf() * TAU) * sqrt(_rng.randf()) * f.r
-			if not _blocked(p, 2.0 * PX) and not _near(trees, p, 2.6 * PX):
+			if not _blocked(p, 2.0 * K * PX) and not _near(trees, p, 2.6 * K * PX):
 				trees.append(p + position)
 	for i in 10:
 		var p := Vector2(_rng.randf_range(-HALF + 150, HALF - 150), _rng.randf_range(-HALF + 150, HALF - 150))
-		if not _blocked(p, 2.5 * PX):
+		if not _blocked(p, 2.5 * K * PX):
 			crates.append(p + position)
-			_clear.append({"pos": p, "r": 1.0 * PX})
+			_clear.append({"pos": p, "r": 1.0 * K * PX})
 
 
 func _blocked(p: Vector2, margin: float) -> bool:
@@ -513,6 +519,10 @@ func _draw_chunk(n: Node2D, items: Array) -> void:
 	var lite := ground.lightened(0.18)
 	for it: Dictionary in items:
 		var p: Vector2 = it.p
+		if it.k != "floor": # floors are already sized in the layout; everything else grows about its own point
+			n.draw_set_transform(p * (1.0 - K), 0.0, Vector2(K, K))
+		else:
+			n.draw_set_transform(Vector2.ZERO)
 		match it.k:
 			"crack":
 				var pts: PackedVector2Array = it.pts
@@ -639,7 +649,7 @@ func _draw_props(n: Node2D) -> void:
 			for v in poly:
 				sp.append(v + sh * clampf(rad / 60.0, 0.5, 1.4))
 			n.draw_colored_polygon(sp, Color(0, 0, 0, 0.3))
-		for o in Geometry2D.offset_polygon(poly, 2.0):
+		for o in Geometry2D.offset_polygon(poly, 2.0 * K):
 			n.draw_colored_polygon(o, Color(0.08, 0.08, 0.08))
 		n.draw_colored_polygon(poly, Color(shade, shade * 0.95, shade * 0.85))
 		# Shaded lower-right half.
@@ -668,12 +678,12 @@ func _draw_props(n: Node2D) -> void:
 		for r in walls:
 			n.draw_rect(Rect2(r.position + sh, r.size), Color(0, 0, 0, 0.3))
 	for r in walls:
-		n.draw_rect(r.grow(2.0), Color(0.08, 0.08, 0.08))
+		n.draw_rect(r.grow(2.0 * K), Color(0.08, 0.08, 0.08))
 		n.draw_rect(r, wall_col.darkened(0.3)) # side faces
-		var top := Rect2(r.position, r.size - Vector2(minf(6.0, r.size.x * 0.4), minf(7.0, r.size.y * 0.4)))
+		var top := Rect2(r.position, r.size - Vector2(minf(6.0 * K, r.size.x * 0.4), minf(7.0 * K, r.size.y * 0.4)))
 		n.draw_rect(top, wall_col)
-		n.draw_rect(Rect2(top.position, Vector2(top.size.x, minf(3.0, top.size.y))), wall_col.lightened(0.22))
-		n.draw_rect(Rect2(top.position, Vector2(minf(3.0, top.size.x), top.size.y)), wall_col.lightened(0.12))
+		n.draw_rect(Rect2(top.position, Vector2(top.size.x, minf(3.0 * K, top.size.y))), wall_col.lightened(0.22))
+		n.draw_rect(Rect2(top.position, Vector2(minf(3.0 * K, top.size.x), top.size.y)), wall_col.lightened(0.12))
 		var long_x := r.size.x >= r.size.y
 		var length := r.size.x if long_x else r.size.y
 		var seam := 2.0 * PX
@@ -689,11 +699,11 @@ func _draw_props(n: Node2D) -> void:
 		wr.seed = int(r.position.x * 3.0 + r.position.y * 5.0)
 		for i in int(length / 90.0) + 1:
 			var q := r.position + Vector2(wr.randf() * r.size.x, wr.randf() * r.size.y)
-			n.draw_circle(q, wr.randf_range(2.5, 6.0), wall_col.darkened(0.22))
+			n.draw_circle(q, wr.randf_range(2.5, 6.0) * K, wall_col.darkened(0.22))
 		var rv := 40.0
-		while rv < length - 20.0 and minf(r.size.x, r.size.y) > 14.0:
+		while rv < length - 20.0 and minf(r.size.x, r.size.y) > 14.0 * K:
 			var rp := (Vector2(r.position.x + rv, top.position.y + 7.0) if long_x else Vector2(top.position.x + 7.0, r.position.y + rv))
-			n.draw_circle(rp, 2.0, wall_col.lightened(0.2))
+			n.draw_circle(rp, 2.0 * K, wall_col.lightened(0.2))
 			rv += 80.0
 		# Rubble at the foot (south side).
 		if long_x and r.size.x > 100.0:

@@ -18,6 +18,7 @@ var _dead := false
 
 
 func _ready() -> void:
+	scale = Vector2.ONE * Vis.VISUAL_SCALE # drawn (and colliding) bigger
 	hp = max_hp
 	add_to_group("generators")
 	collision_layer = 1

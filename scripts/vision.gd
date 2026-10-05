@@ -17,7 +17,7 @@ const PX := Firearm.PX_PER_M
 ## Rays across the cone (recast every other physics tick).
 const RAYS := 64
 ## px; far edge of the darkness fan (must cover the screen at the widest zoom).
-const FAR := 4000.0
+const FAR := 9000.0
 ## Collision layer that blocks sight (world geometry).
 const SIGHT_MASK := 1
 const DARK := Color(0.02, 0.03, 0.04, 0.8)

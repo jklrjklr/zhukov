@@ -22,6 +22,7 @@ var uses := 1
 ## Support pod: weapon it hands out.
 var payload: FirearmStats
 var _blink := 0.0
+var _redraw_t := 0.0
 
 
 static func make(k: Kind) -> Interactable:
@@ -56,6 +57,7 @@ static func make(k: Kind) -> Interactable:
 
 
 func _ready() -> void:
+	scale = Vector2.ONE * Vis.VISUAL_SCALE # drawn (and colliding) bigger
 	add_to_group("interactables")
 	var col := CollisionShape2D.new()
 	var r := RectangleShape2D.new()
@@ -84,7 +86,10 @@ func hold(delta: float, _by: Node) -> void:
 
 func _process(delta: float) -> void:
 	_blink += delta
-	queue_redraw()
+	_redraw_t -= delta
+	if _redraw_t <= 0.0: # blinking / glow at 12 Hz, not every frame
+		_redraw_t = 0.08
+		queue_redraw()
 
 
 func _draw() -> void:

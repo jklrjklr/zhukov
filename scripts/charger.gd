@@ -14,7 +14,7 @@ enum State { WANDER, STALK, WINDUP, CHARGE, SKID, STUNNED, SWIPE, DEAD }
 
 const PX := Firearm.PX_PER_M
 ## Drawing scale (art is authored at 1x) and matching collision radius.
-const ART_SCALE := 1.6
+const ART_SCALE := 1.6 * Vis.VISUAL_SCALE
 const RADIUS := 28.0 * ART_SCALE
 const FRONT_AC := 5
 const SIDE_AC := 3
@@ -105,6 +105,7 @@ func _ready() -> void:
 	add_child(_rig)
 	_tele = Enemies.make_overlay(self, _draw_tele)
 	_bb = Enemies.make_overlay(self, _draw_bb)
+	_bb.scale = Vector2.ONE * Game.BILLBOARD_SCALE
 	_new_wander()
 
 
@@ -294,7 +295,7 @@ func _physics_process(delta: float) -> void:
 			if player_ok:
 				face = to_player.normalized()
 			if _t >= 0.6 and _t - delta < 0.6 and player_ok:
-				if to_player.length() < RADIUS + 16.0 + 1.6 * PX \
+				if to_player.length() < RADIUS + 16.0 * Game.VISUAL_SCALE + 1.6 * PX \
 						and absf(Vector2.UP.rotated(rotation).angle_to(to_player)) < 1.2:
 					_player.take_damage(swipe_damage, global_position)
 			if _t >= 1.1:
@@ -332,7 +333,7 @@ func _update_charge(delta: float) -> void:
 	# Player in the path?
 	if _player and not _player.dead and not _hit_player:
 		var to := _player.global_position - global_position
-		if to.length() < RADIUS + 22.0 and to.dot(_charge_dir) > 0.0:
+		if to.length() < RADIUS + 22.0 * Game.VISUAL_SCALE and to.dot(_charge_dir) > 0.0:
 			_hit_player = true
 			Fx.shake(self, 9.0)
 			_player.take_damage(charge_damage, global_position - _charge_dir * 40.0)
@@ -513,7 +514,8 @@ func _draw_charge_lane() -> void:
 
 ## Screen-aligned: HP bar (always on the heavy), awareness icon, ricochet shield, numbers.
 func _draw_bb() -> void:
-	var top := -RADIUS - 34.0
+	var rb := RADIUS / Game.BILLBOARD_SCALE
+	var top := -rb - 34.0
 	if state != State.DEAD:
 		var w := 64.0
 		EnemyUi.hp_bar(_bb, top, w, 8.0, hp / max_hp, 1.0, true, Color(0.9, 0.3, 0.15))
@@ -522,6 +524,6 @@ func _draw_bb() -> void:
 		EnemyUi.icon(_bb, _icon_kind(), Vector2(0, top - 16.0), 11.0, 1.0, _icon_pop())
 		if _bounce_t > 0.0:
 			var a := clampf(_bounce_t / 0.3, 0.0, 1.0)
-			EnemyUi.shield(_bb, Vector2(RADIUS * 0.8 + 10.0, -RADIUS * 0.3 - (0.7 - _bounce_t) * 24.0), a, 1.15)
+			EnemyUi.shield(_bb, Vector2(rb * 0.8 + 10.0, -rb * 0.3 - (0.7 - _bounce_t) * 24.0), a, 1.15)
 	if not _numbers.is_empty():
-		EnemyUi.numbers(_bb, _numbers, -80.0, Color(1, 0.55, 0.15), 18)
+		EnemyUi.numbers(_bb, _numbers, -rb - 40.0, Color(1, 0.55, 0.15), 18)

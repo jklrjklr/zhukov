@@ -46,6 +46,7 @@ static func make(k: Kind) -> StaticBody2D:
 
 
 func _ready() -> void:
+	scale = Vector2.ONE * Vis.VISUAL_SCALE # drawn (and colliding) bigger
 	hp = max_hp
 	_col = CollisionShape2D.new()
 	match kind:

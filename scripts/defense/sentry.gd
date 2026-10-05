@@ -24,6 +24,7 @@ var _done_t := -1.0
 
 
 func _ready() -> void:
+	scale = Vector2.ONE * Vis.VISUAL_SCALE # drawn (and colliding) bigger
 	add_to_group("sentries")
 	collision_layer = 1
 	collision_mask = 0
@@ -86,7 +87,7 @@ func _fire() -> void:
 	_cd = 60.0 / RPM
 	ammo -= 1
 	var dir := Vector2.from_angle(_aim + deg_to_rad(randf_range(-1.5, 1.5)))
-	var muzzle := global_position + Vector2.from_angle(_aim) * 26.0
+	var muzzle := global_position + Vector2.from_angle(_aim) * 26.0 * Vis.VISUAL_SCALE
 	var proj := get_tree().get_first_node_in_group("projectiles")
 	proj.spawn_bullet(muzzle, dir * _stats.muzzle_velocity * PX, _stats, self)
 	Sfx.play("sentry_shot", muzzle, -6.0, 0.05)

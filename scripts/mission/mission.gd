@@ -44,6 +44,7 @@ const FOG_CELLS := 24
 ## Combat music state is re-evaluated this often (s); the minimap data every MINIMAP_S.
 const MUSIC_CHECK_S := 0.5
 const MINIMAP_S := 0.2
+const K := Vis.VISUAL_SCALE
 const KILL_POINTS_LIGHT := 10.0
 const KILL_POINTS_MEDIUM := 30.0
 const KILL_POINTS_HEAVY := 150.0
@@ -410,7 +411,7 @@ func _next_pack() -> int:
 
 
 func _free_in_zone(p: Vector2) -> bool:
-	return zones[current].contains(p, -3.0 * PX) and _is_free(p, 24.0)
+	return zones[current].contains(p, -3.0 * PX) and _is_free(p, 24.0 * K)
 
 
 func _is_free(p: Vector2, r: float) -> bool:
@@ -427,7 +428,7 @@ func _point_near(around: Vector2, min_m: float, max_m: float, in_zone := true, t
 		var p := around + Vector2.from_angle(randf() * TAU) * randf_range(min_m, max_m) * PX
 		if in_zone and not zones[current].contains(p, -3.0 * PX):
 			continue
-		if _is_free(p, 28.0):
+		if _is_free(p, 28.0 * K):
 			return p
 	return Vector2.INF
 
@@ -688,7 +689,7 @@ func _update_holes(delta: float) -> void:
 		h.t = randf_range(3.5, 5.0) if stage == Stage.DEPARTED else randf_range(7.0, 11.0)
 		for i in randi_range(1, 2):
 			var t := Terminid.make(Terminid.Kind.SCAVENGER)
-			t.position = d.global_position + Vector2.from_angle(randf() * TAU) * 44.0
+			t.position = d.global_position + Vector2.from_angle(randf() * TAU) * 44.0 * K
 			_actors.add_child(t)
 			t.alert_to(player.global_position, false)
 		Sfx.play("burrow", d.global_position, 0.0)
@@ -857,7 +858,7 @@ func _update_death(delta: float) -> void:
 func _safe_respawn_point() -> Vector2:
 	for i in 24:
 		var p := _death_pos + Vector2.from_angle(randf() * TAU) * randf_range(3.0, 9.0) * PX
-		if not _is_free(p, 30.0):
+		if not _is_free(p, 30.0 * K):
 			continue
 		var clear := true
 		for e in Enemies.list:
@@ -1002,16 +1003,16 @@ func _draw_overlay() -> void:
 	var up := Fx.screen_up(_overlay)
 	if _pod_t > 0.0 and _pod_pos != Vector2.INF:
 		var k := clampf(1.0 - _pod_t / _pod_total, 0.0, 1.0)
-		_overlay.draw_circle(_pod_pos, 40.0 * (0.4 + k * 0.6), Color(0, 0, 0, 0.55 * k))
-		_overlay.draw_arc(_pod_pos, 70.0 * (1.2 - k * 0.5), 0.0, TAU, 28, Color(1, 0.6, 0.2, 0.7 * k), 3.0)
-		Fx.draw_pod(_overlay, _pod_pos, up, k, 1000.0, 18.0)
+		_overlay.draw_circle(_pod_pos, 40.0 * K * (0.4 + k * 0.6), Color(0, 0, 0, 0.55 * k))
+		_overlay.draw_arc(_pod_pos, 70.0 * K * (1.2 - k * 0.5), 0.0, TAU, 28, Color(1, 0.6, 0.2, 0.7 * k), 3.0 * K)
+		Fx.draw_pod(_overlay, _pod_pos, up, k, 1000.0, 18.0 * K)
 	if _breach_t >= 0.0 and _breach_pos != Vector2.INF:
 		var k := 1.0 - _breach_t / 1.8
-		_overlay.draw_circle(_breach_pos, 60.0 * k + 10.0, Color(0.35, 0.25, 0.1, 0.35))
-		_overlay.draw_arc(_breach_pos, 70.0 * k + 12.0, 0, TAU, 28, Color(1, 0.6, 0.2, 0.6), 3.0)
+		_overlay.draw_circle(_breach_pos, (60.0 * k + 10.0) * K, Color(0.35, 0.25, 0.1, 0.35))
+		_overlay.draw_arc(_breach_pos, (70.0 * k + 12.0) * K, 0, TAU, 28, Color(1, 0.6, 0.2, 0.6), 3.0 * K)
 		for i in 6: # cracks radiating from the breach point
 			var a := TAU * i / 6.0 + 0.4
-			_overlay.draw_line(_breach_pos + Vector2.from_angle(a) * 14.0, _breach_pos + Vector2.from_angle(a) * (30.0 + 60.0 * k), Color(0.1, 0.06, 0.03, 0.8), 3.0)
+			_overlay.draw_line(_breach_pos + Vector2.from_angle(a) * 14.0, _breach_pos + Vector2.from_angle(a) * (30.0 + 60.0 * k), Color(0.1, 0.06, 0.03, 0.8), 3.0 * K)
 		if _breach_t > 0.0 and int(_breach_t * 14.0) % 2 == 0:
 			Fx.dust_puff(self, _breach_pos + Vector2.from_angle(randf() * TAU) * 40.0 * k, 0.8)
 	if pelican == Pelican.CALLED or pelican == Pelican.LANDED or pelican == Pelican.TAKEOFF:
@@ -1023,8 +1024,8 @@ func _draw_overlay() -> void:
 		elif pelican == Pelican.TAKEOFF:
 			k = clampf(1.0 - _takeoff_t / 1.6, 0.0, 1.0)
 		var c := pad + up * ((1.0 - k) * 900.0)
-		_overlay.draw_circle(pad, 160.0 * (0.4 + k * 0.6), Color(0, 0, 0, 0.35 * k))
-		_draw_pelican(c, 1.0 + (1.0 - k) * 0.5)
+		_overlay.draw_circle(pad, 160.0 * K * (0.4 + k * 0.6), Color(0, 0, 0, 0.35 * k))
+		_draw_pelican(c, (1.0 + (1.0 - k) * 0.5) * K)
 		if k > 0.5 and int(Time.get_ticks_msec() / 90) % 2 == 0: # rotor wash
 			Fx.dust_puff(self, pad + Vector2.from_angle(randf() * TAU) * randf_range(60.0, 220.0), 1.4)
 	# Objective beacons: pulsing rings, tick marks and a short light column on active targets.
@@ -1032,12 +1033,12 @@ func _draw_overlay() -> void:
 	for t in _active_targets():
 		var col := UiStyle.YELLOW if not t.optional else Color(1, 1, 1, 0.6)
 		var pulse := 0.5 + 0.5 * sin(now * 4.0)
-		_overlay.draw_arc(t.pos, 46.0 + 6.0 * pulse, 0, TAU, 28, Color(col, 0.4), 2.0)
+		_overlay.draw_arc(t.pos, (46.0 + 6.0 * pulse) * K, 0, TAU, 28, Color(col, 0.4), 2.0 * K)
 		for i in 4:
 			var a := now * 1.2 + i * TAU / 4.0
-			_overlay.draw_arc(t.pos, 56.0, a, a + 0.5, 6, Color(col, 0.7), 3.0)
+			_overlay.draw_arc(t.pos, 56.0 * K, a, a + 0.5, 6, Color(col, 0.7), 3.0 * K)
 		var side := up.orthogonal()
-		var pts := PackedVector2Array([t.pos + side * 6.0, t.pos - side * 6.0, t.pos - side * 2.0 + up * 220.0, t.pos + side * 2.0 + up * 220.0])
+		var pts := PackedVector2Array([t.pos + side * 6.0 * K, t.pos - side * 6.0 * K, t.pos - side * 2.0 * K + up * 220.0, t.pos + side * 2.0 * K + up * 220.0])
 		var cols := PackedColorArray([Color(col, 0.28 * (0.6 + pulse * 0.4)), Color(col, 0.28 * (0.6 + pulse * 0.4)), Color(col, 0.0), Color(col, 0.0)])
 		_overlay.draw_polygon(pts, cols)
 
