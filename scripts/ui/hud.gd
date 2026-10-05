@@ -18,6 +18,12 @@ extends Control
 ## (right) of TouchControls (StratMenu.block_rect / card_rect) so it never covers a control.
 ## Works without a Mission (firing range): mission widgets hidden, death -> restart.
 ## Must come after TouchControls in the tree so it sees touches first.
+## Redraw policy (performance): the HUD is NOT redrawn every frame. A cheap signature of
+## everything it shows (values, ticks of the timer, banner / toast animation steps, a 4 Hz tick for
+## pulsing widgets, 12 Hz in alarm states) is compared every frame and the canvas item is only
+## re-recorded when it changed. Camera-dependent parts (damage arcs, vignette, objective markers)
+## live on a second instance of this script (_layer = 1, drawn behind the panels) that redraws
+## when the camera / player moved. hud_state() is polled at 20 Hz.
 
 @export var player_path: NodePath
 
@@ -39,6 +45,13 @@ var _u := 1.0 # uniform UI scale
 var _vp := Vector2(1280, 720) # viewport size in UI units
 var _xf := Transform2D.IDENTITY # canvas (camera) transform
 var _t := 0.0
+## 0 = the HUD proper, 1 = camera-dependent overlay (screen fx + objective markers).
+var _layer := 0
+var _host: Control
+var _overlay: Control
+var _sig := 0
+var _state_t := 0.0
+var _perf_text := ""
 ## Stratagem-ready toasts, newest first: {key, id, title, sub, t}.
 var _toasts: Array[Dictionary] = []
 var _seen_gain := {} # id -> last Stratagems.gained value (a reset to 0 = a charge was gained)
@@ -50,19 +63,109 @@ const TOAST_MAX := 3
 func _ready() -> void:
 	process_mode = Node.PROCESS_MODE_ALWAYS
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
+	if _layer == 1:
+		set_process_input(false)
+		_player = _host._player
+		_weapon = _host._weapon
+		_mission = _host._mission
+		_s = _host._s
+		show_behind_parent = true
+		return
 	_player = get_node(player_path)
 	_weapon = _player.get_node("Firearm")
 	_mission = get_tree().get_first_node_in_group("mission") as Mission
 	_s = _mission.hud_state() if _mission else {}
+	_overlay = Control.new()
+	_overlay.set_script(get_script())
+	_overlay.set("_layer", 1)
+	_overlay.set("_host", self)
+	_overlay.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_overlay.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	add_child(_overlay)
 
 
 func _process(delta: float) -> void:
 	_t += delta
+	_xf = get_viewport().get_canvas_transform()
+	if _layer == 1:
+		_s = _host._s
+		var sig := _overlay_signature()
+		if sig != _sig:
+			_sig = sig
+			queue_redraw()
+		return
 	if _strat == null:
 		_strat = get_tree().get_first_node_in_group("stratagems") as Stratagems
-	_s = _mission.hud_state() if _mission else {}
+	_state_t -= delta
+	if _state_t <= 0.0 or _s.is_empty():
+		_state_t = 0.05
+		_s = _mission.hud_state() if _mission else {}
 	_watch_gains(delta)
-	queue_redraw()
+	var sig := _signature()
+	if sig != _sig:
+		_sig = sig
+		queue_redraw()
+
+
+## What the overlay layer shows depends on the camera (marker positions, damage arcs) and the
+## player's health state.
+func _overlay_signature() -> int:
+	var hp_frac: float = _player.hp / _player.max_hp
+	var tick := int(_t * 12.0) if (hp_frac < 0.35 or _player.hurt > 0.0) else 0
+	var hits := []
+	for h in _player.hit_dirs:
+		hits.append([h.from, int((h.t as float) * 20.0)])
+	return [get_viewport_rect().size, snappedf(_xf.origin.x, 0.25), snappedf(_xf.origin.y, 0.25), snappedf(_xf.x.x, 0.0005),
+		snappedf(_xf.x.y, 0.0005), snappedf(_xf.x.length(), 0.0005), _player.global_position.snapped(Vector2(0.5, 0.5)),
+		_player.dead, snappedf(_player.hurt, 0.02), snappedf(hp_frac, 0.01), tick, hits,
+		_s.get("zone_index", -1), _s.get("pelican", ""), (_s.minimap.rev if _s.has("minimap") else 0)].hash()
+
+
+## Hash of everything the HUD proper draws (see the class comment).
+func _signature() -> int:
+	var p := _player
+	var w := _weapon
+	var a: Array = [get_viewport_rect().size, _paused, p.dead, snappedf(p.hp / p.max_hp, 0.004), ceili(p.hp), int(p.stamina * 200.0),
+		p.stims, p.grenades, p.is_healing(), w.rounds_loaded(), w.mags.size(), w.fire_mode_name(), w.jammed, w.dry_flash > 0.0,
+		Game.perf_overlay]
+	var it: Interactable = p.interact_target
+	if it != null:
+		a.append([it.label, int(it.progress / it.hold_time * 120.0)])
+	if _strat != null:
+		for id in _strat.equipped:
+			var fl: float = _strat.gained.get(id, 99.0)
+			a.append([id, _strat.charges(id), int(_strat.meter_frac(id) * 160.0), int(_strat.status[id].cd * 60.0),
+				int(fl * 20.0) if fl < 1.2 else -1, _strat.aim_id == id, _strat.typing_id == id])
+		a.append([_strat.locked, _strat.fill_enabled])
+	for tt in _toasts:
+		a.append([tt.key, int((tt.t as float) * 20.0)])
+	var pulse_hz := 0.0
+	if _mission != null and not _s.is_empty():
+		var t: float = maxf(_s.time_left, 0.0)
+		a.append([int(t), int(_s.elapsed), _s.minimap.rev, _s.zone_index])
+		var skip := ["time_left", "elapsed", "minimap", "all_objectives"]
+		var rest := []
+		for k in _s:
+			if not skip.has(k):
+				rest.append(_s[k])
+		a.append(rest.hash())
+		a.append(hash(_s.all_objectives))
+		pulse_hz = 4.0
+		if t <= 10.0 or _s.stage != "main" or [300.0, 60.0].any(func(wt): return t <= wt and t > wt - 7.0) or not _s.passage_warning.is_empty():
+			pulse_hz = 12.0
+		# Objective distance / direction readouts on the panel.
+		for tg in _nav_targets():
+			var to: Vector2 = _xf.basis_xform(tg.pos - p.global_position)
+			a.append([_dist_m(tg.pos), snappedf(to.angle(), 0.1)])
+	if p.hp / p.max_hp < 0.3 or p.hurt > 0.0:
+		pulse_hz = 12.0
+	if _paused or p.dead:
+		pulse_hz = maxf(pulse_hz, 4.0)
+	if pulse_hz > 0.0:
+		a.append(int(_t * pulse_hz))
+	if Game.perf_overlay:
+		a.append(int(_t * 4.0))
+	return a.hash()
 
 
 func _input(event: InputEvent) -> void:
@@ -89,6 +192,8 @@ func _input(event: InputEvent) -> void:
 				Game.goto_menu()
 			"shake":
 				Game.set_shake(not Game.shake_enabled)
+			"perf":
+				Game.set_perf_overlay(not Game.perf_overlay)
 	elif _mission and _mission.end_ready:
 		match hit:
 			"retry":
@@ -137,16 +242,19 @@ func _btn(name: String, r: Rect2) -> Rect2:
 
 
 func _draw() -> void:
-	_buttons.clear()
 	var real := get_viewport_rect().size
 	_u = clampf(minf(real.x / 1280.0, real.y / 720.0), 1.0, 1.6)
 	_vp = real / _u
 	_xf = get_viewport().get_canvas_transform()
 	draw_set_transform(Vector2.ZERO, 0.0, Vector2(_u, _u))
 	var vp := _vp
-	_draw_screen_fx(vp)
+	if _layer == 1:
+		_draw_screen_fx(vp)
+		if _mission:
+			_draw_markers(vp)
+		return
+	_buttons.clear()
 	if _mission:
-		_draw_markers(vp)
 		_draw_objectives()
 		_draw_timer(vp)
 		_draw_minimap(vp)
@@ -164,7 +272,8 @@ func _draw() -> void:
 	_draw_stratagem_bar(vp)
 	_draw_health(vp)
 	_draw_ammo(vp)
-	_draw_perf(vp)
+	if Game.perf_overlay:
+		_draw_perf(vp)
 	if _player.dead:
 		_draw_death(vp)
 	if _mission and _mission.end_ready:
@@ -787,10 +896,15 @@ func _draw_ammo(vp: Vector2) -> void:
 	UiStyle.text(self, Vector2(cx + tw * 0.5 - 8.0, base), w.fire_mode_name(), 11, UiStyle.YELLOW)
 
 
+## Perf overlay (pause menu toggle, off by default): FPS, frame time, script / physics time.
 func _draw_perf(vp: Vector2) -> void:
+	var fps := Engine.get_frames_per_second()
 	var proc_ms := Performance.get_monitor(Performance.TIME_PROCESS) * 1000.0
 	var phys_ms := Performance.get_monitor(Performance.TIME_PHYSICS_PROCESS) * 1000.0
-	UiStyle.text(self, Vector2(10, vp.y - 6), "%d fps  proc %.1f  phys %.1f  decals %d  fx %d" % [Engine.get_frames_per_second(), proc_ms, phys_ms, Fx.decal_count(), Fx.particle_count()], 12, Color(1, 1, 1, 0.3))
+	var txt := "%d FPS  frame %.1f ms  proc %.1f  phys %.1f  enemies %d  decals %d  fx %d" % [fps, 1000.0 / maxf(fps, 1.0), proc_ms, phys_ms, Enemies.count(), Fx.decal_count(), Fx.particle_count()]
+	var tw := UiStyle.font().get_string_size(txt.to_upper(), HORIZONTAL_ALIGNMENT_LEFT, -1, 13).x
+	draw_rect(Rect2(6, vp.y - 24, tw + 16, 20), Color(0, 0, 0, 0.55))
+	UiStyle.text(self, Vector2(14, vp.y - 9), txt, 13, Color(0.7, 1.0, 0.7))
 
 
 # --- Overlays -----------------------------------------------------------------------
@@ -822,7 +936,8 @@ func _draw_pause(vp: Vector2) -> void:
 	_btn("resume", UiStyle.button(self, Rect2(x, vp.y * 0.31, w, 60), "RESUME", true))
 	_btn("restart", UiStyle.button(self, Rect2(x, vp.y * 0.31 + 72, w, 60), "RESTART"))
 	_btn("shake", UiStyle.button(self, Rect2(x, vp.y * 0.31 + 144, w, 60), "SCREEN SHAKE: " + ("ON" if Game.shake_enabled else "OFF"), false, 20))
-	_btn("menu", UiStyle.button(self, Rect2(x, vp.y * 0.31 + 216, w, 60), "ABANDON MISSION" if _mission else "MAIN MENU"))
+	_btn("perf", UiStyle.button(self, Rect2(x, vp.y * 0.31 + 216, w, 60), "PERF OVERLAY: " + ("ON" if Game.perf_overlay else "OFF"), false, 20))
+	_btn("menu", UiStyle.button(self, Rect2(x, vp.y * 0.31 + 288, w, 60), "ABANDON MISSION" if _mission else "MAIN MENU"))
 
 
 ## Run lost / mission complete: objectives done or failed, kills, samples, time.

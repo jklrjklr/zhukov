@@ -25,14 +25,18 @@ var shadows_enabled := false
 
 ## Visual settings (user://settings.cfg): screen shake / hit-stop on big explosions.
 var shake_enabled := true
+## FPS / frame-time overlay (pause menu toggle), off by default.
+var perf_overlay := false
 const SETTINGS_PATH := "user://settings.cfg"
 
 
 func _ready() -> void:
 	reset_stats()
+	RigAtlas.ensure(get_tree())
 	var cfg := ConfigFile.new()
 	if cfg.load(SETTINGS_PATH) == OK:
 		shake_enabled = bool(cfg.get_value("video", "shake", true))
+		perf_overlay = bool(cfg.get_value("video", "perf", false))
 
 
 func set_shake(on: bool) -> void:
@@ -40,6 +44,14 @@ func set_shake(on: bool) -> void:
 	var cfg := ConfigFile.new()
 	cfg.load(SETTINGS_PATH)
 	cfg.set_value("video", "shake", on)
+	cfg.save(SETTINGS_PATH)
+
+
+func set_perf_overlay(on: bool) -> void:
+	perf_overlay = on
+	var cfg := ConfigFile.new()
+	cfg.load(SETTINGS_PATH)
+	cfg.set_value("video", "perf", on)
 	cfg.save(SETTINGS_PATH)
 
 

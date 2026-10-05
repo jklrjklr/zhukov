@@ -481,7 +481,7 @@ func _try_fire() -> bool:
 			_projectiles.spawn_bullet(muzzle, dir * speed, stats, _player)
 	if stats.bullet_type != FirearmStats.BulletType.ROCKET:
 		_projectiles.spawn_casing(to_global(Vector2(3, -12)), global_rotation)
-	get_tree().call_group("enemies", "hear", global_position, stats.sound, stats.sound_falloff)
+	Enemies.broadcast_sound(global_position, stats.sound, stats.sound_falloff)
 	Sfx.play_ui(stats.shot_sound, -5.0, 0.05)
 
 	# Vertical: eased stacking, each shot adds less the closer the stack is to 1.

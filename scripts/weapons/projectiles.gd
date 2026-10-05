@@ -263,7 +263,7 @@ func explode(center: Vector2, p: Dictionary) -> void:
 	var pl := get_tree().get_first_node_in_group("player") as Node2D
 	Fx.explosion(self, center, r, pl.global_position if pl else Vector2.INF)
 	Sfx.play("explosion_big" if p.radius_m >= 4.0 else "explosion", center, 2.0, 0.1)
-	get_tree().call_group("enemies", "hear", center, p.sound, p.sound_falloff)
+	Enemies.broadcast_sound(center, p.sound, p.sound_falloff, 1)
 	var space := get_world_2d().direct_space_state
 	var shape := CircleShape2D.new()
 	shape.radius = r

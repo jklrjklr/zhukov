@@ -41,6 +41,9 @@ const PELICAN_MAX := 5.0
 const BOARD_RANGE_M := 7.0
 const BOARD_TIME := 1.2
 const FOG_CELLS := 24
+## Combat music state is re-evaluated this often (s); the minimap data every MINIMAP_S.
+const MUSIC_CHECK_S := 0.5
+const MINIMAP_S := 0.2
 const KILL_POINTS_LIGHT := 10.0
 const KILL_POINTS_MEDIUM := 30.0
 const KILL_POINTS_HEAVY := 150.0
@@ -110,10 +113,15 @@ var _explored := PackedByteArray()
 var _fog_t := 0.0
 var _end_t := 0.0
 var _extract_hint := false
+var _minimap := {}
+var _minimap_at := -1.0
+var _minimap_zone := -1
+var _minimap_rev := 0
 
 
 func _ready() -> void:
 	Fx.reset()
+	Enemies.clear()
 	add_to_group("mission")
 	player = get_node("../Player")
 	_strat = get_node_or_null("../Stratagems") as Stratagems
@@ -206,21 +214,7 @@ func current_zone() -> Zone:
 ## Everything the HUD needs, as plain data (no node references).
 func hud_state() -> Dictionary:
 	var z := zones[current]
-	var enemies_pos: Array = []
-	var pp := player.global_position
-	for e in get_tree().get_nodes_in_group("enemies"):
-		var n := e as Node2D
-		if n.global_position.distance_to(pp) < 24.0 * PX:
-			enemies_pos.append({"pos": n.global_position, "alert": n.has_method("is_alerted") and n.is_alerted()})
-	var pois: Array = []
-	for it in _pois:
-		if is_instance_valid(it) and not it.used and zones[current].contains(it.global_position):
-			pois.append({"pos": it.global_position, "kind": "sample" if it.kind == Interactable.Kind.SAMPLE else "ammo"})
-	var exit_pos := Vector2.INF
-	if current < 2:
-		exit_pos = z.exit_pt
-	elif z.pad_pos != Vector2.INF:
-		exit_pos = z.pad_pos
+	_refresh_minimap()
 	return {
 		"mission_name": NAME,
 		"zone_index": current,
@@ -242,13 +236,40 @@ func hud_state() -> Dictionary:
 		"elapsed": elapsed,
 		"pelican": ["none", "called", "landed", "takeoff"][pelican],
 		"board_progress": _board_t / BOARD_TIME,
-		"minimap": {
-			"rect": z.rect, "player": pp, "look": player.look_angle, "explored": _explored, "cells": FOG_CELLS,
-			"exit": exit_pos, "pois": pois, "enemies": enemies_pos,
-			"targets": _active_targets(),
-			"walls": z.walls, "floors": z.floors, "zone_pos": z.position, "entrance": z.entrance_pt,
-			"main_done": main_objective(current).get("status", "") == "done",
-		},
+		"minimap": _minimap,
+	}
+
+
+## Minimap data is rebuilt every MINIMAP_S seconds (and when the zone changes), not per frame.
+func _refresh_minimap() -> void:
+	var now := Time.get_ticks_msec() * 0.001
+	if not _minimap.is_empty() and now - _minimap_at < MINIMAP_S and _minimap_zone == current:
+		return
+	_minimap_at = now
+	_minimap_zone = current
+	var z := zones[current]
+	var enemies_pos: Array = []
+	var pp := player.global_position
+	for n in Enemies.list:
+		if n.global_position.distance_to(pp) < 24.0 * PX:
+			enemies_pos.append({"pos": n.global_position, "alert": n.has_method("is_alerted") and n.is_alerted()})
+	var pois: Array = []
+	for it in _pois:
+		if is_instance_valid(it) and not it.used and zones[current].contains(it.global_position):
+			pois.append({"pos": it.global_position, "kind": "sample" if it.kind == Interactable.Kind.SAMPLE else "ammo"})
+	var exit_pos := Vector2.INF
+	if current < 2:
+		exit_pos = z.exit_pt
+	elif z.pad_pos != Vector2.INF:
+		exit_pos = z.pad_pos
+	_minimap_rev += 1
+	_minimap = {
+		"rev": _minimap_rev,
+		"rect": z.rect, "player": pp, "look": player.look_angle, "explored": _explored, "cells": FOG_CELLS,
+		"exit": exit_pos, "pois": pois, "enemies": enemies_pos,
+		"targets": _active_targets(),
+		"walls": z.walls, "floors": z.floors, "zone_pos": z.position, "entrance": z.entrance_pt,
+		"main_done": main_objective(current).get("status", "") == "done",
 	}
 
 
@@ -412,7 +433,7 @@ func _point_near(around: Vector2, min_m: float, max_m: float, in_zone := true, t
 
 
 func enemy_count() -> int:
-	return get_tree().get_nodes_in_group("enemies").size()
+	return Enemies.list.size()
 
 
 # --- Frame loop ---------------------------------------------------------------------
@@ -839,8 +860,8 @@ func _safe_respawn_point() -> Vector2:
 		if not _is_free(p, 30.0):
 			continue
 		var clear := true
-		for e in get_tree().get_nodes_in_group("enemies"):
-			if (e as Node2D).global_position.distance_to(p) < 5.0 * PX:
+		for e in Enemies.list:
+			if e.global_position.distance_to(p) < 5.0 * PX:
 				clear = false
 				break
 		if clear:
@@ -941,10 +962,9 @@ func _update_music(delta: float) -> void:
 	_combat_t = maxf(_combat_t - delta, 0.0)
 	_music_check -= delta
 	if _music_check <= 0.0:
-		_music_check = 0.25
+		_music_check = MUSIC_CHECK_S
 		var pp := player.global_position
-		for e in get_tree().get_nodes_in_group("enemies"):
-			var n := e as Node2D
+		for n in Enemies.list:
 			if n.has_method("is_alerted") and n.is_alerted() and n.global_position.distance_to(pp) < 35.0 * PX:
 				_combat_t = 8.0
 				break

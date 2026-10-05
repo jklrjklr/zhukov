@@ -10,12 +10,27 @@ var _m: Mission
 var _p: CharacterBody2D
 var _s: Stratagems
 var _keep_alive := false
+## Second argument `noenemies`: same scenario without any enemy (perf baseline of the world alone).
+var _no_enemies := false
+## Second argument `stress`: +40 alerted bugs in front of the player (draw / AI load test).
+var _stress := false
+## `hide=hud|zones|actors|fx|light`: ablation for perf attribution (what costs how much).
+var _hide := ""
+## Perf sampling (combat window): per-frame monitors averaged and printed as PERF lines.
+var _sampling := false
+var _samples: Array[Dictionary] = []
+var _vp_rid: RID
 
 
 func _ready() -> void:
 	var args := OS.get_cmdline_user_args()
 	if args.size() > 0:
 		_prefix = args[0]
+	_no_enemies = "noenemies" in args
+	_stress = "stress" in args
+	for a in args:
+		if a.begins_with("hide="):
+			_hide = a.substr(5)
 	var scene := (load("res://scenes/mission.tscn") as PackedScene).instantiate()
 	add_child(scene)
 	_m = scene.get_node("Mission")
@@ -27,9 +42,81 @@ func _ready() -> void:
 func _process(_d: float) -> void:
 	if _keep_alive and _p.hp < 60.0:
 		_p.hp = 60.0
+	if _sampling:
+		if not _vp_rid.is_valid():
+			_vp_rid = get_viewport().get_viewport_rid()
+			RenderingServer.viewport_set_measure_render_time(_vp_rid, true)
+		_samples.append({
+			"process": Performance.get_monitor(Performance.TIME_PROCESS) * 1000.0,
+			"physics": Performance.get_monitor(Performance.TIME_PHYSICS_PROCESS) * 1000.0,
+			"render_cpu": RenderingServer.viewport_get_measured_render_time_cpu(_vp_rid) if _vp_rid.is_valid() else 0.0,
+			"draw_calls": Performance.get_monitor(Performance.RENDER_TOTAL_DRAW_CALLS_IN_FRAME),
+			"objects": Performance.get_monitor(Performance.RENDER_TOTAL_OBJECTS_IN_FRAME),
+			"enemies": get_tree().get_nodes_in_group("enemies").size(),
+		})
+
+
+func _apply_hide() -> void:
+	var root := get_tree().root
+	match _hide:
+		"hud":
+			root.find_children("HUD", "CanvasLayer", true, false).map(func(n): n.visible = false)
+		"actors":
+			_m.get_node("Actors").visible = false
+		"zones":
+			for z in _m.zones:
+				z.visible = false
+		"fx":
+			var fx := root.find_children("Fx", "Node2D", true, false)
+			fx.map(func(n): n.visible = false)
+		"light":
+			root.find_children("*", "PointLight2D", true, false).map(func(n): n.visible = false)
+			root.find_children("*", "CanvasModulate", true, false).map(func(n): n.visible = false)
+
+
+## Visible canvas items by owner script / class (what the renderer has to walk).
+func census() -> void:
+	var counts := {}
+	var stack: Array[Node] = [get_tree().root]
+	while not stack.is_empty():
+		var n: Node = stack.pop_back()
+		for c in n.get_children():
+			stack.append(c)
+		var ci := n as CanvasItem
+		if ci == null or not ci.is_visible_in_tree():
+			continue
+		var scr: Script = n.get_script()
+		var key := (scr.resource_path.get_file() if scr != null else n.get_class())
+		if n is Sprite2D:
+			key += "/Sprite2D"
+		counts[key] = counts.get(key, 0) + 1
+	var keys := counts.keys()
+	keys.sort_custom(func(a, b): return counts[a] > counts[b])
+	var out := "CENSUS"
+	for k in keys.slice(0, 12):
+		out += " %s=%d" % [k, counts[k]]
+	print(out)
+
+
+func report_perf(label: String) -> void:
+	_sampling = false
+	if _samples.is_empty():
+		return
+	var sums := {}
+	for s in _samples:
+		for k in s:
+			sums[k] = sums.get(k, 0.0) + s[k]
+	var out := "PERF %s frames=%d" % [label, _samples.size()]
+	for k in sums:
+		out += " %s=%.2f" % [k, sums[k] / _samples.size()]
+	print(out)
+	_samples.clear()
 
 
 func shot(name: String) -> void:
+	if DisplayServer.get_name() == "headless":
+		await get_tree().process_frame
+		return
 	await RenderingServer.frame_post_draw
 	var img := get_viewport().get_texture().get_image()
 	img.save_png("%s_%s.png" % [_prefix, name])
@@ -41,6 +128,8 @@ func wait(sec: float) -> void:
 
 
 func spawn(kinds: Array, at: Vector2, alert := true) -> Array:
+	if _no_enemies:
+		return []
 	var got := Terminid.spawn_pack(_m.get_node("Actors"), at, kinds.size(), 900 + randi() % 99, func(_p): return true, kinds)
 	for t in got:
 		if alert:
@@ -64,13 +153,24 @@ func _run() -> void:
 	var unaware := spawn([Terminid.Kind.SCAVENGER, Terminid.Kind.WARRIOR], pp + Vector2(7 * P, -8 * P), false)
 	for u in unaware:
 		u.alert_to(pp + Vector2(0, -5 * P), false)
+	if _stress:
+		for i in 8:
+			var a := -0.9 + 1.8 * i / 7.0
+			spawn([Terminid.Kind.SCAVENGER, Terminid.Kind.WARRIOR, Terminid.Kind.SCAVENGER, Terminid.Kind.HUNTER, Terminid.Kind.WARRIOR],
+				pp + Vector2.UP.rotated(a) * (9 + (i % 3) * 3) * P)
 	var ch := Charger.new()
 	ch.position = pp + Vector2(2 * P, -16 * P)
-	_m.get_node("Actors").add_child(ch)
+	if not _no_enemies:
+		_m.get_node("Actors").add_child(ch)
 	await wait(0.3)
 	_p.weapon.trigger = true
 	_p.weapon.fire_mode_index = _p.weapon.stats.fire_modes.size() - 1
-	await wait(2.0)
+	await wait(0.5)
+	_apply_hide()
+	_sampling = true
+	await wait(2.5)
+	report_perf("combat")
+	census()
 	await shot("3_combat_a")
 	_p.look_angle += 0.15
 	await wait(1.2)

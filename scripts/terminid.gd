@@ -14,12 +14,24 @@ extends CharacterBody2D
 ##   (which may call a bug breach).
 ## - Stagger: impact = weapon stagger (x1.5 crit) / weight -> knockback, slowdown,
 ##   wind-up interrupt, stun meter.
-## - Far from the player it thinks/steers less often (performance).
+## - Performance: perception (LOS ray) and steering (ray fan) run every THINK_NEAR s within
+##   NEAR_M of the player, every THINK_FAR s beyond, staggered by a per-enemy phase. Physics
+##   runs every frame in between: the heading turns toward the last steering direction with a
+##   capped turn rate, velocity accelerates, move_and_slide every frame, separation from
+##   neighbours comes from the Enemies registry (no raycasts).
+## - The body is a cutout rig (BugRig, baked part textures, transforms only); the only
+##   real-time drawing is on two small overlays (telegraphs, HP bar / icons / numbers).
 
 enum Kind { SCAVENGER, WARRIOR, HUNTER, BILE_SPITTER }
 enum State { WANDER, CHASE, SEARCH, ATTACK, RECOVER, LEAP, SPIT, DEAD }
 
-const LOD_FAR_M := 30.0
+const NEAR_M := 20.0
+const THINK_NEAR := 0.1
+const THINK_FAR := 0.2
+const RIG_RANGE_M := 45.0
+const RIG_RANGE_PX2 := (RIG_RANGE_M * 60.0) * (RIG_RANGE_M * 60.0)
+const RIG_LOD1_PX2 := (14.0 * 60.0) * (14.0 * 60.0)
+const RIG_LOD2_PX2 := (28.0 * 60.0) * (28.0 * 60.0)
 const SLEEP_M := 55.0
 const SLEEP_EVERY := 4
 const KNOCKBACK := 450.0
@@ -32,6 +44,8 @@ const PACK_ALERT_M := 20.0
 const PX := Firearm.PX_PER_M
 const RAYS := 16
 const FEELER := 60.0
+const ACCEL := 1100.0
+const SEP_SPEED := 0.7
 const OUTLINE := Color(0.07, 0.05, 0.04)
 const BLOOD := {Kind.SCAVENGER: Color(0.9, 0.5, 0.12), Kind.WARRIOR: Color(0.5, 0.66, 0.14),
 	Kind.HUNTER: Color(0.62, 0.7, 0.18), Kind.BILE_SPITTER: Color(0.66, 0.9, 0.16)}
@@ -87,6 +101,8 @@ var leader: Terminid = null
 var hearing_now := 90.0
 var wander_speed := 1.0
 var run_speed := 4.0
+## Absolute heading change of the last physics step (rad), for tests.
+var last_turn := 0.0
 
 var _cfg: Dictionary
 var _pack_offset := Vector2.ZERO
@@ -103,22 +119,34 @@ var _special_t := 0.0
 var _leap_dir := Vector2.UP
 var _stagger := 0.0
 var _steer := Vector2.UP
+var _steer_to := Vector2.UP
 var _detour := 0
 var _detour_time := 0.0
 var _tick := 0
-var _walk_phase := 0.0
 var _dead_t := 0.0
 var _flash := 0.0
 var _numbers: Array[Dictionary] = []
-## Graphics: seconds since the last hit, ricochet icon timer, seconds spent engaged, draw scale.
+## Graphics: seconds since the last hit, ricochet icon timer, seconds spent engaged.
 var _dmg_t := 99.0
 var _bounce_t := 0.0
 var _aware_t := 0.0
-var _base := Transform2D.IDENTITY
 var _idle_t := 4.0
 var _hurt_snd := 0.0
 var _player: CharacterBody2D
 var _col: CollisionShape2D
+## Cadence: perception + steering rays run when _think_t runs out (phase differs per enemy).
+var _think_t := 0.0
+var _los := false
+var _sep := Vector2.ZERO
+var _sleep_acc := 0.0
+var _turn := 0.0
+var _rig: BugRig
+var _tele: Node2D
+var _bb: Node2D
+var _tele_on := false
+var _bb_sig := 0
+var _lod_acc := 0.0
+var _lod_phase := 0
 
 
 func _ready() -> void:
@@ -131,6 +159,7 @@ func _ready() -> void:
 	add_to_group("terminids")
 	add_to_group("enemies")
 	add_to_group("concealable")
+	Enemies.add(self)
 	motion_mode = CharacterBody2D.MOTION_MODE_FLOATING
 	collision_layer = 2 # actors: block bullets and movement, not sight
 	collision_mask = 3
@@ -140,13 +169,18 @@ func _ready() -> void:
 	_col.shape = shape
 	add_child(_col)
 	_tick = randi() % 6
+	_think_t = randf() * THINK_FAR
+	_lod_phase = randi() % 4
 	_idle_t = randf_range(2.0, 9.0)
-	_walk_phase = randf() * TAU
 	rotation = randf() * TAU
 	_player = get_tree().get_first_node_in_group("player")
 	var walk: float = (_player.move_speed if _player else 180.0) / PX
 	wander_speed = walk * _cfg.wander
 	run_speed = walk * _cfg.run
+	_rig = BugRig.make(kind, radius / 15.0)
+	add_child(_rig)
+	_tele = Enemies.make_overlay(self, _draw_tele)
+	_bb = Enemies.make_overlay(self, _draw_bb)
 	_new_wander()
 
 
@@ -201,6 +235,11 @@ func is_alerted() -> bool:
 func kind_name() -> String:
 	var cfg: Dictionary = _cfg if not _cfg.is_empty() else KINDS[kind]
 	return cfg.get("name", "Bug")
+
+
+## Max heading change per second (rad) from the kind's turn rate.
+func turn_cap() -> float:
+	return deg_to_rad(_cfg.turn)
 
 
 ## Send it somewhere: chase=true runs straight at the player, else it investigates pos.
@@ -277,22 +316,68 @@ func is_stunned() -> bool:
 	return _stun_t > 0.0
 
 
+# --- Frame loop ---------------------------------------------------------------------
+
+## Rig animation + overlays: once per rendered frame, only for enemies that are visible
+## (not concealed by the sight cone) and near the player; dead ones play the death curl, freeze
+## into one static corpse sprite and stop processing.
+func _process(delta: float) -> void:
+	if not _numbers.is_empty():
+		for n in _numbers:
+			n.t += delta
+		_numbers = _numbers.filter(func(n): return n.t < 0.9)
+	if state == State.DEAD:
+		_process_dead(delta)
+		return
+	_update_overlays()
+	if not visible or _rig == null:
+		return
+	# Rig LOD: full rate near the player, every 2nd / 4th frame further out, none beyond RIG_RANGE_M.
+	var every := 1
+	if _player != null:
+		var d2 := global_position.distance_squared_to(_player.global_position)
+		if d2 > RIG_RANGE_PX2:
+			return
+		every = 1 if d2 < RIG_LOD1_PX2 else (2 if d2 < RIG_LOD2_PX2 else 4)
+	_lod_acc += delta
+	if every > 1 and (Engine.get_process_frames() + _lod_phase) % every != 0:
+		return
+	delta = _lod_acc
+	_lod_acc = 0.0
+	var mode := BugRig.M.IDLE
+	var k := 0.0
+	match state:
+		State.ATTACK:
+			mode = BugRig.M.ATTACK
+			k = clampf(_attack_t / _cfg.windup, 0.0, 1.0)
+		State.LEAP:
+			mode = BugRig.M.LEAP
+		State.SPIT:
+			mode = BugRig.M.SPIT
+			k = clampf(_special_t / SPIT_WINDUP, 0.0, 1.0)
+	if _stun_t > 0.0:
+		mode = BugRig.M.STUN
+	var move := clampf(velocity.length() / (run_speed * PX), 0.0, 1.0)
+	_rig.animate(delta, move, _turn, mode, k, _engaged(), _flash, hp < max_hp * 0.5)
+
+
+func _process_dead(delta: float) -> void:
+	if _rig != null and _rig.corpse_sprite == null:
+		_rig.animate(delta, 0.0, 0.0, BugRig.M.DEAD, 0.0, false, 0.0, false)
+		if _rig.settled():
+			_rig.become_corpse()
+			Enemies.add_corpse(self)
+	_update_overlays()
+	if _numbers.is_empty() and _rig != null and _rig.corpse_sprite != null:
+		set_process(false)
+
+
 func _physics_process(delta: float) -> void:
 	_flash = maxf(_flash - delta, 0.0)
 	_dmg_t += delta
 	_bounce_t = maxf(_bounce_t - delta, 0.0)
 	_aware_t = _aware_t + delta if _engaged() else 0.0
 	_hurt_snd = maxf(_hurt_snd - delta, 0.0)
-	for n in _numbers:
-		n.t += delta
-	_numbers = _numbers.filter(func(n): return n.t < 0.9)
-	if state == State.DEAD:
-		_dead_t += delta
-		if _dead_t > 40.0:
-			queue_free()
-		queue_redraw()
-		return
-
 	_idle_t -= delta
 	if _idle_t <= 0.0:
 		_idle_t = randf_range(5.0, 12.0)
@@ -306,28 +391,32 @@ func _physics_process(delta: float) -> void:
 		_stun_t -= delta
 		velocity = velocity.move_toward(Vector2.ZERO, 900.0 * delta)
 		move_and_slide()
-		queue_redraw()
 		return
 	hearing_now = minf(hearing_now + hearing_recovery * delta, hearing)
-	_tick += 1
-	var far := _player != null and global_position.distance_squared_to(_player.global_position) > pow(LOD_FAR_M * PX, 2)
-	if state == State.WANDER and _player != null \
-			and global_position.distance_squared_to(_player.global_position) > pow(SLEEP_M * PX, 2) \
-			and _tick % SLEEP_EVERY != 0:
-		return
-	if _tick % (15 if far else 5) == 0:
-		_perceive()
-		_follow_leader()
+	var d2 := global_position.distance_squared_to(_player.global_position) if _player != null else 0.0
+	var near := d2 < pow(NEAR_M * PX, 2)
+	# Far, idle bugs only simulate every SLEEP_EVERY-th tick (with the accumulated delta).
+	if state == State.WANDER and _player != null and d2 > pow(SLEEP_M * PX, 2):
+		_sleep_acc += delta
+		_tick += 1
+		if _tick % SLEEP_EVERY != 0:
+			return
+		delta = _sleep_acc
+		_sleep_acc = 0.0
+	_think_t -= delta
+	if _think_t <= 0.0:
+		_think_t = maxf(_think_t + (THINK_NEAR if near else THINK_FAR), 0.0)
+		_think(near)
 
 	if state == State.LEAP:
 		_update_leap(delta)
-		queue_redraw()
 		return
 
 	var speed := 0.0
 	var face := _steer
 	var to_player := (_player.global_position - global_position) if _player else Vector2.ZERO
 	var dist_m := to_player.length() / PX
+	var forward := Vector2.UP.rotated(rotation)
 	match state:
 		State.WANDER:
 			_wander_time -= delta
@@ -341,10 +430,10 @@ func _physics_process(delta: float) -> void:
 			if _player and _can_reach_player():
 				_start_attack()
 			elif kind == Kind.HUNTER and _special_cd <= 0.0 and dist_m >= LEAP_MIN_M and dist_m <= LEAP_MAX_M \
-					and _line_of_sight(_player):
+					and absf(forward.angle_to(to_player)) < 0.45 and _los:
 				_start_leap(to_player)
 			elif kind == Kind.BILE_SPITTER and _special_cd <= 0.0 and dist_m >= SPIT_MIN_M and dist_m <= SPIT_MAX_M \
-					and _line_of_sight(_player):
+					and _los:
 				state = State.SPIT
 				_special_t = 0.0
 			elif kind == Kind.BILE_SPITTER and dist_m < SPIT_MIN_M * 0.8 and dist_m > 2.0:
@@ -371,24 +460,39 @@ func _physics_process(delta: float) -> void:
 			if _recover_t <= 0.0:
 				state = State.CHASE
 
-	if state in [State.WANDER, State.CHASE, State.SEARCH] and _tick % (9 if far else 3) == 0:
-		var desired := (_goal - global_position).normalized()
-		_steer = _steer.lerp(_steer_dir(desired), 0.5).normalized()
+	if state in [State.WANDER, State.CHASE, State.SEARCH]:
+		# Follow the last steering direction smoothly (the ray fan only runs every think).
+		_steer = _steer.slerp(_steer_to, minf(delta * 12.0, 1.0))
 		face = _steer
 
+	var before := rotation
 	var want := face.angle() + PI / 2.0
 	var max_step := deg_to_rad(_cfg.turn) * delta
 	rotation += clampf(wrapf(want - rotation, -PI, PI), -max_step, max_step)
-	var forward := Vector2.UP.rotated(rotation)
+	var dr := wrapf(rotation - before, -PI, PI)
+	last_turn = absf(dr)
+	_turn = lerpf(_turn, dr / maxf(delta, 0.0001), minf(delta * 10.0, 1.0))
+	forward = Vector2.UP.rotated(rotation)
 	var along := clampf(forward.dot(_steer), 0.2, 1.0) if state != State.ATTACK else 1.0
 	if _stagger > 0.0:
 		speed *= 0.25
 	if state == State.WANDER and not _is_follower() and fmod(_wander_time, 4.0) < 1.2:
 		speed = 0.0
-	velocity = velocity.move_toward(forward * speed * PX * along, 1100.0 * delta)
+	var target := forward * speed * PX * along
+	if near and state != State.ATTACK:
+		target += _sep * SEP_SPEED * PX
+	velocity = velocity.move_toward(target, ACCEL * delta)
 	move_and_slide()
-	_walk_phase = fmod(_walk_phase + clampf(velocity.length() / (run_speed * PX), 0.0, 1.0) * 2.4 * TAU * delta, TAU)
-	queue_redraw()
+
+
+## Perception (one LOS ray), the pack leader and steering (the ray fan): the expensive part,
+## run at THINK_NEAR / THINK_FAR instead of every frame.
+func _think(near: bool) -> void:
+	_perceive()
+	_follow_leader()
+	if state in [State.WANDER, State.CHASE, State.SEARCH]:
+		_steer_to = _steer_dir((_goal - global_position).normalized())
+	_sep = Enemies.separation(self, radius) if near else Vector2.ZERO
 
 
 func _start_leap(to_player: Vector2) -> void:
@@ -396,7 +500,6 @@ func _start_leap(to_player: Vector2) -> void:
 	state = State.LEAP
 	_special_t = 0.0
 	_leap_dir = to_player.normalized()
-	rotation = _leap_dir.angle() + PI / 2.0
 	_struck = false
 
 
@@ -428,6 +531,7 @@ func _spit() -> void:
 
 func _perceive() -> void:
 	if not _player or _player.get("dead"):
+		_los = false
 		if _engaged():
 			_new_wander()
 		return
@@ -436,7 +540,9 @@ func _perceive() -> void:
 	var forward := Vector2.UP.rotated(rotation)
 	var in_cone: bool = dist <= _cfg.sight * PX and absf(forward.angle_to(to)) <= deg_to_rad(_cfg.fov / 2.0)
 	var touching := dist <= 1.5 * PX
-	var seen := (in_cone or touching) and _line_of_sight(_player)
+	var want_los: bool = in_cone or touching or (_engaged() and (kind == Kind.HUNTER or kind == Kind.BILE_SPITTER))
+	_los = want_los and _line_of_sight(_player)
+	var seen := (in_cone or touching) and _los
 	if seen:
 		if not _engaged():
 			_engage(_player.global_position)
@@ -451,7 +557,6 @@ func _line_of_sight(target: CollisionObject2D) -> bool:
 	q.exclude = [get_rid()]
 	var hit := get_world_2d().direct_space_state.intersect_ray(q)
 	return not hit.is_empty() and hit.collider == target
-
 
 func _steer_dir(desired: Vector2) -> Vector2:
 	var space := get_world_2d().direct_space_state
@@ -472,7 +577,7 @@ func _steer_dir(desired: Vector2) -> Vector2:
 		dirs.append(d)
 		dangers.append(danger)
 	var ahead := _danger_toward(desired, dirs, dangers)
-	_detour_time -= 0.05
+	_detour_time -= THINK_NEAR
 	if ahead > 0.4:
 		if _detour == 0:
 			var left := _danger_toward(desired.rotated(-PI / 2.0), dirs, dangers)
@@ -547,9 +652,9 @@ func _engage(pos: Vector2) -> void:
 func _alert_pack(pos: Vector2) -> void:
 	if pack_id < 0:
 		return
-	for n in get_tree().get_nodes_in_group("terminids"):
+	for n in Enemies.list:
 		var other := n as Terminid
-		if other == self or other.pack_id != pack_id or other._engaged():
+		if other == null or other == self or other.pack_id != pack_id or other._engaged():
 			continue
 		if other.global_position.distance_to(global_position) <= PACK_ALERT_M * PX:
 			other.state = State.CHASE
@@ -594,233 +699,109 @@ func _die(dir: Vector2) -> void:
 	get_tree().call_group("mission", "on_kill", self)
 	remove_from_group("terminids")
 	remove_from_group("enemies")
+	Enemies.remove(self)
 	_col.set_deferred("disabled", true)
 	z_index = -1
 	velocity = Vector2.ZERO
 	rotation = (dir as Vector2).angle() + PI / 2.0 + randf_range(-0.6, 0.6)
+	set_physics_process(false)
+	_tele.visible = false
+	get_tree().create_timer(40.0, false).timeout.connect(queue_free)
 
 
-# --- Drawing ---------------------------------------------------------------
+# --- Overlays (the body itself is a rig; nothing here re-records per frame) ----------------
 
-## Ellipse as a scaled unit circle (no triangulation), with a dark outline.
-func _ell(c: Vector2, r: Vector2, col: Color, outline := true) -> void:
-	if outline:
-		draw_set_transform_matrix(_base * Transform2D(Vector2(r.x + 1.4, 0), Vector2(0, r.y + 1.4), c))
-		draw_circle(Vector2.ZERO, 1.0, OUTLINE)
-	draw_set_transform_matrix(_base * Transform2D(Vector2(r.x, 0), Vector2(0, r.y), c))
-	draw_circle(Vector2.ZERO, 1.0, col)
-	draw_set_transform_matrix(_base)
-
-
-func _draw() -> void:
-	var s := radius / 15.0
-	var body: Color = _cfg.color
-	var dark: Color = _cfg.dark
+func _update_overlays() -> void:
 	var dead := state == State.DEAD
-	var aware := _engaged()
-	if dead:
-		var fade := clampf(40.0 - _dead_t, 0.0, 1.0)
-		body = body.darkened(0.45)
-		dark = dark.darkened(0.45)
-		draw_circle(Vector2(0, 4), radius * 1.3, Color(BLOOD[kind], 0.18 * fade))
-	elif _flash > 0.0:
-		body = body.lerp(Color.WHITE, 0.55)
-		dark = dark.lerp(Color.WHITE, 0.35)
-	_base = Transform2D(Vector2(s, 0), Vector2(0, s), Vector2.ZERO)
-	if not dead and Game.shadows_enabled:
-		# Drop shadow (light is fixed in the world, not on the screen).
-		var so := Vector2(5, 7).rotated(-global_rotation)
-		draw_set_transform_matrix(Transform2D(Vector2(radius * 0.95, 0), Vector2(0, radius * 1.35), so))
-		draw_circle(Vector2.ZERO, 1.0, Color(0, 0, 0, 0.28))
-	draw_set_transform_matrix(_base)
+	_tele_on = not dead and ((state == State.ATTACK and not _struck) or state == State.SPIT or is_stunned())
+	if _tele_on:
+		_tele.visible = true
+		_tele.queue_redraw()
+	elif _tele.visible:
+		_tele.visible = false
+	var heavy: bool = kind == Kind.BILE_SPITTER
+	var icon := _icon_kind()
+	var bar_a := _bar_alpha(heavy)
+	if not dead and (bar_a > 0.0 or icon != EnemyUi.Icon.NONE or _bounce_t > 0.0) or not _numbers.is_empty():
+		_bb.visible = true
+		_bb.global_rotation = -Enemies.cam_rot(self)
+		var sig := int(clampf(hp / max_hp, 0.0, 1.0) * 48.0) | (int(bar_a * 8.0) << 8) | (icon << 12) | (int(_icon_pop() * 8.0) << 14) \
+			| (int(_bounce_t * 30.0) << 22)
+		if not _numbers.is_empty():
+			sig = randi()
+		if sig != _bb_sig:
+			_bb_sig = sig
+			_bb.queue_redraw()
+	elif _bb.visible:
+		_bb.visible = false
+		_bb_sig = -1
+
+
+func _bar_alpha(heavy: bool) -> float:
+	if state == State.DEAD:
+		return 0.0
+	if heavy and (_engaged() or hp < max_hp):
+		return 1.0
+	return clampf((3.5 - _dmg_t) / 0.8, 0.0, 1.0)
+
+
+func _icon_kind() -> int:
+	if state == State.DEAD:
+		return EnemyUi.Icon.NONE
+	if _engaged():
+		return EnemyUi.Icon.ALERT if (_aware_t < 2.5 or kind == Kind.BILE_SPITTER) else EnemyUi.Icon.NONE
+	if state == State.SEARCH:
+		return EnemyUi.Icon.SUSPICIOUS
+	return EnemyUi.Icon.NONE
+
+
+func _icon_pop() -> float:
+	return 1.0 + 0.5 * clampf(1.0 - _aware_t / 0.35, 0.0, 1.0) if _engaged() else 1.0
+
+
+## Melee wind-up arc, bile target circle, stun stars (enemy-local frame).
+func _draw_tele() -> void:
+	var s := radius / 15.0
 	if state == State.ATTACK and not _struck:
-		_draw_melee_telegraph()
-	var moving := clampf(velocity.length() / (run_speed * PX), 0.0, 1.0) if not dead else 0.0
-	var gait := sin(_walk_phase) * moving
-	var plate := body.lightened(0.18)
-	var armored: bool = _cfg.armor > 0
-
-	# Six legs: two segments with a knee (two tripods alternate).
-	for i in 3:
-		var y := -6.0 + i * 7.0
-		var phase := gait if i % 2 == 0 else -gait
-		for side in [-1.0, 1.0]:
-			var p: float = phase * side
-			var root := Vector2(side * 6.0, y)
-			var knee := Vector2(side * 14.0, y + (i - 1) * 3.0 - 3.0 + p * 3.0)
-			var tip := Vector2(side * 18.0, y + (i - 1) * 6.0 + 2.0 + p * 5.0)
-			draw_polyline(PackedVector2Array([root, knee, tip]), OUTLINE, 3.8)
-			draw_polyline(PackedVector2Array([root, knee, tip]), dark, 2.1)
-			draw_circle(knee, 1.5, body.darkened(0.1))
-			draw_line(tip, tip + Vector2(side * 2.5, 1.5), OUTLINE, 1.6)
-
-	match kind:
-		Kind.BILE_SPITTER:
-			# Huge glowing bile sac behind, with veins.
-			var pulse := 1.0 + 0.06 * sin(Time.get_ticks_msec() * 0.008)
-			var sac := Color(0.75, 0.85, 0.2) if not dead else dark
-			_ell(Vector2(0, 14), Vector2(12, 14) * pulse, sac)
-			_ell(Vector2(0, 16), Vector2(7, 8) * pulse, Color(0.9, 1.0, 0.4, 0.8) if not dead else dark, false)
-			if not dead:
-				for a in [-0.8, 0.0, 0.8]:
-					draw_line(Vector2(0, 16), Vector2(sin(a) * 10.0, 16.0 + cos(a) * 8.0), Color(0.45, 0.6, 0.1, 0.8), 1.0)
-			_ell(Vector2(0, 5), Vector2(8, 5), dark)
-		Kind.HUNTER:
-			_ell(Vector2(0, 11), Vector2(6, 9), dark)
-			draw_line(Vector2(-4, 10), Vector2(4, 10), OUTLINE, 1.0)
-			draw_line(Vector2(-4, 14), Vector2(4, 14), OUTLINE, 1.0)
-		_:
-			_ell(Vector2(0, 11), Vector2(8, 10), dark) # abdomen
-			for yy in [8.0, 12.0, 16.0]:
-				draw_line(Vector2(-6, yy), Vector2(6, yy), OUTLINE, 1.0)
-	# Thorax with plates.
-	_ell(Vector2(0, -1), Vector2(9, 9), body)
-	draw_line(Vector2(-7, -1), Vector2(7, -1), dark, 1.5)
-	if armored:
-		# Overlapping carapace plates with highlights and rivets.
-		var pl := plate
-		for k in 3:
-			var yy := -5.0 + k * 4.5
-			var w := 8.5 - absf(k - 1) * 1.5
-			_ell(Vector2(0, yy), Vector2(w, 3.2), pl.darkened(k * 0.08), true)
-			draw_line(Vector2(-w * 0.7, yy - 1.6), Vector2(w * 0.7, yy - 1.6), pl.lightened(0.35), 1.0)
-		for side in [-1.0, 1.0]:
-			_ell(Vector2(side * 9.0, -3.0), Vector2(3.4, 5.0), pl.darkened(0.12)) # shoulder plates
-			draw_circle(Vector2(side * 9.0, -4.0), 0.9, pl.lightened(0.4))
-		if kind == Kind.WARRIOR:
-			for side in [-1.0, 1.0]:
-				draw_colored_polygon(PackedVector2Array([Vector2(side * 4, 4), Vector2(side * 7, 9), Vector2(side * 2, 7)]), pl.darkened(0.3))
-	else:
-		draw_circle(Vector2(-2.5, -4.0), 2.2, body.lightened(0.3))
-	# Head + mandibles / claws.
-	var head_c := Vector2(0, -11)
-	var reach := 0.0
-	if state == State.ATTACK:
-		reach = clampf(_attack_t / _cfg.windup, 0.0, 1.0)
-	elif state == State.LEAP:
-		reach = 1.0
-	if kind == Kind.HUNTER:
-		for side in [-1.0, 1.0]:
-			var base := Vector2(side * 5.0, -8.0)
-			var mid := Vector2(side * (11.0 - reach * 3.0), -17.0 - reach * 3.0)
-			var tip := Vector2(side * (7.0 - reach * 4.0), -25.0 - reach * 7.0)
-			draw_polyline(PackedVector2Array([base, mid, tip]), OUTLINE, 3.8)
-			draw_polyline(PackedVector2Array([base, mid, tip]), body.lightened(0.25), 2.0)
-	_ell(head_c, Vector2(6, 5.5), body.darkened(0.15))
-	if armored:
-		draw_arc(head_c, 4.5, PI * 1.15, PI * 1.85, 8, plate.lightened(0.3), 1.2)
-	for side in [-1.0, 1.0]:
-		var open := 0.5 + reach * 0.6
-		var m0 := head_c + Vector2(side * 3.0, -3.0)
-		var m1 := head_c + Vector2(side * (3.0 + 4.0 * open), -9.0)
-		draw_line(m0, m1, OUTLINE, 3.0)
-		draw_line(m0, m1, Color(0.8, 0.72, 0.55) if not dead else dark, 1.4)
-		var eye := Color(1.0, 0.18, 0.1) if (aware and not dead) else Color(0.1, 0.05, 0.04)
-		draw_circle(head_c + Vector2(side * 2.6, -1.0), 1.3, eye)
-	if kind == Kind.BILE_SPITTER and state == State.SPIT:
-		draw_circle(head_c + Vector2(0, -6), 2.0 + _special_t * 4.0, Color(0.8, 1.0, 0.3, 0.8))
+		var k := clampf(_attack_t / _cfg.windup, 0.0, 1.0)
+		var reach_px: float = radius + (_cfg.reach + 0.25) * PX
+		var a0 := -PI / 2.0 - deg_to_rad(70.0)
+		var a1 := -PI / 2.0 + deg_to_rad(70.0)
+		_tele.draw_arc(Vector2.ZERO, reach_px, a0, a1, 14, Color(1, 0.25, 0.1, 0.25 + 0.5 * k), 3.0)
+		_tele.draw_arc(Vector2.ZERO, reach_px * k, a0, a1, 14, Color(1, 0.3, 0.1, 0.35), 2.0)
+	if state == State.SPIT and _player != null:
+		var tp := to_local(_player.global_position)
+		var k := clampf(_special_t / SPIT_WINDUP, 0.0, 1.0)
+		var rr := 1.8 * PX
+		_tele.draw_circle(tp, rr, Color(0.6, 0.85, 0.15, 0.1 + 0.18 * k))
+		_tele.draw_arc(tp, rr, 0.0, TAU, 32, Color(0.75, 1.0, 0.25, 0.8), 2.5)
+		_tele.draw_arc(tp, rr * (1.0 - k * 0.85), 0.0, TAU, 28, Color(1.0, 0.95, 0.3, 0.9), 3.0)
+		var from := Vector2(0, -radius)
+		var steps := 10
+		for i in steps:
+			if i % 2 == 0:
+				var a := from.lerp(tp, float(i) / steps)
+				var b := from.lerp(tp, float(i + 1) / steps)
+				_tele.draw_line(a, b, Color(0.8, 1.0, 0.3, 0.45), 2.0)
 	if is_stunned():
 		var a := Time.get_ticks_msec() * 0.006
 		for i in 3:
-			draw_circle(head_c + Vector2.from_angle(a + i * TAU / 3.0) * 9.0, 1.6, UiStyle.YELLOW)
-	if not dead and hp < max_hp * 0.5:
-		# Wounds: goo blots on the thorax.
-		var gc: Color = BLOOD[kind]
-		draw_circle(Vector2(3.5, 0.5), 2.0, Color(gc, 0.8))
-		draw_circle(Vector2(-4.0, 6.0), 1.5, Color(gc, 0.8))
-	draw_set_transform(Vector2.ZERO)
-	if state == State.SPIT:
-		_draw_spit_telegraph()
-	if not dead:
-		_draw_billboards()
-	_draw_numbers()
+			_tele.draw_circle(Vector2(0, -11.0 * s) + Vector2.from_angle(a + i * TAU / 3.0) * 9.0 * s, 1.6 * s, UiStyle.YELLOW)
 
 
-## Melee wind-up: red arc in front that fills toward the strike.
-func _draw_melee_telegraph() -> void:
-	var k := clampf(_attack_t / _cfg.windup, 0.0, 1.0)
-	var reach_px: float = radius + (_cfg.reach + 0.25) * PX
-	var a0 := -PI / 2.0 - deg_to_rad(70.0)
-	var a1 := -PI / 2.0 + deg_to_rad(70.0)
-	draw_set_transform(Vector2.ZERO)
-	draw_arc(Vector2.ZERO, reach_px, a0, a1, 14, Color(1, 0.25, 0.1, 0.25 + 0.5 * k), 3.0)
-	draw_arc(Vector2.ZERO, reach_px * k, a0, a1, 14, Color(1, 0.3, 0.1, 0.35), 2.0)
-	draw_set_transform_matrix(_base)
-
-
-## Bile spitter: target circle at the player with a shrinking ring and a lobbed-arc hint.
-func _draw_spit_telegraph() -> void:
-	if _player == null:
-		return
-	var tp := to_local(_player.global_position)
-	var k := clampf(_special_t / SPIT_WINDUP, 0.0, 1.0)
-	var rr := 1.8 * PX
-	draw_circle(tp, rr, Color(0.6, 0.85, 0.15, 0.1 + 0.18 * k))
-	draw_arc(tp, rr, 0.0, TAU, 32, Color(0.75, 1.0, 0.25, 0.8), 2.5)
-	draw_arc(tp, rr * (1.0 - k * 0.85), 0.0, TAU, 28, Color(1.0, 0.95, 0.3, 0.9), 3.0)
-	var from := Vector2(0, -radius)
-	var steps := 10
-	for i in steps:
-		if i % 2 == 0:
-			var a := from.lerp(tp, float(i) / steps)
-			var b := from.lerp(tp, float(i + 1) / steps)
-			draw_line(a, b, Color(0.8, 1.0, 0.3, 0.45), 2.0)
-
-
-## Screen-aligned icons: awareness (?/!), ricochet shield, HP bar.
-func _draw_billboards() -> void:
-	draw_set_transform(Vector2.ZERO, -get_viewport().get_canvas_transform().get_rotation() - global_rotation)
-	var font := ThemeDB.fallback_font
+## Screen-aligned: HP bar, awareness icon, ricochet shield, damage numbers.
+func _draw_bb() -> void:
 	var top := -radius - 14.0
 	var heavy: bool = kind == Kind.BILE_SPITTER
-	if _dmg_t < 3.5 or (heavy and _engaged()) or (hp < max_hp and heavy):
-		var w := 40.0 if heavy else 28.0
-		var a := 1.0 if heavy else clampf((3.5 - _dmg_t) / 0.8, 0.0, 1.0)
-		var r := Rect2(-w * 0.5, top - 4.0, w, 6.0)
-		draw_rect(r.grow(1.5), Color(0, 0, 0, 0.7 * a))
-		var f := clampf(hp / max_hp, 0.0, 1.0)
-		var col := Color(0.4, 0.9, 0.3, a) if f > 0.5 else (Color(1, 0.8, 0.1, a) if f > 0.25 else Color(0.95, 0.2, 0.15, a))
-		draw_rect(Rect2(r.position, Vector2(r.size.x * f, r.size.y)), col)
-		if heavy:
-			draw_rect(r, Color(1, 1, 1, 0.3), false, 1.0)
+	var a := _bar_alpha(heavy)
+	if a > 0.0:
+		EnemyUi.hp_bar(_bb, top - 4.0, 40.0 if heavy else 28.0, 6.0, hp / max_hp, a, heavy)
 		top -= 10.0
-	# Awareness icon.
-	var icon := ""
-	var icol := UiStyle.YELLOW
-	var pop := 1.0
-	if _engaged():
-		icon = "!"
-		icol = Color(1.0, 0.25, 0.15)
-		pop = 1.0 + 0.5 * clampf(1.0 - _aware_t / 0.35, 0.0, 1.0)
-	elif state == State.SEARCH:
-		icon = "?"
-	if icon != "" and (not _engaged() or _aware_t < 2.5 or heavy):
-		var ic := Vector2(0, top - 8.0)
-		var rr := 9.0 * pop
-		draw_circle(ic, rr + 1.5, Color(0.05, 0.04, 0.04, 0.9))
-		draw_circle(ic, rr, Color(icol, 0.9))
-		draw_string(font, ic + Vector2(-rr, 6.0 * pop), icon, HORIZONTAL_ALIGNMENT_CENTER, rr * 2.0, int(17 * pop), Color(0.08, 0.05, 0.03))
-	# Ricochet shield.
+	var icon := _icon_kind()
+	if icon != EnemyUi.Icon.NONE:
+		EnemyUi.icon(_bb, icon, Vector2(0, top - 8.0), 9.0, 1.0, _icon_pop())
 	if _bounce_t > 0.0:
-		var a := clampf(_bounce_t / 0.3, 0.0, 1.0)
-		var c := Vector2(radius * 0.9 + 6.0, -radius * 0.5 - (0.7 - _bounce_t) * 22.0)
-		var shield := PackedVector2Array([c + Vector2(-6, -7), c + Vector2(6, -7), c + Vector2(6, 1), c + Vector2(0, 8), c + Vector2(-6, 1)])
-		var sh_o := PackedVector2Array()
-		for v in shield:
-			sh_o.append(c + (v - c) * 1.3)
-		draw_colored_polygon(sh_o, Color(0.05, 0.05, 0.05, 0.9 * a))
-		draw_colored_polygon(shield, Color(1.0, 0.88, 0.2, a))
-		draw_line(c + Vector2(-4, 4), c + Vector2(4, -4), Color(0.1, 0.08, 0.04, a), 2.0)
-	draw_set_transform(Vector2.ZERO)
-
-
-func _draw_numbers() -> void:
-	if _numbers.is_empty():
-		return
-	var font := ThemeDB.fallback_font
-	draw_set_transform(Vector2.ZERO, -get_viewport().get_canvas_transform().get_rotation() - global_rotation)
-	for n in _numbers:
-		var a: float = 1.0 - n.t / 0.9
-		var col := Color(1, 0.35, 0.2, a) if n.crit else Color(1, 0.95, 0.5, a)
-		draw_string(font, Vector2(n.x - 50, -radius - 12 - n.t * 40.0), n.text, HORIZONTAL_ALIGNMENT_CENTER, 100, 20 if n.crit else 16, col)
-	draw_set_transform(Vector2.ZERO)
+		var ba := clampf(_bounce_t / 0.3, 0.0, 1.0)
+		EnemyUi.shield(_bb, Vector2(radius * 0.9 + 6.0, -radius * 0.5 - (0.7 - _bounce_t) * 22.0), ba)
+	if not _numbers.is_empty():
+		EnemyUi.numbers(_bb, _numbers, -radius - 12.0, Color(1, 0.35, 0.2), 16)

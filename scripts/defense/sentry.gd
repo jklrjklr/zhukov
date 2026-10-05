@@ -92,15 +92,14 @@ func _fire() -> void:
 	Sfx.play("sentry_shot", muzzle, -6.0, 0.05)
 	_flash = 0.04
 	if ammo % 10 == 0:
-		get_tree().call_group("enemies", "hear", global_position, 90.0, 10.0)
+		Enemies.broadcast_sound(global_position, 90.0, 10.0)
 
 
 func _find_target() -> Node2D:
 	var space := get_world_2d().direct_space_state
 	var best: Node2D = null
 	var best_d := RANGE_M * PX
-	for e in get_tree().get_nodes_in_group("enemies"):
-		var n := e as Node2D
+	for n in Enemies.list:
 		var d := global_position.distance_to(n.global_position)
 		if d >= best_d:
 			continue

@@ -186,22 +186,55 @@ func _cast_rays() -> void:
 			_ends[i] = (hit.position as Vector2) + _forward.rotated(a) * 10.0
 
 
+## Concealment: the LOS ray of each concealable (enemies, dummies) is cast every
+## CONCEAL_EVERY s (half of them per step, alternating); the fade itself runs every frame.
+const CONCEAL_EVERY := 0.05
+var _conceal_t := 0.0
+var _conceal_parity := 0
+var _c_items: Array = []
+var _c_target: Dictionary = {}
+
+
 func _update_concealment(delta: float) -> void:
+	_conceal_t -= delta
+	if _conceal_t <= 0.0:
+		_conceal_t = CONCEAL_EVERY
+		_conceal_parity ^= 1
+		if _conceal_parity == 0:
+			_c_items = get_tree().get_nodes_in_group("concealable")
+			for k in _c_target.keys():
+				if not is_instance_valid(k):
+					_c_target.erase(k)
+		_retarget()
+	for item in _c_items:
+		if not is_instance_valid(item):
+			continue
+		var ci := item as CanvasItem
+		var target: float = _c_target.get(item, ci.modulate.a)
+		if ci.modulate.a != target:
+			ci.modulate.a = move_toward(ci.modulate.a, target, delta * 5.0)
+			ci.visible = ci.modulate.a > 0.01
+
+
+func _retarget() -> void:
 	var space := get_world_2d().direct_space_state
-	for n in get_tree().get_nodes_in_group("concealable"):
-		var item := n as CanvasItem
-		var to: Vector2 = item.global_position - _origin
+	var i := _conceal_parity
+	while i < _c_items.size():
+		var item = _c_items[i]
+		i += 2
+		if not is_instance_valid(item):
+			continue
+		var to: Vector2 = (item as Node2D).global_position - _origin
 		var meters := to.length() / PX
 		var target := 0.0
 		if meters <= view_distance and absf(_forward.angle_to(to)) <= _half_fov:
-			var q := PhysicsRayQueryParameters2D.create(_origin, item.global_position, SIGHT_MASK)
+			var q := PhysicsRayQueryParameters2D.create(_origin, (item as Node2D).global_position, SIGHT_MASK)
 			q.exclude = [_player.get_rid()]
 			if space.intersect_ray(q).is_empty():
 				target = 1.0
 		if target < 1.0:
 			target = (1.0 - smoothstep(sense_full, sense_start, meters)) * sense_alpha
-		item.modulate.a = move_toward(item.modulate.a, target, delta * 5.0)
-		item.visible = item.modulate.a > 0.01
+		_c_target[item] = target
 
 
 func _draw() -> void:

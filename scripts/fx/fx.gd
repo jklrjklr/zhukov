@@ -3,8 +3,9 @@ extends Node2D
 ## Central visual effects (graphics pass). One instance per scene, created lazily by the
 ## static helpers (Fx.explosion(self, ...)); gameplay code only calls the helpers.
 ## - Persistent decals (blood, pools, scorch, bile, casings, bullet pocks): ring buffer
-##   capped at DECAL_CAP, the oldest ones fade out. Drawn by one canvas item that is only
-##   re-recorded when a decal was added or is fading (never every frame).
+##   capped at DECAL_CAP, the oldest ones fade out. Stored in chunks of DECAL_CHUNK decals,
+##   one canvas item per chunk: a new decal only re-records the newest chunk, fading ones only
+##   their own chunks, and nothing is re-recorded while nothing changes.
 ## - Particles (dust, smoke, debris, sparks, flashes, shockwave rings): pooled dictionaries,
 ##   hard cap PARTICLE_CAP, drawn in two batched canvas items: LOW (under the sight
 ##   darkness: blood, dust, smoke) and HIGH (unshaded, glows through the dark: flashes,
@@ -12,6 +13,7 @@ extends Node2D
 ## - Screen shake (small, capped, respects Game.shake_enabled) and optional hit-stop.
 
 const DECAL_CAP := 300
+const DECAL_CHUNK := 32
 const FADE_TIME := 4.0
 const PARTICLE_CAP := 380
 const SHAKE_MAX := 12.0
@@ -27,13 +29,12 @@ enum P { DOT, SPARK, CHIP, RING, FLASH }
 
 static var _inst: Fx
 
-var _decal_node: Node2D
+var _chunks: Array = [] # {n: Node2D, items: Array[Dictionary], dirty: bool}
 var _low: Node2D
 var _high: Node2D
 var _decals: Array[Dictionary] = []
 var _live := 0
 var _fading := 0
-var _dirty := false
 var _redraw_cd := 0.0
 var _low_p: Array[Dictionary] = []
 var _high_p: Array[Dictionary] = []
@@ -210,8 +211,6 @@ static func particle_count() -> int:
 
 func _init() -> void:
 	process_mode = Node.PROCESS_MODE_PAUSABLE
-	_decal_node = _layer(-8, false)
-	_decal_node.draw.connect(_draw_decals)
 	_low = _layer(9, false)
 	_low.draw.connect(_draw_low)
 	_high = _layer(13, true)
@@ -274,16 +273,23 @@ func add_decal(kind: String, pos: Vector2, rot: float, size: float, col: Color) 
 				hl.append(Vector3(q.x, q.y, 0.7))
 		"casing":
 			pass
-	_decals.append({"k": kind, "p": pos, "r": rot, "s": size, "c": col, "b": blobs, "h": hl, "f": -1.0})
+	var d := {"k": kind, "p": pos, "r": rot, "s": size, "c": col, "b": blobs, "h": hl, "f": -1.0}
+	_decals.append(d)
+	var ch: Dictionary = _chunks.back() if not _chunks.is_empty() else {}
+	if ch.is_empty() or (ch.items as Array).size() >= DECAL_CHUNK:
+		ch = {"n": _layer(-8, false), "items": [], "dirty": false}
+		(ch.n as Node2D).draw.connect(_draw_chunk.bind(ch))
+		_chunks.append(ch)
+	(ch.items as Array).append(d)
+	ch.dirty = true
 	_live += 1
 	if _live > DECAL_CAP:
-		for d in _decals:
-			if (d.f as float) < 0.0:
-				d.f = 0.0
+		for o in _decals:
+			if (o.f as float) < 0.0:
+				o.f = 0.0
 				_live -= 1
 				_fading += 1
 				break
-	_dirty = true
 
 
 func _update_decals(delta: float) -> void:
@@ -295,20 +301,35 @@ func _update_decals(delta: float) -> void:
 				d.f = f + delta
 				if f + delta >= FADE_TIME:
 					gone = true
+		for ch in _chunks:
+			for d in ch.items:
+				if (d.f as float) >= 0.0:
+					ch.dirty = true
+					break
 		if gone:
 			_decals = _decals.filter(func(d): return (d.f as float) < FADE_TIME)
 			_fading = _decals.size() - _live
-		_dirty = true
+			var keep: Array = []
+			for ch in _chunks:
+				ch.items = (ch.items as Array).filter(func(d): return (d.f as float) < FADE_TIME)
+				if (ch.items as Array).is_empty() and ch != _chunks.back():
+					(ch.n as Node2D).queue_free()
+				else:
+					ch.dirty = true
+					keep.append(ch)
+			_chunks = keep
 	_redraw_cd -= delta
-	if _dirty and _redraw_cd <= 0.0:
-		_dirty = false
+	if _redraw_cd <= 0.0:
 		_redraw_cd = 0.1
-		_decal_node.queue_redraw()
+		for ch in _chunks:
+			if ch.dirty:
+				ch.dirty = false
+				(ch.n as Node2D).queue_redraw()
 
 
-func _draw_decals() -> void:
-	var n := _decal_node
-	for d in _decals:
+func _draw_chunk(ch: Dictionary) -> void:
+	var n: Node2D = ch.n
+	for d in ch.items:
 		var a := 1.0
 		var f: float = d.f
 		if f >= 0.0:
