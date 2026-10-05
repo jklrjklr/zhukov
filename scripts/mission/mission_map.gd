@@ -1,35 +1,42 @@
 class_name MissionMap
 extends Node2D
-## Sample mission map, 200 x 200 m, built from a fixed seed.
+## Defense map "Bright Harbor", 160 x 160 m, built from a fixed seed.
 ## Layout (north = up):
-##   - Drop zone (south), dirt roads joining every point of interest
-##   - Ruined outpost (west-centre) with radio terminal A
-##   - Rocky ridge (east) with radio terminal B
-##   - Forest (north-east) around a clearing with 3 Automaton fabricators
-##   - Extraction pad (north-west) with its console
-##   - Ammo boxes at points of interest, crates, rock fields and scattered forests
-## Draws all static ground/rocks/walls in one canvas item; trees, crates, nests and
+##   - Evacuation site in the centre-south: 56 x 44 m walled compound with three gates
+##     (west, north, east; the south wall backs onto cliffs). Inside: 3 generators,
+##     the evac rocket pad, the Pelican pad with its console, ammo boxes, drop zone.
+##   - Barricades and crates in front of every gate (cover and chokepoints).
+##   - Roads from each gate out to the warp-ship landing zones (north, west, east,
+##     north-west, north-east), rocks, ruins and groves on the approaches.
+## Draws all static ground/rocks/walls in one canvas item; trees, crates and
 ## interactables are their own nodes. Keeps simple shapes for the map overlay.
 
 const PX := Firearm.PX_PER_M
-const HALF_M := 100.0
+const HALF_M := 80.0
 const HALF := HALF_M * PX
 
-const GROUND := Color(0.21, 0.26, 0.17)
+const GROUND := Color(0.24, 0.25, 0.2)
 const DIRT := Color(0.36, 0.31, 0.22)
 const CONCRETE := Color(0.42, 0.41, 0.38)
-const WALL := Color(0.5, 0.48, 0.44)
+const WALL := Color(0.52, 0.5, 0.46)
+const GATE_W_M := 7.0
 
-## Points of interest (px).
-var drop_zone := Vector2(0, 80) * PX
-var outpost := Vector2(-50, 5) * PX
-var ridge := Vector2(60, -12) * PX
-var nest_clearing := Vector2(55, -70) * PX
-var extraction := Vector2(-60, -78) * PX
+## Base (px).
+var base_rect := Rect2(Vector2(-28, -12) * PX, Vector2(56, 44) * PX)
+var base_center := Vector2(0, 10) * PX
+## {pos, normal (outward)}
+var gates: Array[Dictionary] = []
+var generator_spots: Array[Vector2] = []
+var rocket_pad := Vector2(0, 6) * PX
+var drop_zone := Vector2(-12, 22) * PX
+var extraction := Vector2(14, 21) * PX
+var console_spot := Vector2(23, 27) * PX
+var ammo_spots: Array[Vector2] = []
+## Warp-ship landing zones.
+var spawn_points: Array[Vector2] = []
+## Unused by this map (kept for the HUD/mission API).
 var terminal_spots: Array[Vector2] = []
 var nest_spots: Array[Vector2] = []
-var console_spot := Vector2.ZERO
-var ammo_spots: Array[Vector2] = []
 
 ## Overlay/minimap data.
 var roads: Array[PackedVector2Array] = []
@@ -45,24 +52,29 @@ var _patches: Array[Dictionary] = []
 
 
 func _ready() -> void:
-	_rng.seed = 20261004
-	terminal_spots = [outpost + Vector2(6, -3) * PX, ridge + Vector2(0, 2) * PX]
-	for i in 3:
-		nest_spots.append(nest_clearing + Vector2.from_angle(TAU * i / 3.0 + 0.4) * 7.0 * PX)
-	console_spot = extraction + Vector2(9, 0) * PX
-	ammo_spots = [drop_zone + Vector2(4, -3) * PX, outpost + Vector2(-8, 6) * PX,
-		ridge + Vector2(-6, 6) * PX, extraction + Vector2(-8, 4) * PX, Vector2(10, -30) * PX]
+	_rng.seed = 20261005
+	gates = [
+		{"pos": Vector2(-28, 10) * PX, "normal": Vector2.LEFT, "name": "west"},
+		{"pos": Vector2(0, -12) * PX, "normal": Vector2.UP, "name": "north"},
+		{"pos": Vector2(28, 10) * PX, "normal": Vector2.RIGHT, "name": "east"},
+	]
+	generator_spots = [Vector2(-17, -3) * PX, Vector2(17, -3) * PX, Vector2(-1, 25) * PX]
+	ammo_spots = [Vector2(-24, 28) * PX, Vector2(-23, -8) * PX, Vector2(23, -8) * PX, Vector2(6, 14) * PX]
+	spawn_points = [Vector2(0, -66) * PX, Vector2(-66, 4) * PX, Vector2(66, 4) * PX,
+		Vector2(-52, -52) * PX, Vector2(52, -52) * PX]
 
-	for p in [drop_zone, outpost, ridge, nest_clearing, extraction]:
-		_clear.append({"pos": p, "r": 14.0 * PX})
-	_clear[3].r = 11.0 * PX # nest clearing
+	_clear.append({"pos": base_center, "r": 40.0 * PX})
+	for g in gates:
+		_clear.append({"pos": g.pos + (g.normal as Vector2) * 10.0 * PX, "r": 9.0 * PX})
+	for p in spawn_points:
+		_clear.append({"pos": p, "r": 10.0 * PX})
 
 	_build_roads()
-	_build_outpost()
-	_build_ridge()
+	_build_base()
+	_build_barricades()
+	_build_ruins()
 	_build_forests()
 	_build_rock_fields()
-	_build_crates()
 	_build_border()
 	_build_patches()
 	queue_redraw()
@@ -89,70 +101,131 @@ func random_point_near(around: Vector2, min_m: float, max_m: float, tries := 30)
 	return Vector2.INF
 
 
+func is_inside_base(p: Vector2) -> bool:
+	return base_rect.grow(-0.6 * PX).has_point(p)
+
+
+## Next waypoint for a ground unit going from `from` to `to`: through a gate when one
+## of them is inside the walls and the other is not.
+func route(from: Vector2, to: Vector2) -> Vector2:
+	var in_from := is_inside_base(from)
+	var in_to := is_inside_base(to)
+	if in_from == in_to:
+		return to
+	var best: Dictionary = gates[0]
+	var best_cost := INF
+	for g in gates:
+		var cost := from.distance_to(g.pos) + (g.pos as Vector2).distance_to(to)
+		if cost < best_cost:
+			best_cost = cost
+			best = g
+	var n: Vector2 = best.normal
+	var outer: Vector2 = best.pos + n * 4.0 * PX
+	var inner: Vector2 = best.pos - n * 3.0 * PX
+	var first := inner if in_from else outer
+	var second := outer if in_from else inner
+	# In the gate lane (lined up with the gap): go straight through.
+	var rel := from - (best.pos as Vector2)
+	var along := rel.dot(n)
+	var across := absf(rel.cross(n))
+	if across < GATE_W_M * 0.35 * PX and absf(along) < 5.0 * PX:
+		return second
+	return first
+
+
 func _build_roads() -> void:
-	var hub := Vector2(-5, -20) * PX
-	for target in [drop_zone, outpost, ridge, nest_clearing + Vector2(-12, 10) * PX, extraction]:
-		var pts := PackedVector2Array()
-		var a: Vector2 = hub
-		var b: Vector2 = target
-		var n := 12
-		var bend := Vector2(_rng.randf_range(-8, 8), _rng.randf_range(-8, 8)) * PX
-		for i in n + 1:
-			var t := float(i) / n
-			pts.append(a.lerp(b, t) + bend * sin(t * PI))
-		roads.append(pts)
-		for p in pts:
-			_clear.append({"pos": p, "r": 3.5 * PX})
+	for g in gates:
+		var a: Vector2 = g.pos + (g.normal as Vector2) * 1.0 * PX
+		var targets: Array[Vector2] = []
+		for s in spawn_points:
+			if (s - a).normalized().dot(g.normal) > 0.3:
+				targets.append(s)
+		for b in targets:
+			var pts := PackedVector2Array()
+			var n := 12
+			var bend := Vector2(_rng.randf_range(-6, 6), _rng.randf_range(-6, 6)) * PX
+			for i in n + 1:
+				var t := float(i) / n
+				pts.append(a.lerp(b, t) + bend * sin(t * PI))
+			roads.append(pts)
+			for p in pts:
+				_clear.append({"pos": p, "r": 3.5 * PX})
 
 
-## Ruined compound: 30 x 22 m, broken walls with gaps, concrete floor.
-func _build_outpost() -> void:
-	var o := outpost
-	var w := 15.0 * PX
-	var h := 11.0 * PX
-	var t := 0.6 * PX
-	floors.append(Rect2(o - Vector2(w, h), Vector2(w, h) * 2))
-	# Outer walls as segments with gaps (doors and breaches).
+func _build_base() -> void:
+	var r := base_rect
+	floors.append(r)
+	var t := 0.8 * PX
+	var gw := GATE_W_M * PX / 2.0
+	var l := r.position.x
+	var rt := r.end.x
+	var top := r.position.y
+	var bot := r.end.y
+	var gy: float = (gates[0].pos as Vector2).y
 	var segs := [
-		[Vector2(-w, -h), Vector2(-4 * PX, -h)], [Vector2(3 * PX, -h), Vector2(w, -h)],
-		[Vector2(-w, h), Vector2(-8 * PX, h)], [Vector2(-2 * PX, h), Vector2(w, h)],
-		[Vector2(-w, -h), Vector2(-w, -2 * PX)], [Vector2(-w, 3 * PX), Vector2(-w, h)],
-		[Vector2(w, -h), Vector2(w, 0)], [Vector2(w, 5 * PX), Vector2(w, h)],
-		# Interior
-		[Vector2(-3 * PX, -h), Vector2(-3 * PX, -2 * PX)], [Vector2(-3 * PX, 3 * PX), Vector2(-3 * PX, h)],
-		[Vector2(-3 * PX, 0), Vector2(3 * PX, 0)],
+		[Vector2(l, top), Vector2(-gw, top)], [Vector2(gw, top), Vector2(rt, top)], # north
+		[Vector2(l, bot), Vector2(rt, bot)], # south
+		[Vector2(l, top), Vector2(l, gy - gw)], [Vector2(l, gy + gw), Vector2(l, bot)], # west
+		[Vector2(rt, top), Vector2(rt, gy - gw)], [Vector2(rt, gy + gw), Vector2(rt, bot)], # east
+		# Interior: low dividers around the rocket pad (cover inside the base)
+		[Vector2(-9, 13) * PX, Vector2(-4, 13) * PX], [Vector2(4, 13) * PX, Vector2(9, 13) * PX],
 	]
 	for s in segs:
-		var a: Vector2 = o + s[0]
-		var b: Vector2 = o + s[1]
-		var r := Rect2(a, Vector2.ZERO).expand(b).grow(t / 2.0)
-		_add_wall(r)
+		var a: Vector2 = s[0]
+		var b: Vector2 = s[1]
+		_add_wall(Rect2(a, Vector2.ZERO).expand(b).grow(t / 2.0))
+	# Watch towers at the corners
+	for c in [r.position, Vector2(rt, top), Vector2(l, bot), r.end]:
+		_add_wall(Rect2(c - Vector2(1.4, 1.4) * PX, Vector2(2.8, 2.8) * PX))
 
 
-func _build_ridge() -> void:
-	# Arc of big rocks shielding terminal B from the east and north.
-	for i in 9:
-		var a := -PI * 0.9 + i * PI * 0.12
-		var p := ridge + Vector2.from_angle(a) * _rng.randf_range(11, 14) * PX
-		_add_rock(p, _rng.randf_range(2.0, 3.5) * PX)
+## Barricade walls and crates outside every gate.
+func _build_barricades() -> void:
+	for g in gates:
+		var n: Vector2 = g.normal
+		var side := n.orthogonal()
+		var c: Vector2 = g.pos + n * 7.0 * PX
+		for k in [-1.0, 1.0]:
+			var p: Vector2 = c + side * k * 5.5 * PX
+			var half := (side * 2.0 + n * 0.4) * PX
+			_add_wall(Rect2(p - half.abs(), half.abs() * 2.0))
+		for k in [-1.0, 1.0]:
+			var cp: Vector2 = g.pos + n * 13.0 * PX + side * k * 3.0 * PX
+			var crate := Destructible.make(Destructible.Kind.CRATE)
+			crate.position = cp
+			add_child(crate)
+
+
+## Ruined buildings on the approaches (cover for both sides).
+func _build_ruins() -> void:
+	for spot in [Vector2(-38, -30), Vector2(36, -28), Vector2(-14, -40), Vector2(20, -46), Vector2(-46, 26), Vector2(48, 28)]:
+		var o: Vector2 = spot * PX
+		var w := _rng.randf_range(4.0, 6.0) * PX
+		var h := _rng.randf_range(3.0, 5.0) * PX
+		var t := 0.6 * PX
+		floors.append(Rect2(o - Vector2(w, h), Vector2(w, h) * 2))
+		var segs := [[Vector2(-w, -h), Vector2(w * 0.2, -h)], [Vector2(-w, -h), Vector2(-w, h * 0.3)],
+			[Vector2(w, -h * 0.2), Vector2(w, h)], [Vector2(-w * 0.3, h), Vector2(w, h)]]
+		for s in segs:
+			var a: Vector2 = o + s[0]
+			var b: Vector2 = o + s[1]
+			_add_wall(Rect2(a, Vector2.ZERO).expand(b).grow(t / 2.0))
+		_clear.append({"pos": o, "r": maxf(w, h) + 1.5 * PX})
 
 
 func _build_forests() -> void:
-	# Big forest around the nest clearing + scattered groves.
-	forest_areas.append({"pos": nest_clearing, "r": 32.0 * PX})
-	forest_areas.append({"pos": Vector2(-70, 40) * PX, "r": 18.0 * PX})
-	forest_areas.append({"pos": Vector2(40, 45) * PX, "r": 16.0 * PX})
-	forest_areas.append({"pos": Vector2(-25, -55) * PX, "r": 14.0 * PX})
-	forest_areas.append({"pos": Vector2(80, 70) * PX, "r": 15.0 * PX})
+	forest_areas.append({"pos": Vector2(-56, -26) * PX, "r": 14.0 * PX})
+	forest_areas.append({"pos": Vector2(58, -24) * PX, "r": 13.0 * PX})
+	forest_areas.append({"pos": Vector2(-30, 58) * PX, "r": 15.0 * PX})
+	forest_areas.append({"pos": Vector2(36, 58) * PX, "r": 14.0 * PX})
 	for f in forest_areas:
-		var count := int(pow(f.r / PX, 2) * 0.09)
+		var count := int(pow(f.r / PX, 2) * 0.08)
 		for i in count:
 			var p: Vector2 = f.pos + Vector2.from_angle(_rng.randf() * TAU) * sqrt(_rng.randf()) * f.r
 			if _blocked(p, 2.0 * PX) or _near_tree(p, 2.6 * PX):
 				continue
 			trees.append(p)
-	# Lone trees
-	for i in 40:
+	for i in 25:
 		var p := Vector2(_rng.randf_range(-HALF + 300, HALF - 300), _rng.randf_range(-HALF + 300, HALF - 300))
 		if not _blocked(p, 3.0 * PX) and not _near_tree(p, 4.0 * PX):
 			trees.append(p)
@@ -160,37 +233,25 @@ func _build_forests() -> void:
 		var tr := Destructible.make(Destructible.Kind.TREE)
 		tr.position = p
 		add_child(tr)
-	for p in nest_spots:
-		var nest := Destructible.make(Destructible.Kind.FABRICATOR)
-		nest.position = p
-		add_child(nest)
 
 
 func _build_rock_fields() -> void:
-	var fields := [Vector2(20, 30), Vector2(-80, -20), Vector2(75, 25), Vector2(-30, 55), Vector2(10, -60),
-		Vector2(-80, 75), Vector2(85, -40)]
+	var fields := [Vector2(-28, -28), Vector2(26, -36), Vector2(-62, -6), Vector2(62, 18), Vector2(0, -52),
+		Vector2(-60, 50), Vector2(60, 50)]
 	for c in fields:
 		var center: Vector2 = c * PX
-		for i in _rng.randi_range(4, 8):
-			var p := center + Vector2.from_angle(_rng.randf() * TAU) * _rng.randf_range(0, 10) * PX
+		for i in _rng.randi_range(3, 6):
+			var p := center + Vector2.from_angle(_rng.randf() * TAU) * _rng.randf_range(0, 8) * PX
 			if not _blocked(p, 3.0 * PX):
-				_add_rock(p, _rng.randf_range(0.8, 2.6) * PX)
-	for i in 50:
+				_add_rock(p, _rng.randf_range(0.8, 2.4) * PX)
+	for i in 30:
 		var p := Vector2(_rng.randf_range(-HALF + 200, HALF - 200), _rng.randf_range(-HALF + 200, HALF - 200))
 		if not _blocked(p, 3.0 * PX):
 			_add_rock(p, _rng.randf_range(0.5, 1.4) * PX)
-
-
-func _build_crates() -> void:
-	var spots := [outpost + Vector2(-10, -7) * PX, outpost + Vector2(10, 7) * PX, drop_zone + Vector2(-7, 2) * PX,
-		ridge + Vector2(4, 8) * PX, extraction + Vector2(-4, -9) * PX]
-	for s in spots:
-		for i in _rng.randi_range(2, 4):
-			var p: Vector2 = s + Vector2(_rng.randi_range(-1, 1), _rng.randi_range(-1, 1)) * 45.0
-			if not _hits_geometry(p, 26.0):
-				var c := Destructible.make(Destructible.Kind.CRATE)
-				c.position = p
-				add_child(c)
+	# Cliffs south of the base: a band of big rocks.
+	for i in 14:
+		var p := Vector2(-40 + i * 6.2, _rng.randf_range(38, 42)) * PX
+		_add_rock(p, _rng.randf_range(2.6, 3.6) * PX)
 
 
 func _build_border() -> void:
@@ -201,11 +262,11 @@ func _build_border() -> void:
 
 
 func _build_patches() -> void:
-	for i in 90:
+	for i in 70:
 		_patches.append({
 			"pos": Vector2(_rng.randf_range(-HALF, HALF), _rng.randf_range(-HALF, HALF)),
 			"r": _rng.randf_range(4, 14) * PX,
-			"col": GROUND.lightened(_rng.randf_range(-0.12, 0.1)),
+			"col": GROUND.lightened(_rng.randf_range(-0.1, 0.08)),
 		})
 
 
@@ -269,17 +330,6 @@ func _blocked(p: Vector2, margin: float) -> bool:
 	return false
 
 
-## Overlaps a rock or wall already placed (physics may not be updated yet in _ready).
-func _hits_geometry(p: Vector2, r: float) -> bool:
-	for w in walls:
-		if w.grow(r).has_point(p):
-			return true
-	for rk in rocks:
-		if p.distance_to(rk.pos) < (rk.r as float) + r:
-			return true
-	return false
-
-
 func _near_tree(p: Vector2, d: float) -> bool:
 	for t in trees:
 		if t.distance_squared_to(p) < d * d:
@@ -292,22 +342,32 @@ func _draw() -> void:
 	for p in _patches:
 		draw_circle(p.pos, p.r, p.col)
 	for f in forest_areas:
-		draw_circle(f.pos, f.r, Color(0.16, 0.22, 0.13))
+		draw_circle(f.pos, f.r, Color(0.17, 0.21, 0.14))
 	for road in roads:
 		draw_polyline(road, DIRT.darkened(0.15), 4.6 * PX)
 		draw_polyline(road, DIRT, 3.8 * PX)
 	for r in floors:
 		draw_rect(r, CONCRETE.darkened(0.25))
-	# Drop zone and extraction pad markings
-	draw_arc(drop_zone, 5.0 * PX, 0, TAU, 48, Color(1, 1, 1, 0.15), 6.0)
-	draw_circle(extraction, 8.0 * PX, CONCRETE.darkened(0.1))
-	draw_arc(extraction, 8.0 * PX, 0, TAU, 64, UiStyle.YELLOW.darkened(0.3), 10.0)
-	draw_arc(extraction, 5.5 * PX, 0, TAU, 64, Color(1, 1, 1, 0.25), 4.0)
-	draw_line(extraction + Vector2(-3, 0) * PX, extraction + Vector2(3, 0) * PX, Color(1, 1, 1, 0.3), 8.0)
-	draw_line(extraction + Vector2(0, -3) * PX, extraction + Vector2(0, 3) * PX, Color(1, 1, 1, 0.3), 8.0)
-	# Bot base: scorched metal plating
-	draw_circle(nest_clearing, 11.0 * PX, Color(0.17, 0.16, 0.16))
-	draw_arc(nest_clearing, 11.0 * PX, 0, TAU, 48, Color(0.6, 0.15, 0.1, 0.5), 6.0)
+	# Base markings: gate lanes, rocket pad, Pelican pad, drop zone
+	for g in gates:
+		var n: Vector2 = g.normal
+		var a: Vector2 = g.pos
+		draw_line(a - n * 2.0 * PX, a + n * 2.0 * PX, UiStyle.YELLOW.darkened(0.45), GATE_W_M * PX)
+		draw_line(a - n * 2.0 * PX, a + n * 2.0 * PX, CONCRETE.darkened(0.15), GATE_W_M * PX - 16.0)
+	draw_circle(rocket_pad, 5.5 * PX, CONCRETE.darkened(0.05))
+	draw_arc(rocket_pad, 5.5 * PX, 0, TAU, 48, UiStyle.YELLOW.darkened(0.3), 8.0)
+	for i in 8:
+		var a := TAU * i / 8.0
+		draw_line(rocket_pad + Vector2.from_angle(a) * 3.0 * PX, rocket_pad + Vector2.from_angle(a) * 5.0 * PX, Color(0.1, 0.1, 0.1, 0.6), 6.0)
+	draw_circle(extraction, 6.0 * PX, CONCRETE.darkened(0.1))
+	draw_arc(extraction, 6.0 * PX, 0, TAU, 64, UiStyle.YELLOW.darkened(0.3), 8.0)
+	draw_line(extraction + Vector2(-2.5, 0) * PX, extraction + Vector2(2.5, 0) * PX, Color(1, 1, 1, 0.3), 8.0)
+	draw_line(extraction + Vector2(0, -2.5) * PX, extraction + Vector2(0, 2.5) * PX, Color(1, 1, 1, 0.3), 8.0)
+	draw_arc(drop_zone, 4.0 * PX, 0, TAU, 48, Color(1, 1, 1, 0.15), 6.0)
+	# Warp zones: purple scorch where the ships land
+	for p in spawn_points:
+		draw_circle(p, 7.0 * PX, Color(0.3, 0.2, 0.35, 0.35))
+		draw_arc(p, 7.0 * PX, 0, TAU, 40, Color(0.7, 0.4, 1.0, 0.3), 5.0)
 	for r in rocks:
 		var shade: float = r.shade
 		var poly: PackedVector2Array = r.poly

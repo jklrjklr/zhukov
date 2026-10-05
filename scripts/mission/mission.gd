@@ -1,35 +1,56 @@
 class_name Mission
 extends Node2D
-## Sample Automaton mission "Operation: Swift Liberty" (Helldivers 2 style).
-## 0. Hellpod drop at the landing zone.
-## 1. Upload data at 2 terminals (each draws a horde).
-## 2. Destroy 3 fabricators (explosives: grenades, Eagle, Orbital, EAT); they build
-##    bots while you are near.
-## 3. (Optional) Kill the Hulk guarding the fabricators.
-## 4. Call Pelican-1 at the extraction pad, hold until it lands, board it.
-## Bot drops: when bots keep fighting you for a while they call a dropship that
-## unloads a squad nearby (cooldown between drops).
-## 25 min mission clock, 5 reinforcements (each arrives by hellpod).
-## Also draws hellpods, dropships and Pelican-1 (world space, above everything).
+## Defense mission "Operation: Bright Harbor" (Helldivers 2 style, Illuminate).
+## Hold the evacuation site while colonists are launched to safety:
+## 0. Hellpod drop inside the base.
+## 1. Waves: Illuminate warp ships land at the edges of the map and unload squads that
+##    march on the base through its gates and go for the generators (and anyone in the
+##    way). Each wave is bigger; Harvesters join from wave 3.
+## 2. When a wave is beaten an evac rocket launches (rockets 1..waves).
+## 3. Keep at least one generator running: when all are down the site is lost.
+## 4. After the last rocket, call Pelican-1 at the console, hold the pad while the final
+##    assault comes in, board.
+## Watchers that keep a Helldiver in sight call an extra warp ship on them.
+## 30 min mission clock, 6 reinforcements (each arrives by hellpod).
+## Also draws hellpods, warp ships, the evac rocket and Pelican-1 (world space, on top).
 
 enum Phase { ACTIVE, EXTRACTING, SHUTTLE, COMPLETE, FAILED }
 
-@export var mission_time := 25.0 * 60.0
-@export var reinforcements := 5
+@export var mission_time := 30.0 * 60.0
+@export var reinforcements := 6
 @export var extract_time := 90.0
-## Ambient bots kept on the map.
-@export var ambient_target := 22
-## Hard cap on live bots (performance).
-@export var bot_cap := 45
-## s of continued fighting before bots call a dropship, and cooldown between drops.
-@export var drop_call_time := 10.0
-@export var drop_cooldown := 70.0
+@export var waves := 5
+## s before the first wave and between waves.
+@export var first_break := 30.0
+@export var wave_break := 20.0
+## A wave ends when this few of its units are left (or after max_wave_time).
+@export var wave_leftover := 3
+@export var max_wave_time := 170.0
+## Hard cap on live enemies (performance); ships wait to unload the rest.
+@export var enemy_cap := 60
 
 const PX := Firearm.PX_PER_M
-const NAME := "OPERATION: SWIFT LIBERTY"
+const NAME := "OPERATION: BRIGHT HARBOR"
 const HELLPOD_FALL := 2.0
 const HELLPOD_BLAST := {"radius_m": 2.5, "damage": 600.0, "ap": 5, "armor_damage": 200.0, "destruction": 30,
 	"stagger": 800.0, "sound": 130.0, "sound_falloff": 8.0, "self_mult": 0.0}
+const SHIP_ARRIVE := 2.5
+const UNLOAD_GAP := 0.3
+const ROCKET_TIME := 5.0
+const V := Illuminate.Kind.VOTELESS
+const O := Illuminate.Kind.OVERSEER
+const E := Illuminate.Kind.ELEVATED
+const W := Illuminate.Kind.WATCHER
+const F := Illuminate.Kind.FLESHMOB
+const H := Illuminate.Kind.HARVESTER
+## Units per wave: [voteless, overseers, elevated, watchers, fleshmobs, harvesters] and ships.
+const WAVES := [
+	{"mix": [12, 2, 0, 1, 0, 0], "ships": 1},
+	{"mix": [16, 4, 2, 1, 0, 0], "ships": 2},
+	{"mix": [18, 5, 3, 1, 1, 1], "ships": 2},
+	{"mix": [20, 6, 4, 2, 2, 1], "ships": 3},
+	{"mix": [24, 7, 5, 2, 2, 2], "ships": 3},
+]
 
 var phase := Phase.ACTIVE
 var time_left := 0.0
@@ -42,29 +63,32 @@ var fail_reason := ""
 var objectives: Array[Dictionary] = []
 ## {text, t}
 var messages: Array[Dictionary] = []
+## Current wave (0 before the first), whether it is under way, and the break timer.
+var wave := 0
+var wave_active := false
+var break_left := 0.0
+var rockets := 0
+var generators: Array[Generator] = []
 
 var map: MissionMap
 var player: CharacterBody2D
-var _terminals: Array[Interactable] = []
 var _console: Interactable
-var _fabricators: Array[Destructible] = []
-var _guard: Automaton
-var _drops: Array[Dictionary] = []
-var _drop_cd := 40.0
-var _drop_call := -1.0
+var _wave_units: Array[Illuminate] = []
+var _wave_t := 0.0
+## Warp ships: {pos, t, queue: Array[int], next, done, dir, wave}
+var _ships: Array[Dictionary] = []
+var _rocket_t := -1.0
+var _watcher_cd := 20.0
+var _assault_t := 0.0
 var _deploy_t := HELLPOD_FALL
 var _setup_ticks := 0
-var _pack_id := 1000
-var _ambient_t := 0.0
-var _nest_t := 0.0
-var _wave_t := 0.0
-var _extract_hulk := false
 var _board_t := 0.0
 var _shuttle_t := 0.0
 var _death_pos := Vector2.ZERO
 var _pod_pos := Vector2.INF
 var _pod_t := 0.0
 var _end_t := 0.0
+var _lost_generator := false
 
 
 func _ready() -> void:
@@ -75,6 +99,7 @@ func _ready() -> void:
 	map = get_node("../Map")
 	player = get_node("../Player")
 	time_left = mission_time
+	break_left = first_break
 	player.global_position = map.drop_zone
 	player.look_angle = 0.0
 	player.rotation = 0.0
@@ -84,12 +109,14 @@ func _ready() -> void:
 	_pod_pos = map.drop_zone
 	_pod_t = HELLPOD_FALL
 
-	for p in map.terminal_spots:
-		var t := Interactable.make(Interactable.Kind.TERMINAL)
-		t.position = p
-		t.activated.connect(_on_terminal)
-		map.add_child(t)
-		_terminals.append(t)
+	var labels := ["A", "B", "C"]
+	for i in map.generator_spots.size():
+		var g := Generator.new()
+		g.position = map.generator_spots[i]
+		g.label = labels[i % labels.size()]
+		g.destroyed.connect(_on_generator_destroyed)
+		map.add_child(g)
+		generators.append(g)
 	_console = Interactable.make(Interactable.Kind.EXTRACT_CONSOLE)
 	_console.position = map.console_spot
 	_console.activated.connect(_on_extract_called)
@@ -99,18 +126,14 @@ func _ready() -> void:
 		a.position = p
 		a.activated.connect(_on_ammo)
 		map.add_child(a)
-	for n in get_tree().get_nodes_in_group("fabricators"):
-		var fab := n as Destructible
-		fab.destroyed.connect(_on_fabricator_destroyed)
-		_fabricators.append(fab)
 
 	objectives = [
-		{"id": "terminals", "text": "UPLOAD DATA AT TERMINALS", "done": false, "optional": false,
-			"count": 0, "total": _terminals.size(), "targets": map.terminal_spots.duplicate(), "active": true},
-		{"id": "fabricators", "text": "DESTROY FABRICATORS (EXPLOSIVES)", "done": false, "optional": false,
-			"count": 0, "total": _fabricators.size(), "targets": map.nest_spots.duplicate(), "active": true},
-		{"id": "hulk", "text": "KILL THE HULK", "done": false, "optional": true,
-			"count": 0, "total": 1, "targets": [map.nest_clearing], "active": true},
+		{"id": "evac", "text": "EVACUATE COLONISTS (ROCKETS)", "done": false, "optional": false,
+			"count": 0, "total": waves, "targets": [map.rocket_pad], "active": true},
+		{"id": "generators", "text": "KEEP THE GENERATORS RUNNING", "done": false, "optional": false,
+			"count": generators.size(), "total": generators.size(), "targets": [], "active": true},
+		{"id": "perfect", "text": "LOSE NO GENERATOR", "done": false, "optional": true,
+			"count": 0, "total": 0, "targets": [], "active": true},
 		{"id": "extract", "text": "CALL PELICAN-1", "done": false, "optional": false,
 			"count": 0, "total": 0, "targets": [map.extraction], "active": false},
 	]
@@ -136,6 +159,23 @@ func is_over() -> bool:
 	return phase == Phase.COMPLETE or phase == Phase.FAILED
 
 
+## One line for the HUD wave panel.
+func wave_status() -> String:
+	if phase == Phase.EXTRACTING or phase == Phase.SHUTTLE:
+		return "final assault  -  %d hostiles" % enemy_count()
+	if wave_active:
+		return "wave %d/%d  -  %d hostiles" % [wave, waves, enemy_count()]
+	if _rocket_t >= 0.0:
+		return "evac rocket %d launching" % rockets
+	if wave >= waves:
+		return "all colonists evacuated"
+	return "wave %d/%d in %d s" % [wave + 1, waves, ceili(break_left)]
+
+
+func enemy_count() -> int:
+	return get_tree().get_nodes_in_group("illuminate").size()
+
+
 func _physics_process(delta: float) -> void:
 	for m in messages:
 		m.t += delta
@@ -149,13 +189,10 @@ func _physics_process(delta: float) -> void:
 			player.deploying = false
 			player.visible = true
 			_pod_pos = Vector2.INF
-			msg("FOR SUPER EARTH!")
+			msg("DEFEND THE EVACUATION SITE")
 	queue_redraw()
 
-	# Wait a couple of ticks so the map's bodies are in the physics space.
 	_setup_ticks += 1
-	if _setup_ticks == 3:
-		_initial_spawns()
 	if _setup_ticks < 3 or is_over():
 		if is_over():
 			_end_t += delta
@@ -166,150 +203,170 @@ func _physics_process(delta: float) -> void:
 	if time_left <= 0.0:
 		_fail("MISSION TIME EXPIRED")
 		return
+	_watcher_cd = maxf(_watcher_cd - delta, 0.0)
 	_update_death(delta)
-	_update_drops(delta)
-	_update_ambient(delta)
-	_update_fabricators(delta)
-	_check_hulk()
+	_update_ships(delta)
+	_update_rocket(delta)
 	match phase:
+		Phase.ACTIVE:
+			_update_waves(delta)
 		Phase.EXTRACTING:
 			_update_extraction(delta)
 		Phase.SHUTTLE:
 			_update_boarding(delta)
 
 
-func _initial_spawns() -> void:
-	for i in 7:
-		_spawn_pack_far(map.drop_zone, 45.0, 140.0, randi_range(3, 5))
-	var gp := map.random_point_near(map.nest_clearing, 12.0, 18.0)
-	if gp != Vector2.INF:
-		_guard = _spawn_hulk(gp)
+# --- Waves ------------------------------------------------------------------
+
+func _update_waves(delta: float) -> void:
+	if wave_active:
+		_wave_t += delta
+		_wave_units = _wave_units.filter(func(u): return is_instance_valid(u) and not u.is_dead())
+		var unloading := _ships.any(func(s): return s.wave == wave and not (s.queue as Array).is_empty())
+		if (not unloading and _wave_units.size() <= wave_leftover) or _wave_t > max_wave_time:
+			_end_wave()
+		return
+	if _rocket_t >= 0.0 or wave >= waves:
+		return
+	break_left -= delta
+	if break_left <= 0.0:
+		_start_wave()
 
 
-# --- Spawning --------------------------------------------------------------
+func _start_wave() -> void:
+	wave += 1
+	wave_active = true
+	_wave_t = 0.0
+	var def: Dictionary = WAVES[mini(wave - 1, WAVES.size() - 1)]
+	var units := _mix_list(def.mix)
+	var count: int = def.ships
+	var spots := map.spawn_points.duplicate()
+	spots.shuffle()
+	for i in count:
+		var part: Array[int] = []
+		for j in range(i, units.size(), count):
+			part.append(units[j])
+		_launch_ship(spots[i % spots.size()], part, wave)
+	msg("WAVE %d - WARP SHIPS INBOUND" % wave)
 
-func _bot_count() -> int:
-	return get_tree().get_nodes_in_group("automatons").size()
+
+## Unit list from a mix array, heavies spread through the list.
+func _mix_list(mix: Array) -> Array[int]:
+	var kinds := [V, O, E, W, F, H]
+	var out: Array[int] = []
+	for i in kinds.size():
+		for n in int(mix[i]):
+			out.append(kinds[i])
+	out.shuffle()
+	return out
 
 
-func _spawn_pack_at(center: Vector2, size: int, kinds: Array = []) -> Array[Automaton]:
-	if _bot_count() + size > bot_cap:
-		size = maxi(bot_cap - _bot_count(), 0)
-	if size <= 0:
-		return []
-	_pack_id += 1
-	return Automaton.spawn_squad(map, center, size, _pack_id, func(p): return map.is_free(p), kinds)
+func _end_wave() -> void:
+	wave_active = false
+	rockets += 1
+	_rocket_t = 0.0
+	var o := objective("evac")
+	o.count = rockets
+	msg("WAVE %d REPELLED - LAUNCHING EVAC ROCKET" % wave)
+	break_left = wave_break
 
 
-func _spawn_pack_far(away: Vector2, min_m: float, max_m: float, size: int) -> Array[Automaton]:
-	var p := map.random_point_near(away, min_m, max_m)
+func _update_rocket(delta: float) -> void:
+	if _rocket_t < 0.0:
+		return
+	_rocket_t += delta
+	if _rocket_t >= ROCKET_TIME:
+		_rocket_t = -1.0
+		Sfx.play("evac_rocket", map.rocket_pad, 2.0)
+		var o := objective("evac")
+		msg("EVAC ROCKET %d/%d LAUNCHED" % [rockets, waves])
+		if rockets >= waves and not o.done:
+			o.done = true
+			objective("generators").done = true
+			if not _lost_generator:
+				objective("perfect").done = true
+			_console.enabled = true
+			objective("extract").active = true
+			msg("ALL COLONISTS EVACUATED - CALL PELICAN-1")
+
+
+# --- Warp ships ---------------------------------------------------------------
+
+func _launch_ship(at: Vector2, units: Array[int], wave_id: int) -> void:
+	var p := at
+	if not map.is_free(p, 40.0):
+		var q := map.random_point_near(at, 2.0, 8.0)
+		if q != Vector2.INF:
+			p = q
+	_ships.append({"pos": p, "t": 0.0, "queue": units, "next": 0.0, "dir": Vector2.from_angle(randf() * TAU),
+		"wave": wave_id, "leave": -1.0})
+	Sfx.play("warp_ship", p, 4.0)
+
+
+func _update_ships(delta: float) -> void:
+	for s in _ships:
+		s.t += delta
+		if s.t < SHIP_ARRIVE:
+			continue
+		var queue: Array = s.queue
+		if queue.is_empty():
+			if s.leave < 0.0:
+				s.leave = s.t
+			continue
+		s.next -= delta
+		if s.next > 0.0 or enemy_count() >= enemy_cap:
+			continue
+		s.next = UNLOAD_GAP
+		var k: int = queue.pop_front()
+		var got := Illuminate.spawn_group(map, s.pos, [k], func(q): return map.is_free(q, 20.0))
+		for u in got:
+			if s.wave > 0:
+				_wave_units.append(u)
+			else:
+				u.alert_to(player.global_position, true)
+	_ships = _ships.filter(func(s): return s.leave < 0.0 or s.t - s.leave < 3.0)
+
+
+## A Watcher kept a Helldiver in sight: a warp ship lands near them.
+func on_watcher_call(at: Vector2) -> void:
+	if _watcher_cd > 0.0 or is_over():
+		return
+	var p := map.random_point_near(at, 18.0, 26.0)
 	if p == Vector2.INF:
-		return []
-	return _spawn_pack_at(p, size)
-
-
-func _spawn_hulk(p: Vector2) -> Automaton:
-	var g := Automaton.make(Automaton.Kind.HULK)
-	g.position = p
-	map.add_child(g)
-	return g
-
-
-## Horde converging on `target` from 30-40 m away.
-func _horde(target: Vector2, packs: int, chase := false) -> void:
-	for i in packs:
-		for z in _spawn_pack_far(target, 30.0, 40.0, randi_range(4, 6)):
-			z.alert_to(target, chase)
-
-
-func _update_ambient(delta: float) -> void:
-	_ambient_t -= delta
-	if _ambient_t > 0.0:
 		return
-	_ambient_t = 20.0
-	if _bot_count() < ambient_target:
-		_spawn_pack_far(player.global_position, 45.0, 80.0, randi_range(3, 5))
+	_watcher_cd = 45.0
+	var units: Array[int] = [V, V, V, V, V, V, O, O]
+	if elapsed > 300.0:
+		units.append(E)
+	_launch_ship(p, units, 0)
+	msg("WATCHER CALLED REINFORCEMENTS!")
 
 
-func _update_fabricators(delta: float) -> void:
-	_nest_t -= delta
-	if _nest_t > 0.0:
-		return
-	_nest_t = 14.0
-	for nest in _fabricators:
-		if nest.is_destroyed():
-			continue
-		var d := nest.global_position.distance_to(player.global_position) / PX
-		if d > 45.0 or _bot_count() >= bot_cap:
-			continue
-		var p := map.random_point_near(nest.global_position, 2.5, 4.0, 8)
-		if p == Vector2.INF:
-			continue
-		_pack_id += 1
-		for z in Automaton.spawn_squad(map, p, 2, _pack_id, func(q): return map.is_free(q), [Automaton.Kind.TROOPER]):
-			z.alert_to(player.global_position, d < 20.0)
+func on_enemy_alert(_e: Node) -> void:
+	pass
 
 
-# --- Objectives --------------------------------------------------------------
+# --- Objectives ------------------------------------------------------------
 
 func _on_ammo(_it: Interactable) -> void:
 	player.resupply()
 	msg("RESUPPLIED")
 
 
-func _on_terminal(_it: Interactable) -> void:
-	var o := objective("terminals")
-	o.count += 1
-	msg("DATA UPLOADED %d/%d" % [o.count, o.total])
-	_horde(_it.global_position, 2 + o.count)
-	_remove_target(o, _it.global_position)
-	if o.count >= o.total:
-		o.done = true
-		msg("OBJECTIVE COMPLETE: DATA UPLOADED")
-	_check_main_done()
-
-
-func _on_fabricator_destroyed(nest: Destructible) -> void:
-	var o := objective("fabricators")
-	o.count += 1
-	msg("FABRICATOR DESTROYED %d/%d" % [o.count, o.total])
-	_remove_target(o, nest.global_position)
-	if o.count >= o.total:
-		o.done = true
-		msg("OBJECTIVE COMPLETE: FABRICATORS")
-	_check_main_done()
-
-
-func _check_hulk() -> void:
-	var o := objective("hulk")
-	if not o.done and _guard and _guard.is_dead():
-		o.done = true
-		o.count = 1
-		o.targets = []
-		msg("HULK DESTROYED")
-	elif not o.done and _guard and is_instance_valid(_guard):
-		o.targets = [_guard.global_position]
-
-
-func _remove_target(o: Dictionary, pos: Vector2) -> void:
-	var keep: Array = []
-	for t in o.targets:
-		if (t as Vector2).distance_to(pos) > 60.0:
-			keep.append(t)
-	o.targets = keep
-
-
-func _check_main_done() -> void:
-	if objective("terminals").done and objective("fabricators").done and not _console.enabled:
-		_console.enabled = true
-		objective("extract").active = true
-		msg("EXTRACTION AVAILABLE - CALL PELICAN-1")
+func _on_generator_destroyed(g: Generator) -> void:
+	_lost_generator = true
+	var alive := generators.filter(func(x): return not x.is_destroyed()).size()
+	var o := objective("generators")
+	o.count = alive
+	msg("GENERATOR %s DESTROYED - %d LEFT" % [g.label, alive])
+	if alive == 0:
+		_fail("EVACUATION SITE LOST")
 
 
 func _on_extract_called(_it: Interactable) -> void:
 	phase = Phase.EXTRACTING
 	extract_left = extract_time
-	_wave_t = 3.0
+	_assault_t = 2.0
 	var o := objective("extract")
 	o.text = "DEFEND THE LANDING ZONE"
 	msg("PELICAN-1 INBOUND")
@@ -317,16 +374,17 @@ func _on_extract_called(_it: Interactable) -> void:
 
 func _update_extraction(delta: float) -> void:
 	extract_left -= delta
-	_wave_t -= delta
-	if _wave_t <= 0.0:
-		_wave_t = 14.0
-		_horde(map.extraction, 1, true)
-	if not _extract_hulk and extract_left <= extract_time * 0.5:
-		_extract_hulk = true
-		var p := map.random_point_near(map.extraction, 28.0, 36.0)
-		if p != Vector2.INF:
-			_spawn_hulk(p).alert_to(map.extraction)
-		msg("HULK INCOMING")
+	_assault_t -= delta
+	if _assault_t <= 0.0:
+		_assault_t = 18.0
+		var spot: Vector2 = map.spawn_points[randi() % map.spawn_points.size()]
+		var units: Array[int] = []
+		for i in 8:
+			units.append(V)
+		units.append_array([O, O, E])
+		if extract_left < extract_time * 0.6:
+			units.append(F)
+		_launch_ship(spot, units, 0)
 	if extract_left <= 0.0:
 		phase = Phase.SHUTTLE
 		_shuttle_t = 0.0
@@ -391,7 +449,7 @@ func _update_death(delta: float) -> void:
 		_pod_pos = Vector2.INF
 
 
-## Hellpod impact: crushes bots under it, leaves a scorch.
+## Hellpod impact: crushes enemies under it.
 func _land_pod(at: Vector2) -> void:
 	var proj := get_tree().get_first_node_in_group("projectiles")
 	proj.explode(at, HELLPOD_BLAST)
@@ -399,56 +457,15 @@ func _land_pod(at: Vector2) -> void:
 	player.visible = true
 
 
-## Bots report fighting the player; sustained fighting calls a dropship.
-func on_enemy_alert(_bot: Node) -> void:
-	if _drop_cd <= 0.0 and _drop_call < 0.0 and not is_over():
-		_drop_call = drop_call_time
-
-
-func _update_drops(delta: float) -> void:
-	_drop_cd = maxf(_drop_cd - delta, 0.0)
-	if _drop_call >= 0.0:
-		_drop_call -= delta
-		if _drop_call < 0.0:
-			var fighting := false
-			for n in get_tree().get_nodes_in_group("automatons"):
-				if (n as Automaton).state == Automaton.State.ENGAGE:
-					fighting = true
-					break
-			if fighting:
-				_start_drop()
-	for d in _drops:
-		d.t += delta
-		if d.t >= 3.0 and not d.done:
-			d.done = true
-			var kinds := []
-			for i in randi_range(5, 8):
-				kinds.append(Automaton.random_kind())
-			for b in _spawn_pack_at(d.pos, kinds.size(), kinds):
-				b.alert_to(player.global_position, true)
-			if elapsed > 180.0 and randf() < 0.3:
-				_spawn_hulk(d.pos + Vector2(70, 0)).alert_to(player.global_position, true)
-	_drops = _drops.filter(func(d): return d.t < 5.5)
-
-
-func _start_drop() -> void:
-	var p := map.random_point_near(player.global_position, 16.0, 24.0)
-	if p == Vector2.INF:
-		return
-	_drop_cd = drop_cooldown
-	_drops.append({"pos": p, "t": 0.0, "done": false, "dir": Vector2.from_angle(randf() * TAU)})
-	msg("BOT DROP INCOMING!")
-	Sfx.play("bot_drop", p, 4.0)
-
-
+## Inside the base, away from enemies if possible.
 func _safe_respawn_point() -> Vector2:
 	for i in 20:
-		var p := map.random_point_near(_death_pos, 12.0, 25.0, 4)
-		if p == Vector2.INF:
+		var p := map.random_point_near(map.base_center, 2.0, 16.0, 4)
+		if p == Vector2.INF or not map.is_inside_base(p):
 			continue
 		var clear := true
 		for e in get_tree().get_nodes_in_group("enemies"):
-			if (e as Node2D).global_position.distance_to(p) < 10.0 * PX:
+			if (e as Node2D).global_position.distance_to(p) < 8.0 * PX:
 				clear = false
 				break
 		if clear:
@@ -456,7 +473,7 @@ func _safe_respawn_point() -> Vector2:
 	return map.drop_zone
 
 
-# --- Drawing (shuttle, drop pod) ------------------------------------------------
+# --- Drawing --------------------------------------------------------------------
 
 func _draw() -> void:
 	if _pod_t > 0.0 and _pod_pos != Vector2.INF:
@@ -468,18 +485,9 @@ func _draw() -> void:
 		draw_line(top + Vector2(0, -220), top, Color(1, 0.6, 0.2, 0.7), 10.0)
 		draw_circle(top, 16.0, Color(0.25, 0.26, 0.28))
 		draw_circle(top, 9.0, UiStyle.YELLOW)
-	for d in _drops:
-		# Dropship: flies in, hovers while unloading, leaves.
-		var t: float = d.t
-		var dir: Vector2 = d.dir
-		var off := 0.0
-		if t < 2.0:
-			off = (2.0 - t) * 900.0
-		elif t > 4.0:
-			off = -(t - 4.0) * 900.0
-		var c: Vector2 = d.pos - dir * off
-		draw_circle(d.pos, 120.0, Color(0, 0, 0, 0.25 * clampf(t / 2.0, 0.0, 1.0)))
-		_draw_dropship(c, dir)
+	for s in _ships:
+		_draw_ship(s)
+	_draw_rocket()
 	if phase == Phase.SHUTTLE or (phase == Phase.COMPLETE and _shuttle_t > 0.0):
 		var k := clampf(_shuttle_t / 3.0, 0.0, 1.0)
 		var c := map.extraction + Vector2(0, -(1.0 - k) * 900.0)
@@ -487,17 +495,65 @@ func _draw() -> void:
 		_draw_shuttle(c, 1.0 + (1.0 - k) * 0.5)
 
 
-func _draw_dropship(c: Vector2, dir: Vector2) -> void:
-	var t := Transform2D(dir.angle() + PI / 2.0, c)
-	var outline := Color(0.05, 0.05, 0.05)
-	var hull := PackedVector2Array([Vector2(0, -110), Vector2(40, -60), Vector2(130, -20), Vector2(130, 20),
-		Vector2(40, 30), Vector2(25, 110), Vector2(-25, 110), Vector2(-40, 30), Vector2(-130, 20), Vector2(-130, -20),
-		Vector2(-40, -60)])
-	draw_colored_polygon(t * hull, outline)
-	draw_colored_polygon(t * Geometry2D.offset_polygon(hull, -4.0)[0], Color(0.2, 0.2, 0.22))
-	for x in [-100.0, 100.0]:
-		draw_circle(t * Vector2(x, 0), 16.0, Color(1, 0.3, 0.15, 0.8))
-	draw_circle(t * Vector2(0, -70), 8.0, Color(1, 0.2, 0.1))
+## Illuminate warp ship: glides in, hovers with a warp beam while unloading, leaves.
+func _draw_ship(s: Dictionary) -> void:
+	var t: float = s.t
+	var dir: Vector2 = s.dir
+	var off := 0.0
+	if t < SHIP_ARRIVE:
+		off = (SHIP_ARRIVE - t) * 700.0
+	elif s.leave >= 0.0:
+		off = -(t - s.leave) * 700.0
+	var p: Vector2 = s.pos
+	var c := p - dir * off
+	var hover := t >= SHIP_ARRIVE and s.leave < 0.0
+	draw_circle(p, 150.0, Color(0, 0, 0, 0.22 * clampf(t / SHIP_ARRIVE, 0.0, 1.0)))
+	if hover:
+		var pulse := 0.6 + 0.4 * sin(t * 6.0)
+		draw_circle(p, 90.0, Color(0.6, 0.4, 1.0, 0.18 * pulse))
+		draw_arc(p, 90.0, 0, TAU, 40, Color(0.75, 0.55, 1.0, 0.5 * pulse), 4.0)
+	var tr := Transform2D(dir.angle() + PI / 2.0, c)
+	var hull := PackedVector2Array()
+	for i in 20:
+		var a := TAU * i / 20.0
+		hull.append(Vector2(cos(a) * 150.0, sin(a) * 70.0))
+	var outline := Color(0.05, 0.05, 0.07)
+	draw_colored_polygon(tr * Geometry2D.offset_polygon(hull, 5.0)[0], outline)
+	draw_colored_polygon(tr * hull, Color(0.62, 0.62, 0.68))
+	var ring := PackedVector2Array()
+	for i in 16:
+		var a := TAU * i / 16.0
+		ring.append(Vector2(cos(a) * 70.0, sin(a) * 34.0))
+	draw_colored_polygon(tr * ring, Color(0.45, 0.45, 0.52))
+	draw_circle(tr * Vector2.ZERO, 22.0, Color(0.45, 0.95, 1.0, 0.9))
+	for x in [-120.0, 120.0]:
+		draw_circle(tr * Vector2(x, 0), 10.0, Color(0.7, 0.45, 1.0, 0.9))
+
+
+## Evac rocket on its pad: fuelled while waves run, lifts off when one is beaten.
+func _draw_rocket() -> void:
+	var p := map.rocket_pad
+	var lift := 0.0
+	var a := 1.0
+	if _rocket_t >= 0.0:
+		var k := clampf((_rocket_t - 1.5) / (ROCKET_TIME - 1.5), 0.0, 1.0)
+		lift = k * k * 1400.0
+		a = 1.0 - k
+		if _rocket_t > 1.0:
+			draw_circle(p, 110.0 + 40.0 * sin(_rocket_t * 20.0), Color(0.9, 0.85, 0.75, 0.25))
+	elif wave >= waves:
+		return
+	var c := p + Vector2(0, -lift)
+	var outline := Color(0.06, 0.06, 0.06, a)
+	if lift > 0.0:
+		draw_line(c + Vector2(0, 60), c + Vector2(0, 60 + minf(lift, 500.0)), Color(1, 0.75, 0.3, 0.7 * a), 26.0)
+	var body := PackedVector2Array([Vector2(0, -95), Vector2(22, -55), Vector2(22, 55), Vector2(-22, 55), Vector2(-22, -55)])
+	var t := Transform2D(0.0, c)
+	draw_colored_polygon(t * Geometry2D.offset_polygon(body, 4.0)[0], outline)
+	draw_colored_polygon(t * body, Color(0.85, 0.85, 0.82, a))
+	for x in [-30.0, 30.0]:
+		draw_colored_polygon(t * PackedVector2Array([Vector2(x * 0.7, 25), Vector2(x * 1.4, 65), Vector2(x * 0.7, 55)]), Color(0.75, 0.15, 0.1, a))
+	draw_rect(Rect2(t * Vector2(-22, -10), Vector2(44, 10)), Color(UiStyle.YELLOW, a))
 
 
 func _draw_shuttle(c: Vector2, s: float) -> void:

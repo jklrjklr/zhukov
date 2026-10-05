@@ -9,6 +9,7 @@ extends Node2D
 ##   EAGLE 500KG BOMB    one huge bomb (1 use, then rearm)
 ##   ORBITAL PRECISION   a single devastating shell after a longer delay
 ##   EAT-17              pod with 2 disposable anti-tank launchers
+##   MG-43 SENTRY        machine gun sentry: shoots enemies it can see until out of ammo
 ## Pods and shells hurt everything nearby, the Helldiver included.
 ## Draws beacons, falling pods, eagle passes and orbital beams (world space, on top).
 
@@ -33,6 +34,8 @@ const DEFS := {
 	"orbital_precision": {"name": "Orbital Precision Strike", "code": [R, R, U], "cooldown": 90.0, "uses": -1,
 		"delay": 3.5, "color": RED},
 	"eat17": {"name": "EAT-17 Expendable Anti-Tank", "code": [D, D, L, U, R], "cooldown": 70.0, "uses": -1,
+		"delay": 3.0, "color": GREEN},
+	"sentry_mg": {"name": "A/MG-43 Machine Gun Sentry", "code": [D, U, R, R, U], "cooldown": 90.0, "uses": -1,
 		"delay": 3.0, "color": GREEN},
 }
 
@@ -191,6 +194,8 @@ func _arrive(b: Dictionary) -> void:
 			_fx.append({"kind": "pod", "pos": at, "t": 0.0, "pod": Interactable.Kind.RESUPPLY_POD})
 		"eat17":
 			_fx.append({"kind": "pod", "pos": at, "t": 0.0, "pod": Interactable.Kind.SUPPORT_POD})
+		"sentry_mg":
+			_fx.append({"kind": "pod", "pos": at, "t": 0.0, "pod": -1})
 		"orbital_precision":
 			_fx.append({"kind": "beam", "pos": at, "t": 0.0})
 			Sfx.play("orbital_shot", at, 2.0)
@@ -215,6 +220,11 @@ func _update_fx(delta: float) -> void:
 					f.done = true
 					_projectiles.explode(f.pos, POD_BLAST)
 					Sfx.play("hellpod_impact", f.pos)
+					if f.pod < 0:
+						var sentry := Sentry.new()
+						sentry.position = f.pos
+						get_parent().add_child(sentry)
+						continue
 					var pod := Interactable.make(f.pod)
 					pod.position = f.pos
 					pod.activated.connect(_on_pod)

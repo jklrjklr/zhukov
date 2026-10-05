@@ -10,7 +10,7 @@ var stats := {}
 ## Chosen loadout (main menu): primary weapon resource and stratagem ids.
 var loadout := {
 	"primary": "res://weapons/liberator.tres",
-	"stratagems": ["resupply", "eagle_airstrike", "orbital_precision", "eat17"],
+	"stratagems": ["resupply", "eagle_airstrike", "sentry_mg", "eat17"],
 }
 
 const PRIMARIES := ["res://weapons/liberator.tres", "res://weapons/smg5.tres"]

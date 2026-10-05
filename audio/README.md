@@ -26,6 +26,18 @@ To replace a sound, drop your own file with the same name here and rebuild the A
 | pelican | Pelican-1 engines (looped) |
 | objective | mission message |
 | ui_click | menu buttons |
+| plasma_shot | Overseer plasma (borrows bot_heavy_blaster) |
+| hit_flesh / claw | bullet hits a squid or Voteless / Voteless claws (borrow player_hit) |
+| voteless_death / illuminate_death | Voteless / other Illuminate killed |
+| shield_hit / shield_break | Harvester shield hit / collapses |
+| watcher_call | Watcher calls a warp ship (borrows beacon) |
+| beam_charge / harvester_beam | Harvester beam charging / firing (looped) |
+| warp_ship | warp ship arrives (borrows bot_drop) |
+| evac_rocket | evac rocket lift-off (borrows explosion_big) |
+| sentry_shot | MG-43 sentry (borrows smg_shot) |
+
+Slots marked "borrows" have no file of their own yet: they use the named slot's sound
+until you add `<slot>.ogg`.
 
 ## Credits
 

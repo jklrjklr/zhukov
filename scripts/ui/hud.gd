@@ -109,6 +109,7 @@ func _draw() -> void:
 		_draw_objectives()
 		_draw_compass(vp)
 		_draw_clock(vp)
+		_draw_defense(vp)
 		_draw_extraction(vp)
 	else:
 		UiStyle.panel(self, Rect2(16, 16, 240, 40))
@@ -215,6 +216,25 @@ func _draw_clock(vp: Vector2) -> void:
 	UiStyle.text(self, r.position + Vector2(14, 50), "%02d:%02d" % [int(t) / 60, int(t) % 60], 24, UiStyle.RED if low else UiStyle.TEXT)
 	UiStyle.text(self, r.position + Vector2(140, 24), "reinforce", 13, UiStyle.TEXT_DIM)
 	UiStyle.text(self, r.position + Vector2(140, 50), "x %d" % _mission.reinforcements, 24, UiStyle.YELLOW)
+
+
+## Wave status and generator health under the clock.
+func _draw_defense(vp: Vector2) -> void:
+	var gens: Array = _mission.generators
+	var r := Rect2(vp.x - 276, 142, 260, 44 + gens.size() * 20)
+	UiStyle.panel(self, r)
+	UiStyle.text(self, r.position + Vector2(14, 26), _mission.wave_status(), 15,
+		UiStyle.RED if _mission.wave_active else UiStyle.YELLOW)
+	var y := r.position.y + 44
+	for g in gens:
+		var gen := g as Generator
+		UiStyle.text(self, Vector2(r.position.x + 14, y + 10), "gen " + gen.label, 13, UiStyle.TEXT_DIM)
+		var bar := Rect2(r.position.x + 70, y, r.size.x - 86, 10)
+		if gen.is_destroyed():
+			draw_rect(bar, Color(0.3, 0.05, 0.05))
+		else:
+			UiStyle.bar(self, bar, gen.hp / gen.max_hp, Color(0.35, 0.85, 1.0) if gen.hp / gen.max_hp > 0.35 else UiStyle.RED)
+		y += 20
 
 
 func _draw_top_buttons(vp: Vector2) -> void:
@@ -402,6 +422,13 @@ func _draw_map(vp: Vector2) -> void:
 			continue
 		for t in o.targets:
 			UiStyle.diamond(self, to_screen.call(t), 8.0, UiStyle.YELLOW if not o.optional else UiStyle.TEXT_DIM)
+	for g in _mission.generators:
+		var gp: Vector2 = to_screen.call((g as Node2D).global_position)
+		draw_rect(Rect2(gp - Vector2(6, 5), Vector2(12, 10)), Color(0.35, 0.85, 1.0) if not g.is_destroyed() else UiStyle.RED)
+	for sp in m.spawn_points:
+		draw_arc(to_screen.call(sp), 9.0, 0, TAU, 20, Color(0.75, 0.5, 1.0, 0.8), 2.0)
+	for e in get_tree().get_nodes_in_group("illuminate"):
+		draw_circle(to_screen.call((e as Node2D).global_position), 2.5, UiStyle.RED)
 	var ex: Vector2 = to_screen.call(m.extraction)
 	draw_arc(ex, 10.0, 0, TAU, 24, UiStyle.BLUE, 3.0)
 	UiStyle.text(self, ex + Vector2(-40, 26), "extract", 13, UiStyle.BLUE, HORIZONTAL_ALIGNMENT_CENTER, 80)
@@ -439,7 +466,8 @@ func _draw_end(vp: Vector2) -> void:
 	var rows := [
 		["mission time", "%02d:%02d" % [t / 60, t % 60]],
 		["objectives", "%d / %d" % [main_done, main_total]],
-		["optional", "done" if _mission.objective("hulk").done else "-"],
+		["optional", "%d / %d" % [_mission.objectives.filter(func(o): return o.done and o.optional).size(),
+			_mission.objectives.filter(func(o): return o.optional).size()]],
 		["kills", str(s.kills)],
 		["accuracy", "%d%%" % roundi(Game.accuracy())],
 		["shots fired", str(s.shots)],

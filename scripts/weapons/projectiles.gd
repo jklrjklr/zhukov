@@ -20,7 +20,7 @@ var _grenades: Array[Dictionary] = []
 var _blasts: Array[Dictionary] = []
 var _scorches: Array[Dictionary] = []
 var _biles: Array[Dictionary] = []
-## Automaton laser bolts: slow enough to see and dodge; cover stops them.
+## Enemy bolts (laser or plasma): slow enough to see and dodge; cover stops them.
 var _bolts: Array[Dictionary] = []
 var _acid: Array[Dictionary] = []
 
@@ -57,7 +57,7 @@ func _ready() -> void:
 func spawn_bullet(pos: Vector2, vel: Vector2, stats: FirearmStats, shooter: CollisionObject2D, land: Variant = null) -> void:
 	_bullets.append({
 		"pos": pos, "tail": pos, "vel": vel, "dist": 0.0, "stats": stats,
-		"exclude": [shooter.get_rid()], "dead": false,
+		"exclude": [shooter.get_rid()], "dead": false, "mine": shooter.is_in_group("player"),
 		"land": land, "land_dist": pos.distance_to(land) if land != null else INF,
 	})
 
@@ -90,9 +90,9 @@ func spawn_grenade(from: Vector2, to: Vector2, thrower: CollisionObject2D) -> vo
 	_grenades.append({"from": from, "to": to, "pos": from, "t": 0.0, "flight": flight, "spin": randf() * TAU})
 
 
-func spawn_bolt(from: Vector2, vel: Vector2, damage: float, shooter: CollisionObject2D) -> void:
+func spawn_bolt(from: Vector2, vel: Vector2, damage: float, shooter: CollisionObject2D, style := "laser") -> void:
 	_bolts.append({"pos": from, "tail": from, "vel": vel, "damage": damage, "t": 0.0,
-		"exclude": [shooter.get_rid()]})
+		"exclude": [shooter.get_rid()], "plasma": style == "plasma"})
 
 
 ## Dust/smoke puff (e.g. a bot falling apart).
@@ -115,7 +115,7 @@ func _update_bolts(delta: float) -> void:
 			continue
 		var body := hit.collider as Node
 		if body.has_method("take_damage"):
-			if body.is_diving() and randf() < 0.6:
+			if body.has_method("is_diving") and body.is_diving() and randf() < 0.6:
 				# Diving Helldivers are hard to hit: let it fly past.
 				(b.exclude as Array).append((body as CollisionObject2D).get_rid())
 				b.pos = pos + step
@@ -179,7 +179,7 @@ func _physics_process(delta: float) -> void:
 		var hit_pos: Vector2 = hit.position
 		var meters: float = (b.dist + pos.distance_to(hit_pos)) / PX
 		var collider: Object = hit.collider
-		if (collider as Node).is_in_group("enemies"):
+		if b.mine and (collider as Node).is_in_group("enemies"):
 			Game.add_stat("hits")
 		if collider.has_method("take_hit"):
 			collider.take_hit({
@@ -306,6 +306,11 @@ func _draw() -> void:
 	for b in _bolts:
 		var head: Vector2 = b.pos
 		var dir := (b.vel as Vector2).normalized()
+		if b.plasma:
+			draw_line(head - dir * 20.0, head, Color(0.6, 0.35, 1.0, 0.35), 10.0)
+			draw_circle(head, 7.0, Color(0.7, 0.45, 1.0, 0.5))
+			draw_circle(head, 4.0, Color(0.9, 0.8, 1.0, 0.95))
+			continue
 		draw_line(head - dir * 26.0, head, Color(1, 0.2, 0.15, 0.35), 6.0)
 		draw_line(head - dir * 18.0, head, Color(1, 0.55, 0.45, 0.95), 2.5)
 	for c in _casings:

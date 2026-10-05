@@ -13,6 +13,14 @@ const POOL := 24
 const MAX_DISTANCE := 2200.0
 ## s: the same slot will not restart faster than this (dozens of bots firing).
 const MIN_GAP := 0.035
+## Slots without their own file yet borrow another slot's sound.
+const ALIASES := {
+	"plasma_shot": "bot_heavy_blaster", "hit_flesh": "player_hit", "claw": "player_hit",
+	"voteless_death": "player_hit", "illuminate_death": "bot_death", "shield_hit": "hit_armor",
+	"shield_break": "explosion", "watcher_call": "beacon", "beam_charge": "strat_ready",
+	"harvester_beam": "flamer", "warp_ship": "bot_drop", "evac_rocket": "explosion_big",
+	"sentry_shot": "smg_shot",
+}
 
 var _cache := {} # name -> Array[AudioStream]
 var _players: Array[AudioStreamPlayer2D] = []
@@ -52,6 +60,8 @@ func streams(name: String) -> Array:
 				break
 		if not found and i > 0:
 			break
+	if list.is_empty() and ALIASES.has(name):
+		list = streams(ALIASES[name])
 	_cache[name] = list
 	return list
 
