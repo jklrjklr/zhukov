@@ -506,7 +506,7 @@ func _draw_ship(s: Dictionary) -> void:
 		off = -(t - s.leave) * 700.0
 	var p: Vector2 = s.pos
 	var c := p - dir * off
-	var hover := t >= SHIP_ARRIVE and s.leave < 0.0
+	var hover: bool = t >= SHIP_ARRIVE and s.leave < 0.0
 	draw_circle(p, 150.0, Color(0, 0, 0, 0.22 * clampf(t / SHIP_ARRIVE, 0.0, 1.0)))
 	if hover:
 		var pulse := 0.6 + 0.4 * sin(t * 6.0)

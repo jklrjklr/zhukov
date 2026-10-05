@@ -292,7 +292,7 @@ func _physics_process(delta: float) -> void:
 	var tpos := target.global_position
 	var to_t := tpos - global_position
 	var dist_m := to_t.length() / PX
-	var reach_px := radius + _target_radius() + _cfg.get("reach", 0.0) * PX
+	var reach_px: float = radius + _target_radius() + _cfg.get("reach", 0.0) * PX
 	_goal = _route(tpos)
 	match _cfg.weapon:
 		"claw", "crush":
@@ -500,7 +500,7 @@ func _update_beam(delta: float, dist_m: float, tpos: Vector2) -> void:
 ## Ray from `from` toward `to` (range-limited); damages the first thing hit that can
 ## take damage. Returns the end point.
 func _cast(from: Vector2, to: Vector2, damage := 0.0) -> Vector2:
-	var end := from + (to - from).normalized() * _cfg.range * PX
+	var end: Vector2 = from + (to - from).normalized() * _cfg.range * PX
 	var q := PhysicsRayQueryParameters2D.create(from, end, 1)
 	q.exclude = [get_rid()]
 	var hit := get_world_2d().direct_space_state.intersect_ray(q)
@@ -756,7 +756,7 @@ func _draw_beam() -> void:
 	var eye := Vector2(0, -radius * 0.5)
 	var end := to_local(_beam_end)
 	if _beam_phase == 1:
-		var k := 1.0 - _beam_t / _cfg.charge
+		var k: float = 1.0 - _beam_t / _cfg.charge
 		draw_line(eye, end, Color(1, 0.3, 0.3, 0.25 + 0.4 * k), 1.5 + 2.0 * k)
 	else:
 		draw_line(eye, end, Color(1, 0.35, 0.3, 0.35), 14.0)
