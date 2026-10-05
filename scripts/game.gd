@@ -20,6 +20,9 @@ func primary_stats() -> FirearmStats:
 	return load(loadout.primary) as FirearmStats
 
 
+## Real-time light / occluder shadows and drawn drop shadows. Off for performance; flip to bring back.
+var shadows_enabled := false
+
 ## Visual settings (user://settings.cfg): screen shake / hit-stop on big explosions.
 var shake_enabled := true
 const SETTINGS_PATH := "user://settings.cfg"

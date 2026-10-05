@@ -261,10 +261,10 @@ func _physics_process(delta: float) -> void:
 		_animate(delta)
 		return
 
-	# Sprint: stick held at the edge (or Shift), not aiming, with stamina left.
+	# Sprint: stick held at the edge (or Shift), not aiming or firing, with stamina left.
 	_edge_t = _edge_t + delta if input.length() >= 0.97 else 0.0
 	var want_sprint := (_edge_t > 0.12 or Input.is_physical_key_pressed(KEY_SHIFT)) and input.length() > 0.5
-	sprinting = want_sprint and stamina > 0.0 and ads < 0.1 and not dead and not typing
+	sprinting = want_sprint and stamina > 0.0 and ads < 0.1 and not dead and not typing and not weapon.trigger_held()
 	if sprinting:
 		stamina = maxf(stamina - delta / stamina_seconds, 0.0)
 		_stamina_idle = 0.0
@@ -380,7 +380,7 @@ func _update_laser() -> void:
 func _draw() -> void:
 	var swing := sin(_walk_phase) * _walk_amount
 	var bob := absf(cos(_walk_phase)) * _walk_amount
-	if not dead:
+	if not dead and Game.shadows_enabled:
 		# Drop shadow (world-fixed light) and aim laser.
 		var so := Vector2(6, 8).rotated(-global_rotation)
 		draw_set_transform_matrix(Transform2D(Vector2(19, 0), Vector2(0, 14), so))

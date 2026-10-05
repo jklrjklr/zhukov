@@ -1,6 +1,6 @@
 class_name Vision
 extends Node2D
-## Player sight cone with shadows, two render modes:
+## Player sight cone (shadows only while Game.shadows_enabled), two render modes:
 ## - LIGHT (native builds, default): a cone-shaped PointLight2D on the head with
 ##   real-time per-frame shadows from LightOccluder2Ds (rocks, walls, crates, trunks);
 ##   a CanvasModulate darkens everything unlit. Soft edges, shadows every frame.
@@ -68,9 +68,11 @@ func _ready() -> void:
 		_setup_light.call_deferred()
 
 
-## Shadow caster for a prop (LIGHT mode). Only edges facing away from the light cast,
+## Shadow caster for a prop (LIGHT mode; null while Game.shadows_enabled is off). Only edges facing away from the light cast,
 ## so the prop's own top stays lit and its shadow starts behind it.
 static func add_occluder(body: Node2D, points: PackedVector2Array) -> LightOccluder2D:
+	if not Game.shadows_enabled:
+		return null # no shadows: the cone is a plain cone (sight itself is still raycast)
 	var poly := OccluderPolygon2D.new()
 	poly.polygon = points
 	poly.cull_mode = OccluderPolygon2D.CULL_COUNTER_CLOCKWISE
@@ -101,7 +103,7 @@ func _setup_light() -> void:
 	_cone = PointLight2D.new()
 	_cone.texture = _hip_tex
 	_cone.texture_scale = view_distance * PX / (TEX_SIZE / 2.0)
-	_cone.shadow_enabled = true
+	_cone.shadow_enabled = Game.shadows_enabled
 	_cone.shadow_filter = Light2D.SHADOW_FILTER_PCF5
 	_cone.shadow_filter_smooth = 1.5
 	_cone.energy = 0.85

@@ -298,8 +298,8 @@ func _stratagem_input_tests() -> void:
 	p.rotation = 0.0
 	p.look_angle = 0.0
 	await wait(0.2)
-	s.open_menu()
-	check("tap opens the menu", s.ui == s.Ui.MENU)
+	s.open_menu() # keyboard path (Q)
+	check("Q opens the menu", s.ui == s.Ui.MENU)
 	check("menu entry enters aim mode", s.select_aim("eagle_airstrike") and s.ui == s.Ui.AIM)
 	s.aim_move(Vector2(0, -50.0 * PX))
 	check("aim point is clamped to the max throw range (20 m)", is_equal_approx(s.aim_offset.length(), 20.0 * PX), str(s.aim_offset.length()))
@@ -365,3 +365,80 @@ func _stratagem_input_tests() -> void:
 	s.locked = true
 	check("departed: not pickable, reason says offline", s.pick_error("resupply").contains("OFFLINE") and not s.select_quick("resupply"))
 	s.locked = false
+
+	# Stratagem cards are the touch buttons: tap = aim mode, press + swipe out = quick throw.
+	await fresh()
+	p.global_position = m.zones[0].rect.get_center()
+	p.rotation = 0.0
+	p.look_angle = 0.0
+	await wait(0.2)
+	var tc: Node = _scene.get_node("HUD/TouchControls")
+	tc.set_process(false)
+	var real: Vector2 = tc.get_viewport_rect().size
+	var n: int = s.equipped.size()
+	var ci: int = s.equipped.find("eat17")
+	check("loadout has the EAT-17 card", ci >= 0)
+	var cr: Rect2 = load("res://scripts/ui/strat_menu.gd").card_rect(real, n, ci)
+	var c0 := cr.get_center()
+	tc._on_touch(_touch(true, c0, 5))
+	check("press on a card does nothing yet", s.ui == s.Ui.NONE and s.typing_id == "")
+	tc._on_touch(_touch(false, c0, 5))
+	check("tap on a card enters aim mode for that stratagem", s.ui == s.Ui.AIM and s.aim_id == "eat17")
+	tc._on_touch(_touch(true, c0, 5))
+	tc._on_touch(_touch(false, c0, 5))
+	check("tap on the aimed card cancels", s.ui == s.Ui.NONE and s.aim_id == "")
+	var before: int = s.charges("eat17")
+	var up_end := c0 + Vector2(110, -20) # swipe right-and-slightly-up, out of the card
+	tc._on_touch(_touch(true, c0, 6))
+	tc._on_drag(_drag(up_end, 6))
+	tc._on_touch(_touch(false, up_end, 6))
+	check("swipe out of a card starts a quick throw (typing, no aim mode)", s.typing_id == "eat17" and s.ui == s.Ui.NONE and s.throw_queued)
+	await wait(0.7)
+	check("swipe quick throw thrown after the code", s.charges("eat17") == before - 1 and s.last_called == "eat17")
+	b = s._beacons[0]
+	var want: Vector2 = tc.get_viewport().get_canvas_transform().affine_inverse().basis_xform(up_end - c0).normalized()
+	check("swipe throw goes 12 m in the swipe direction", (b.to - b.from).normalized().dot(want) > 0.98 and (b.to - b.from).length() / PX <= 12.01, str(b.to - b.from))
+	# An empty card gives strat_error + a reason on press.
+	await wait(1.0)
+	s.status.eat17.charges = 0
+	s.error_t = 0.0
+	tc._on_touch(_touch(true, c0, 7))
+	check("pressing an empty card refuses (error flash, no aim mode)", s.error_t > 0.0 and s.ui == s.Ui.NONE and s.typing_id == "")
+	tc._on_touch(_touch(false, c0, 7))
+	check("releasing an empty card does nothing", s.ui == s.Ui.NONE and s.typing_id == "")
+	# Keyboard path still works: number key -> aim mode.
+	s.status.eat17.charges = 1
+	check("key 1-5 enters aim mode", s.select_index(ci) and s.ui == s.Ui.AIM)
+	s.cancel(false)
+
+	# Fire vs sprint: holding FIRE always fires and cancels sprint; sprint resumes after release.
+	await fresh()
+	p.global_position = m.zones[0].rect.get_center()
+	p.stamina = 1.0
+	await wait(0.2)
+	var mag0: int = p.weapon.mag
+	p.move_input = Vector2(0, -1)
+	await wait(0.5)
+	check("sprinting with the stick at the edge", p.sprinting)
+	p.weapon.trigger = true
+	await wait(0.3)
+	check("holding FIRE cancels sprint and the weapon fires", not p.sprinting and p.weapon.mag < mag0, "%s %d/%d" % [p.sprinting, p.weapon.mag, mag0])
+	p.weapon.trigger = false
+	await wait(0.2)
+	check("sprint resumes after FIRE is released", p.sprinting)
+	p.move_input = Vector2.ZERO
+
+
+func _touch(pressed: bool, pos: Vector2, index: int) -> InputEventScreenTouch:
+	var e := InputEventScreenTouch.new()
+	e.pressed = pressed
+	e.position = pos
+	e.index = index
+	return e
+
+
+func _drag(pos: Vector2, index: int) -> InputEventScreenDrag:
+	var e := InputEventScreenDrag.new()
+	e.position = pos
+	e.index = index
+	return e

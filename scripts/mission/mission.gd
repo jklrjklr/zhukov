@@ -982,7 +982,7 @@ func _draw_overlay() -> void:
 	var up := Fx.screen_up(_overlay)
 	if _pod_t > 0.0 and _pod_pos != Vector2.INF:
 		var k := clampf(1.0 - _pod_t / _pod_total, 0.0, 1.0)
-		_overlay.draw_circle(_pod_pos, 40.0 * (0.4 + k * 0.6), Color(0, 0, 0, 0.35 * k))
+		_overlay.draw_circle(_pod_pos, 40.0 * (0.4 + k * 0.6), Color(0, 0, 0, 0.55 * k))
 		_overlay.draw_arc(_pod_pos, 70.0 * (1.2 - k * 0.5), 0.0, TAU, 28, Color(1, 0.6, 0.2, 0.7 * k), 3.0)
 		Fx.draw_pod(_overlay, _pod_pos, up, k, 1000.0, 18.0)
 	if _breach_t >= 0.0 and _breach_pos != Vector2.INF:

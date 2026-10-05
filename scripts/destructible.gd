@@ -149,15 +149,16 @@ func _draw() -> void:
 		return
 	var dmg := 1.0 - hp / max_hp
 	var so := Vector2(7, 9).rotated(-global_rotation)
-	match kind:
-		Kind.CRATE:
-			draw_rect(Rect2(Vector2(-21, -21) + so, Vector2(43, 43)), Color(0, 0, 0, 0.3))
-		Kind.FABRICATOR:
-			draw_rect(Rect2(Vector2(-41, -29) + so, Vector2(83, 59)), Color(0, 0, 0, 0.3))
-		Kind.NEST:
-			draw_circle(so * 0.5, 34.0, Color(0, 0, 0, 0.25))
-		Kind.TREE:
-			draw_circle(so * 2.2, 40.0, Color(0, 0, 0, 0.22))
+	if Game.shadows_enabled:
+		match kind:
+			Kind.CRATE:
+				draw_rect(Rect2(Vector2(-21, -21) + so, Vector2(43, 43)), Color(0, 0, 0, 0.3))
+			Kind.FABRICATOR:
+				draw_rect(Rect2(Vector2(-41, -29) + so, Vector2(83, 59)), Color(0, 0, 0, 0.3))
+			Kind.NEST:
+				draw_circle(so * 0.5, 34.0, Color(0, 0, 0, 0.25))
+			Kind.TREE:
+				draw_circle(so * 2.2, 40.0, Color(0, 0, 0, 0.22))
 	var hit_tint := Color(1, 1, 1, 0.5) if _flash > 0.0 else Color(0, 0, 0, 0)
 	match kind:
 		Kind.CRATE:

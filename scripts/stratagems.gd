@@ -1,8 +1,8 @@
 class_name Stratagems
 extends Node2D
 ## Helldivers 2 stratagems.
-## Input: the player picks a stratagem (press-and-swipe radial = quick throw, or tap =
-## menu + aim mode, see strat_menu.gd); the Helldiver types the HD2 code automatically (0.1 s
+## Input: the player picks a stratagem (HUD cards: swipe out of a card = quick throw, tap = aim
+## mode; keyboard: Q radial / menu, 1-5 aim mode, see strat_menu.gd); the Helldiver types the HD2 code automatically (0.1 s
 ## per arrow, interrupted by a dive or stagger) and throws the beacon. After the call-in
 ## delay the effect arrives:
 ##   RESUPPLY            supply pod (2 pickups: ammo, grenades, stims)
@@ -103,6 +103,8 @@ var typing_id := ""
 var typing_t := 0.0
 var typing_flash := 0.0
 var throw_queued := false
+## World direction of a swipe quick throw (ZERO = along the aim direction).
+var _quick_dir := Vector2.ZERO
 var _typing_ticks := 0
 var _typing_mode := ""
 ## Feedback for the HUD: last thrown id and a short error flash.
@@ -260,7 +262,7 @@ func _refuse(text: String, id := "") -> void:
 	get_tree().call_group("mission", "announce", msg, false)
 
 
-## Tap on the STRATAGEM button / tap Q: the list menu.
+## Tap Q: the list menu (keyboard).
 func open_menu() -> void:
 	if ui == Ui.MENU:
 		return
@@ -302,8 +304,9 @@ func cancel(sound := true) -> void:
 		Sfx.play_ui("ui_back", -4.0)
 
 
-## Quick throw: auto-type id's code, then throw along the aim direction at the default distance.
-func select_quick(id: String) -> bool:
+## Quick throw: auto-type id's code, then throw at the default distance along `dir` (a world
+## direction, e.g. the swipe on a card) or, without one, along the aim direction.
+func select_quick(id: String, dir := Vector2.ZERO) -> bool:
 	var why := pick_error(id)
 	if why != "":
 		cancel(false)
@@ -311,6 +314,7 @@ func select_quick(id: String) -> bool:
 		return false
 	cancel(false)
 	_begin_typing(id, "quick")
+	_quick_dir = dir.normalized()
 	throw_queued = true
 	return true
 
@@ -400,7 +404,10 @@ func preview(id: String) -> Dictionary:
 func _complete() -> void:
 	var id := typing_id
 	var mode := _typing_mode
-	var to: Vector2 = _player.global_position + Vector2.UP.rotated(_player.rotation) * DEFAULT_THROW_M * PX
+	var fwd := Vector2.UP.rotated(_player.rotation)
+	if mode == "quick" and _quick_dir != Vector2.ZERO:
+		fwd = _quick_dir
+	var to: Vector2 = _player.global_position + fwd * DEFAULT_THROW_M * PX
 	if mode == "aim":
 		to = aim_point()
 	var why := pick_error(id)
@@ -603,7 +610,7 @@ func _draw() -> void:
 		var col: Color = DEFS[b.id].color
 		var k := clampf(b.t / b.flight, 0.0, 1.0)
 		var p: Vector2 = b.pos + up * (sin(k * PI) * 26.0)
-		draw_circle(b.pos + Vector2(3, 4), 4.0, Color(0, 0, 0, 0.3))
+		if Game.shadows_enabled: draw_circle(b.pos + Vector2(3, 4), 4.0, Color(0, 0, 0, 0.3))
 		draw_circle(p, 5.0, Color(0.1, 0.1, 0.1))
 		draw_circle(p, 3.3, col.lightened(0.2))
 		if b.t >= b.flight:
@@ -627,7 +634,7 @@ func _draw() -> void:
 			"pod":
 				if f.t < POD_FALL:
 					var k: float = f.t / POD_FALL
-					draw_circle(f.pos, 34.0 * (0.3 + k * 0.7), Color(0, 0, 0, 0.3 * k))
+					draw_circle(f.pos, 34.0 * (0.3 + k * 0.7), Color(0, 0, 0, 0.5 * k))
 					draw_arc(f.pos, 40.0 * (1.2 - k * 0.4), 0.0, TAU, 24, Color(1, 0.6, 0.2, 0.6 * k), 2.0)
 					_falling_pod(f.pos, up, k, 700.0, 14.0)
 			"beam":
@@ -649,9 +656,10 @@ func _draw() -> void:
 				var wings := PackedVector2Array([Vector2(-8, -10), Vector2(-86, 34), Vector2(-80, 46), Vector2(-8, 28), Vector2(8, 28), Vector2(80, 46), Vector2(86, 34), Vector2(8, -10)])
 				var tail := PackedVector2Array([Vector2(-5, 38), Vector2(-30, 62), Vector2(-5, 54), Vector2(5, 54), Vector2(30, 62), Vector2(5, 38)])
 				var sh := Color(0, 0, 0, 0.38)
-				draw_colored_polygon(t * body, sh)
-				draw_colored_polygon(t * wings, sh)
-				draw_colored_polygon(t * tail, sh)
+				if Game.shadows_enabled:
+					draw_colored_polygon(t * body, sh)
+					draw_colored_polygon(t * wings, sh)
+					draw_colored_polygon(t * tail, sh)
 				# Dust wake on the ground behind the jet.
 				draw_line(c - dir * 40.0, c - dir * 380.0, Color(0.8, 0.7, 0.5, 0.18 * (1.0 - k * 0.5)), 26.0)
 			"shell":
@@ -672,7 +680,7 @@ func _draw() -> void:
 					draw_circle(f.pos, br * 0.9 * k, Color(1, 0.3, 0.2, 0.12))
 					# The falling bomb with its small shadow.
 					var h := (1.0 - k) * 500.0
-					draw_circle(f.pos, 5.0, Color(0, 0, 0, 0.3))
+					if Game.shadows_enabled: draw_circle(f.pos, 5.0, Color(0, 0, 0, 0.3))
 					draw_line(f.pos + up * (h + 10.0), f.pos + up * h, Color(0.2, 0.2, 0.22), 6.0 if f.big else 4.0)
 					draw_line(f.pos + up * (h + 40.0), f.pos + up * (h + 10.0), Color(1, 0.7, 0.3, 0.4), 3.0)
 

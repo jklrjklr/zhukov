@@ -111,6 +111,14 @@ static func grenade(ci: CanvasItem, c: Vector2, s: float, col: Color) -> void:
 	ci.draw_line(c + Vector2(-s * 0.6, s * 0.15), c + Vector2(s * 0.6, s * 0.15), Color(0, 0, 0, 0.35), maxf(s * 0.12, 1.0))
 
 
+## Spare magazine.
+static func magazine(ci: CanvasItem, c: Vector2, s: float, col: Color) -> void:
+	ci.draw_rect(Rect2(c + Vector2(-s * 0.55, -s), Vector2(s * 1.1, s * 2.0)), DARK)
+	ci.draw_rect(Rect2(c + Vector2(-s * 0.38, -s * 0.85), Vector2(s * 0.76, s * 1.7)), col)
+	ci.draw_line(c + Vector2(-s * 0.38, -s * 0.2), c + Vector2(s * 0.38, -s * 0.2), Color(0, 0, 0, 0.35), maxf(s * 0.12, 1.0))
+	ci.draw_line(c + Vector2(-s * 0.38, s * 0.3), c + Vector2(s * 0.38, s * 0.3), Color(0, 0, 0, 0.35), maxf(s * 0.12, 1.0))
+
+
 static func heart(ci: CanvasItem, c: Vector2, s: float, col: Color) -> void:
 	ci.draw_circle(c + Vector2(-s * 0.4, -s * 0.2), s * 0.52, DARK)
 	ci.draw_circle(c + Vector2(s * 0.4, -s * 0.2), s * 0.52, DARK)

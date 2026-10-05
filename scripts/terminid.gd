@@ -627,7 +627,7 @@ func _draw() -> void:
 		body = body.lerp(Color.WHITE, 0.55)
 		dark = dark.lerp(Color.WHITE, 0.35)
 	_base = Transform2D(Vector2(s, 0), Vector2(0, s), Vector2.ZERO)
-	if not dead:
+	if not dead and Game.shadows_enabled:
 		# Drop shadow (light is fixed in the world, not on the screen).
 		var so := Vector2(5, 7).rotated(-global_rotation)
 		draw_set_transform_matrix(Transform2D(Vector2(radius * 0.95, 0), Vector2(0, radius * 1.35), so))

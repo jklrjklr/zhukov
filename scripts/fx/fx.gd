@@ -174,20 +174,28 @@ static func hit_stop(from: Node, seconds := 0.05) -> void:
 		f._hit_stop(seconds)
 
 
-## Pod / hellpod dropping from above (draw helper for any canvas item): fire trail + hull.
-static func draw_pod(ci: CanvasItem, pos: Vector2, up: Vector2, k: float, height: float, size: float) -> void:
-	var top := pos + up * (height * (1.0 - k))
-	var side := up.orthogonal()
-	var pts := PackedVector2Array([top + side * size * 0.8, top - side * size * 0.8, top - side * 3.0 + up * 190.0, top + side * 3.0 + up * 190.0])
-	var cols := PackedColorArray([Color(1, 0.7, 0.25, 0.85), Color(1, 0.7, 0.25, 0.85), Color(1, 0.35, 0.1, 0.0), Color(1, 0.35, 0.1, 0.0)])
-	ci.draw_polygon(pts, cols)
-	ci.draw_circle(top, size + 2.0, Color(0.08, 0.08, 0.08))
-	ci.draw_circle(top, size, Color(0.3, 0.31, 0.34))
-	ci.draw_circle(top - up * 3.0, size * 0.55, Color(0.55, 0.56, 0.6))
-	ci.draw_circle(top, size * 0.35, UiStyle.YELLOW)
+## Pod / hellpod coming down (draw helper for any canvas item), top-down depth effect at the
+## landing spot: starts ~4x its ground size and semi-transparent with a fire-trail glow ring,
+## shrinks to `size` as k goes 0 -> 1 (the caller draws the darkening ground marker).
+## `up` / `height` are unused (kept for the old falling-from-the-sky callers).
+static func draw_pod(ci: CanvasItem, pos: Vector2, _up: Vector2, k: float, _height: float, size: float) -> void:
+	k = clampf(k, 0.0, 1.0)
+	var sc := 1.0 + 3.0 * (1.0 - k) # 4x -> 1x
+	var a := 0.4 + 0.6 * k
+	var r := size * sc
+	# Fire-trail glow: soft halo plus a hot ring that tightens onto the hull.
+	var hot := 1.0 - k * 0.6
+	ci.draw_circle(pos, r * 1.7, Color(1, 0.4, 0.1, 0.10 * hot))
+	ci.draw_circle(pos, r * 1.3, Color(1, 0.6, 0.2, 0.18 * hot))
+	ci.draw_arc(pos, r * 1.25, 0.0, TAU, 40, Color(1, 0.75, 0.3, 0.8 * hot), maxf(r * 0.22, 3.0))
+	ci.draw_arc(pos, r * 1.05, 0.0, TAU, 40, Color(1, 0.95, 0.7, 0.6 * hot), maxf(r * 0.08, 1.5))
+	ci.draw_circle(pos, r + 2.0 * sc, Color(0.08, 0.08, 0.08, a))
+	ci.draw_circle(pos, r, Color(0.3, 0.31, 0.34, a))
+	ci.draw_circle(pos, r * 0.55, Color(0.55, 0.56, 0.6, a))
+	ci.draw_circle(pos, r * 0.35, Color(UiStyle.YELLOW, a))
 	for i in 4:
-		var a := TAU * i / 4.0 + PI / 4.0
-		ci.draw_line(top, top + Vector2.from_angle(a) * size * 1.5, Color(0.1, 0.1, 0.1), 3.0)
+		var ang := TAU * i / 4.0 + PI / 4.0
+		ci.draw_line(pos, pos + Vector2.from_angle(ang) * r * 1.5, Color(0.1, 0.1, 0.1, a), 3.0 * sc)
 
 
 static func decal_count() -> int:

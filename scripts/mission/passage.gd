@@ -126,7 +126,7 @@ func _draw() -> void:
 		draw_polyline(PackedVector2Array([Vector2(-26, cy + 16), Vector2(0, cy - 8), Vector2(26, cy + 16)]), Color(UiStyle.YELLOW, 0.4), 6.0)
 	for side in [-1.0, 1.0]:
 		var r := Rect2(Vector2((hw if side > 0.0 else -hw - 2.0 * PX), -half_len), Vector2(2.0 * PX, half_len * 2.0))
-		draw_rect(Rect2(r.position + Vector2(7, 9), r.size), Color(0, 0, 0, 0.3))
+		if Game.shadows_enabled: draw_rect(Rect2(r.position + Vector2(7, 9), r.size), Color(0, 0, 0, 0.3))
 		draw_rect(r.grow(2.0), Color(0.08, 0.08, 0.08))
 		draw_rect(r, wall_col.darkened(0.3))
 		var top := Rect2(r.position, r.size - Vector2(6, 0))

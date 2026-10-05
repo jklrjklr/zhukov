@@ -97,7 +97,12 @@ func _run() -> void:
 	_s._throw("eagle_airstrike", _p.global_position + Vector2(0, -8 * 60.0))
 	await wait(4.5)
 	await shot("8_barrage")
-	await wait(2.0)
+	# Ready toasts: a refilled meter and rearmed Eagles.
+	_s.status["orbital_120"].charges = 0
+	_s._fill("orbital_120", 1.0e6)
+	_s.status["eagle_airstrike"].charges = 0
+	_s._fill("eagle_airstrike", 1.0e6)
+	await wait(0.6)
 	_keep_alive = false
 	_p.hp = 22.0
 	await shot("9_low_hp")

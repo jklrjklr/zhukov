@@ -90,7 +90,7 @@ func _process(delta: float) -> void:
 func _draw() -> void:
 	var outline := Color(0.08, 0.08, 0.08)
 	var so := Vector2(6, 8).rotated(-global_rotation)
-	if not (kind == Kind.SAMPLE and used):
+	if Game.shadows_enabled and not (kind == Kind.SAMPLE and used):
 		draw_rect(Rect2(Vector2(-17, -13) + so, Vector2(34, 27)), Color(0, 0, 0, 0.28))
 	match kind:
 		Kind.TERMINAL, Kind.EXTRACT_CONSOLE:

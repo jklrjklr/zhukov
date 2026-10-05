@@ -7,11 +7,11 @@ extends Control
 ##   While aiming, any right-side swipe (and dragging FIRE) also moves aim distance
 ##   with its vertical motion.
 ## - INTERACT (hold) appears next to terminals, consoles, ammo boxes and pods.
-## - STRATAGEM (left): press-and-swipe = radial quick throw (swipe toward a stratagem,
-##   release: it is auto-typed and thrown along the aim direction; release in the centre
-##   cancels). Tap = list menu -> tap one -> aim mode: drag on the right half to move the
-##   landing point (camera follows), release or THROW throws, CANCEL exits.
-##   Menus and aim mode are drawn by StratMenu (scripts/ui/strat_menu.gd).
+## - STRATAGEM CARDS (bottom centre, drawn by the HUD, hit-tested here): tap a card = aim mode
+##   (drag on the right half to move the landing point, camera follows, release or THROW
+##   throws, CANCEL exits); press a card and swipe out of it = quick throw 12 m in the swipe
+##   direction (the code is auto-typed first). Locked / empty cards give the strat_error
+##   sound and the reason banner. The aim overlay is drawn by StratMenu (scripts/ui/strat_menu.gd).
 ## - DIVE: lunge and drop prone. SWAP: primary <-> support weapon (when carrying one).
 ## On web, the top-right corner toggles fullscreen.
 ## Info (health, ammo, objectives...) is drawn by the HUD; this node only draws the
@@ -19,7 +19,7 @@ extends Control
 ## Desktop: mouse is emulated as touch index 0 (plus WASD / Left,Right turn, Space, R, B, F,
 ## Z/X, G grenade, H stim, hold V interact, C dive, T swap). Stratagems: hold Q (or middle
 ## mouse) = radial quick throw, swipe the mouse toward one and release; tap Q = menu, then
-## click one (or keys 1-5 directly) = aim mode with the mouse as landing point, left click
+## click one (or keys 1-5 directly; the cards also work with the mouse) = aim mode with the mouse as landing point, left click
 ## throws, right click / Q cancels.
 
 @export var player_path: NodePath
@@ -40,11 +40,12 @@ const ADS_TURN_MULT := 0.5
 ## A press on ADS shorter/smaller than this is a tap (toggle).
 const TAP_MS := 300
 const TAP_PX := 14.0
-const STRAT_RADIUS := 46.0
-## Press on STRATAGEM held this long (ms) opens the radial; a drag beyond TAP_PX does too.
+## Press on a stratagem card held this long (ms) opens the radial (keyboard Q / mouse only).
 const RADIAL_HOLD_MS := 150
 ## A radial released in the dead-zone within this many ms (without moving) counts as a tap.
 const RADIAL_TAP_MS := 350
+## A card press released this far (px) from where it started, or outside the card, is a swipe.
+const SWIPE_PX := 36.0
 ## Landing point px per finger px while dragging in aim mode.
 const AIM_DRAG_GAIN := 1.3
 
@@ -67,10 +68,11 @@ var _ads_was_on := false
 var _interact_index := -1
 var _strat: Stratagems
 var _menu: StratMenu
-## STRATAGEM button press (touch index, -1 none) before it is a tap or a radial.
-var _sp_index := -1
-var _sp_ms := 0
-var _sp_pos := Vector2.ZERO
+## Stratagem card press (touch index, -1 none) before it is a tap or a swipe.
+var _card_index := -1
+var _card_i := -1
+var _card_pos := Vector2.ZERO
+var _card_cur := Vector2.ZERO
 ## Radial source: -1 none, -2 keyboard / mouse, otherwise the touch index; pointer origin.
 var _radial_src := -1
 var _radial_origin := Vector2.ZERO
@@ -144,15 +146,8 @@ func _on_touch(e: InputEventScreenTouch) -> void:
 	if e.pressed:
 		if OS.has_feature("web") and _fullscreen_rect().has_point(e.position):
 			_toggle_fullscreen()
-		elif _strat and e.position.distance_to(_strat_center()) < STRAT_RADIUS:
-			_release_fire()
-			_weapon.ads = false
-			if _strat.ui == Stratagems.Ui.MENU or _strat.ui == Stratagems.Ui.AIM:
-				_strat.cancel()
-			elif _sp_index == -1:
-				_sp_index = e.index
-				_sp_ms = Time.get_ticks_msec()
-				_sp_pos = e.position
+		elif _strat and _card_press(e):
+			pass
 		elif e.position.distance_to(_dive_center()) < SMALL_RADIUS:
 			_player.dive()
 		elif _strat and _strat.ui == Stratagems.Ui.AIM and _aim_touch(e):
@@ -199,13 +194,8 @@ func _on_touch(e: InputEventScreenTouch) -> void:
 			_release_fire()
 		elif e.index == _interact_index:
 			_interact_index = -1
-		elif e.index == _sp_index:
-			_sp_index = -1
-			if _radial_src == e.index:
-				_end_radial()
-			elif _strat:
-				_strat.open_menu()
-				_menu_by_key = false
+		elif e.index == _card_index:
+			_card_release(e.position)
 		elif e.index == _aim_index:
 			_aim_index = -1
 			if _aim_moved > 8.0 and _strat and _strat.ui == Stratagems.Ui.AIM:
@@ -218,12 +208,8 @@ func _on_touch(e: InputEventScreenTouch) -> void:
 
 
 func _on_drag(e: InputEventScreenDrag) -> void:
-	if e.index == _sp_index:
-		if _radial_src == -1 and e.position.distance_to(_sp_pos) > TAP_PX:
-			_begin_radial(e.index, _sp_pos)
-			_radial_ms = _sp_ms
-		if _radial_src == e.index:
-			_update_radial(e.position)
+	if e.index == _card_index:
+		_card_cur = e.position
 	elif e.index == _aim_index:
 		if _strat and _strat.ui == Stratagems.Ui.AIM:
 			var d := e.position - _aim_last
@@ -300,6 +286,50 @@ func _menu_touch(e: InputEventScreenTouch) -> bool:
 	return false
 
 
+## Press on a stratagem card. Unusable ones refuse right away (sound + reason banner).
+func _card_press(e: InputEventScreenTouch) -> bool:
+	var i := StratMenu.card_at(get_viewport_rect().size, _strat.equipped.size(), e.position)
+	if i < 0:
+		return false
+	_release_fire()
+	_weapon.ads = false
+	var id: String = _strat.equipped[i]
+	if _strat.locked:
+		_strat.select_aim(id) # refuses with the reason
+		return true
+	if _card_index == -1:
+		_card_index = e.index
+		_card_i = i
+		_card_pos = e.position
+		_card_cur = e.position
+		var why := _strat.pick_error(id)
+		if why != "":
+			_strat.select_aim(id) # refuses: strat_error + reason banner
+			_card_index = -1
+	return true
+
+
+## Released: outside the card / far from the press = quick throw in the swipe direction,
+## otherwise a tap = aim mode (tap the card of the stratagem being aimed = cancel).
+func _card_release(pos: Vector2) -> void:
+	var i := _card_i
+	_card_index = -1
+	_card_i = -1
+	if _strat == null or i < 0 or i >= _strat.equipped.size():
+		return
+	var id: String = _strat.equipped[i]
+	var real := get_viewport_rect().size
+	var swipe := pos - _card_pos
+	var out := not StratMenu.card_rect(real, _strat.equipped.size(), i).has_point(pos)
+	if swipe.length() >= SWIPE_PX or (out and swipe.length() > TAP_PX):
+		var dir := get_viewport().get_canvas_transform().affine_inverse().basis_xform(swipe).normalized()
+		_strat.select_quick(id, dir)
+	elif _strat.ui == Stratagems.Ui.AIM and _strat.aim_id == id:
+		_strat.cancel()
+	else:
+		_strat.select_aim(id)
+
+
 func _begin_radial(src: int, pos: Vector2) -> void:
 	if _strat == null:
 		return
@@ -319,7 +349,7 @@ func _update_radial(pos: Vector2) -> void:
 	_strat.radial_pointer = _strat.radial_center + (pos - _radial_origin)
 
 
-## Released: swipe toward a stratagem = quick throw; centre = cancel (a quick tap = menu).
+## Keyboard / mouse radial released: toward a stratagem = quick throw; centre = cancel.
 func _end_radial() -> void:
 	var src := _radial_src
 	_radial_src = -1
@@ -336,17 +366,13 @@ func _end_radial() -> void:
 		_strat.cancel()
 
 
-## Per frame: a STRATAGEM press turns into a radial after a short hold; the keyboard /
-## mouse radial follows the mouse.
+## Per frame: the keyboard / mouse radial follows the mouse.
 func _update_stratagem_input() -> void:
 	if _strat == null:
 		return
 	if _player.dead and _strat.ui != Stratagems.Ui.NONE:
 		_strat.cancel(false)
 	var now := Time.get_ticks_msec()
-	if _sp_index != -1 and _radial_src == -1 and now - _sp_ms >= RADIAL_HOLD_MS:
-		_begin_radial(_sp_index, _sp_pos)
-		_radial_ms = _sp_ms
 	if _q_down and _radial_src == -1 and not _q_consumed and now - _q_ms >= RADIAL_HOLD_MS \
 			and _strat.ui == Stratagems.Ui.NONE:
 		_begin_radial(-2, get_viewport().get_mouse_position())
@@ -394,7 +420,7 @@ func _release_all() -> void:
 	if _strat and _strat.ui != Stratagems.Ui.NONE:
 		_strat.cancel(false)
 	_radial_src = -1
-	_sp_index = -1
+	_card_index = -1
 	_aim_index = -1
 	_q_down = false
 	_release_joystick()
@@ -418,10 +444,6 @@ func _release_fire() -> void:
 
 func _interact_visible() -> bool:
 	return _player.interact_target != null
-
-
-func _strat_center() -> Vector2:
-	return Vector2(90, 260)
 
 
 func _dive_center() -> Vector2:
@@ -497,11 +519,7 @@ func _draw() -> void:
 		draw_arc(hint, joystick_radius, 0, TAU, 48, Color(1, 1, 1, 0.12), 3.0)
 		UiStyle.text(self, hint + Vector2(-60, 6), "move", 18, Color(1, 1, 1, 0.25), HORIZONTAL_ALIGNMENT_CENTER, 120)
 
-	# Stratagem button: press-and-swipe (quick throw) or tap (menu + aim mode).
-	if _strat:
-		_button(_strat_center(), STRAT_RADIUS, "STRAT", _strat.ui != Stratagems.Ui.NONE, 15)
-		if _strat.is_typing():
-			draw_arc(_strat_center(), STRAT_RADIUS - 5, -PI / 2, -PI / 2 + TAU * _strat.typing_t / _strat.code_time(_strat.typing_id), 32, UiStyle.YELLOW, 5.0)
+	_draw_card_press()
 	if _strat != null and _strat.ui == Stratagems.Ui.AIM: # THROW / CANCEL are drawn by StratMenu
 		_button(_dive_center(), SMALL_RADIUS - 4, "DIVE", _player.is_diving(), 14)
 		return
@@ -540,6 +558,20 @@ func _draw() -> void:
 			var sy := 1.0 if c.y == r.position.y else -1.0
 			draw_line(c, c + Vector2(l * sx, 0), UiStyle.TEXT_DIM, 3.0)
 			draw_line(c, c + Vector2(0, l * sy), UiStyle.TEXT_DIM, 3.0)
+
+
+## Pressed stratagem card: highlight and, once the finger leaves it, the swipe direction.
+func _draw_card_press() -> void:
+	if _strat == null or _card_index == -1 or _card_i < 0 or _card_i >= _strat.equipped.size():
+		return
+	var id: String = _strat.equipped[_card_i]
+	var col: Color = Stratagems.DEFS[id].color
+	var r := StratMenu.card_rect(get_viewport_rect().size, _strat.equipped.size(), _card_i)
+	draw_rect(r, Color(col, 0.3))
+	var d := _card_cur - _card_pos
+	if d.length() > TAP_PX:
+		draw_line(_card_pos, _card_cur, Color(col, 0.8), 4.0)
+		UiIcons.arrow(self, _card_cur + d.normalized() * 14.0, d.normalized(), 14.0, col)
 
 
 ## Round control: dark glass, accent ring, label; filled with the accent when active.

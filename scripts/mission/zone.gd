@@ -523,7 +523,7 @@ func _draw_chunk(n: Node2D, items: Array) -> void:
 				var tone: float = it.tone
 				for b: Vector3 in it.b:
 					var c := Vector2(b.x, b.y)
-					n.draw_circle(c + Vector2(1.5, 2.0), b.z, Color(0, 0, 0, 0.3))
+					if Game.shadows_enabled: n.draw_circle(c + Vector2(1.5, 2.0), b.z, Color(0, 0, 0, 0.3))
 					n.draw_circle(c, b.z, ground.darkened(0.22 + tone * 0.2))
 					n.draw_circle(c + Vector2(-b.z * 0.25, -b.z * 0.25), b.z * 0.55, ground.lightened(0.1 + tone * 0.15))
 			"tuft":
@@ -538,7 +538,7 @@ func _draw_chunk(n: Node2D, items: Array) -> void:
 			"rubble":
 				var r: float = it.r
 				var a: float = it.a
-				n.draw_circle(p + Vector2(2, 3), r, Color(0, 0, 0, 0.28))
+				if Game.shadows_enabled: n.draw_circle(p + Vector2(2, 3), r, Color(0, 0, 0, 0.28))
 				n.draw_circle(p, r, Color(0.07, 0.07, 0.07))
 				n.draw_circle(p, r - 1.2, ground.darkened(0.15).lerp(Color(0.45, 0.43, 0.4), 0.5))
 				n.draw_circle(p + Vector2.from_angle(a) * -r * 0.3, r * 0.45, Color(0.58, 0.56, 0.52, 0.8))
@@ -559,7 +559,7 @@ func _draw_chunk(n: Node2D, items: Array) -> void:
 				n.draw_circle(p, 0.5 * PX, Color(0.7, 0.55, 0.3, 0.18))
 			"pustule":
 				var r: float = it.r
-				n.draw_circle(p + Vector2(1.5, 2.5), r, Color(0, 0, 0, 0.3))
+				if Game.shadows_enabled: n.draw_circle(p + Vector2(1.5, 2.5), r, Color(0, 0, 0, 0.3))
 				n.draw_circle(p, r + 1.2, Color(0.12, 0.06, 0.06))
 				n.draw_circle(p, r, Color(0.62, 0.42, 0.38))
 				n.draw_circle(p + Vector2(-r * 0.3, -r * 0.3), r * 0.4, Color(0.85, 0.7, 0.6, 0.8))
@@ -608,7 +608,7 @@ func _draw_floor(n: Node2D, r: Rect2) -> void:
 
 
 func _draw_pad(n: Node2D, lp: Vector2) -> void:
-	n.draw_circle(lp + Vector2(6, 8), 8.2 * PX, Color(0, 0, 0, 0.25))
+	if Game.shadows_enabled: n.draw_circle(lp + Vector2(6, 8), 8.2 * PX, Color(0, 0, 0, 0.25))
 	n.draw_circle(lp, 8.0 * PX, CONCRETE.darkened(0.05))
 	n.draw_circle(lp, 7.2 * PX, CONCRETE.darkened(0.15))
 	n.draw_arc(lp, 8.0 * PX, 0, TAU, 64, UiStyle.YELLOW.darkened(0.3), 8.0)
@@ -634,10 +634,11 @@ func _draw_props(n: Node2D) -> void:
 		var poly: PackedVector2Array = r.poly
 		var center: Vector2 = r.pos
 		var rad: float = r.r
-		var sp := PackedVector2Array()
-		for v in poly:
-			sp.append(v + sh * clampf(rad / 60.0, 0.5, 1.4))
-		n.draw_colored_polygon(sp, Color(0, 0, 0, 0.3))
+		if Game.shadows_enabled:
+			var sp := PackedVector2Array()
+			for v in poly:
+				sp.append(v + sh * clampf(rad / 60.0, 0.5, 1.4))
+			n.draw_colored_polygon(sp, Color(0, 0, 0, 0.3))
 		for o in Geometry2D.offset_polygon(poly, 2.0):
 			n.draw_colored_polygon(o, Color(0.08, 0.08, 0.08))
 		n.draw_colored_polygon(poly, Color(shade, shade * 0.95, shade * 0.85))
@@ -663,8 +664,9 @@ func _draw_props(n: Node2D) -> void:
 			n.draw_polyline(PackedVector2Array([center - d * rad * 0.4, center + d.orthogonal() * rad * 0.1,
 				center + d * rad * 0.35]), Color(0.1, 0.09, 0.08, 0.7), 1.6)
 	# Walls: drop shadow, outline, side shade (south/east), top face, highlight, seams, damage.
-	for r in walls:
-		n.draw_rect(Rect2(r.position + sh, r.size), Color(0, 0, 0, 0.3))
+	if Game.shadows_enabled:
+		for r in walls:
+			n.draw_rect(Rect2(r.position + sh, r.size), Color(0, 0, 0, 0.3))
 	for r in walls:
 		n.draw_rect(r.grow(2.0), Color(0.08, 0.08, 0.08))
 		n.draw_rect(r, wall_col.darkened(0.3)) # side faces

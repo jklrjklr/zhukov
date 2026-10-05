@@ -422,8 +422,13 @@ func _physics_process(delta: float) -> void:
 	queue_redraw()
 
 
+## FIRE (touch) or Space held. Holding it cancels sprinting (Player).
+func trigger_held() -> bool:
+	return trigger or Input.is_physical_key_pressed(KEY_SPACE)
+
+
 func _update_trigger(delta: float) -> void:
-	var held := trigger or Input.is_physical_key_pressed(KEY_SPACE)
+	var held := trigger_held()
 	var pressed := held and not _trigger_was
 	_trigger_was = held
 	var mode := fire_mode()
@@ -447,7 +452,7 @@ func _update_trigger(delta: float) -> void:
 func _try_fire() -> bool:
 	if state != State.READY or jammed or blocked > 0.0 or not _has_round() or _player.dead or _player.deploying:
 		return false
-	if _player.sprinting or _player.is_diving():
+	if _player.is_diving():
 		return false
 	Game.add_stat("shots")
 	if stats.closed_bolt:

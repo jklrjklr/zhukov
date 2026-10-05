@@ -1,9 +1,11 @@
 class_name StratMenu
 extends Control
 ## Stratagem selection UI (screen space, drawn with _draw()). State lives in Stratagems:
-##   RADIAL  press-and-swipe: ring of the loadout around the thumb, release toward one
+## (Touch uses the HUD stratagem cards: tap = AIM, swipe out = quick throw. RADIAL and MENU
+## are the keyboard / mouse paths: hold Q or middle mouse, tap Q.)
+##   RADIAL  ring of the loadout around the pointer, release toward one
 ##           to quick-throw it; release in the centre dead-zone cancels.
-##   MENU    tap: large list rows (tap one -> aim mode). Locked rows say why.
+##   MENU    large list rows (click one -> aim mode). Locked rows say why.
 ##   AIM     throw arc, landing marker with the effect radius (barrage circle, Eagle line
 ##           perpendicular to the throw, sentry footprint), THROW / CANCEL buttons.
 ## Plus the arrow glyphs that tick above the Helldiver's head while the code is typed.
@@ -40,6 +42,38 @@ func _process(_delta: float) -> void:
 
 
 # --- Geometry (static: shared with TouchControls) ---------------------------------------------
+
+## HUD scale (the HUD draws in 1280 x 720 units, scaled up uniformly on bigger screens).
+static func ui_scale(real: Vector2) -> float:
+	return clampf(minf(real.x / 1280.0, real.y / 720.0), 1.0, 1.6)
+
+
+## Bottom-centre block (real px, x / width only) between the MOVE hint and the STIM / RELOAD
+## buttons: stratagem cards on top, health + counters below.
+static func block_rect(real: Vector2) -> Rect2:
+	var u := ui_scale(real)
+	var left := 300.0
+	var avail := maxf(real.x - 510.0 - left, 300.0)
+	var w := minf(avail, 600.0 * u)
+	return Rect2(left + (avail - w) * 0.5, 0.0, w, 0.0)
+
+
+## Stratagem card i of n (real px). The cards are the stratagem touch buttons.
+static func card_rect(real: Vector2, n: int, i: int) -> Rect2:
+	var u := ui_scale(real)
+	var b := block_rect(real)
+	var gap := 6.0 * u
+	var cw := (b.size.x - gap * (n - 1)) / maxi(n, 1)
+	return Rect2(b.position.x + i * (cw + gap), real.y - 142.0 * u, cw, 64.0 * u)
+
+
+## Card under p (real px), -1 none.
+static func card_at(real: Vector2, n: int, p: Vector2) -> int:
+	for i in n:
+		if card_rect(real, n, i).has_point(p):
+			return i
+	return -1
+
 
 ## Ring centre kept fully on screen.
 static func clamp_center(c: Vector2, vp: Vector2) -> Vector2:

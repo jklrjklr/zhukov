@@ -311,12 +311,12 @@ func _draw() -> void:
 		draw_arc(b.to, mr, 0.0, TAU, 32, Color(0.75, 1.0, 0.25, 0.55), 2.0)
 		draw_arc(b.to, mr * (1.0 - k * 0.9), 0.0, TAU, 28, Color(1.0, 0.95, 0.3, 0.9), 2.5)
 		draw_circle(b.to, mr, Color(0.6, 0.85, 0.15, 0.12))
-		draw_circle(b.pos, 4.0, Color(0, 0, 0, 0.3))
+		if Game.shadows_enabled: draw_circle(b.pos, 4.0, Color(0, 0, 0, 0.3))
 		draw_circle(b.pos + Vector2(0, -lift), 6.0, Color(0.7, 0.95, 0.2, 0.9))
 	for g in _grenades:
 		var k := clampf(g.t / g.flight, 0.0, 1.0)
 		var lift := sin(k * PI) * 18.0
-		draw_circle(g.pos, 5.0, Color(0, 0, 0, 0.35)) # shadow
+		if Game.shadows_enabled: draw_circle(g.pos, 5.0, Color(0, 0, 0, 0.35)) # shadow
 		var p: Vector2 = g.pos + Vector2(0, -lift)
 		draw_circle(p, 5.5 + lift * 0.1, Color(0.08, 0.08, 0.08))
 		draw_circle(p, 4.0 + lift * 0.1, Color(0.3, 0.38, 0.22))

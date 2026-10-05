@@ -615,7 +615,7 @@ func _draw() -> void:
 		lift = 3.0 * sin(_bob)
 		# Shadow on the ground (flyers hover).
 		draw_set_transform(Vector2(10, 14).rotated(-rotation), 0.0)
-		draw_circle(Vector2.ZERO, radius * 1.1, Color(0, 0, 0, 0.3))
+		if Game.shadows_enabled: draw_circle(Vector2.ZERO, radius * 1.1, Color(0, 0, 0, 0.3))
 		draw_set_transform(Vector2.ZERO)
 	if kind == Kind.HARVESTER and not dead:
 		_draw_beam()

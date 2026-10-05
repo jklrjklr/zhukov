@@ -406,7 +406,7 @@ func _draw() -> void:
 		draw_circle(p, 8.0 + k * 14.0, Color(0.55, 0.48, 0.38, 0.4 * (1.0 - k)))
 	if state == State.WINDUP or (state == State.CHARGE and _charge_dist < 3.0 * PX):
 		_draw_charge_lane()
-	if not dead:
+	if not dead and Game.shadows_enabled:
 		var so := Vector2(7, 10).rotated(-global_rotation)
 		draw_set_transform_matrix(Transform2D(Vector2(RADIUS * 1.0, 0), Vector2(0, RADIUS * 1.3), so))
 		draw_circle(Vector2.ZERO, 1.0, Color(0, 0, 0, 0.3))

@@ -8,12 +8,14 @@ extends Control
 ##   - the Stratagems node (equipped, charges(), cap(), meter_frac(), cost(), locked,
 ##     fill_enabled, error_t, gained)
 ## Layout (virtual 1280 x 720 minimum, uniformly scaled up on bigger viewports):
-##   top-left objectives (status icons, counts, distance arrows)   top-centre timer + lives
-##   top-right pause + minimap, kill feed to the left of it         left vitals (health, stamina,
-##   stims, grenades)   bottom-centre stratagem cards + weapon / ammo panel   centre: radio
-##   banners, passage warning, objective markers around / on the world.
+##   top-left objectives (status icons, counts, distance arrows, kills + samples)
+##   top-right compact mission timer left of the pause button, minimap below, kill feed left of it
+##   left-middle stratagem-ready toasts (up to 3)   centre: radio banners, passage warning,
+##   objective markers   bottom-centre stratagem cards (they ARE the stratagem touch buttons,
+##   hit-tested by TouchControls) with health + stamina and the counters (reinforcements,
+##   stims, grenades, magazines) under them   rounds in the magazine under the RELOAD button.
 ## The bottom-centre block lives between the move hint (left) and the STIM / RELOAD buttons
-## (right) of TouchControls so it never covers a control; the minimap ends above the SWAP button.
+## (right) of TouchControls (StratMenu.block_rect / card_rect) so it never covers a control.
 ## Works without a Mission (firing range): mission widgets hidden, death -> restart.
 ## Must come after TouchControls in the tree so it sees touches first.
 
@@ -37,6 +39,12 @@ var _u := 1.0 # uniform UI scale
 var _vp := Vector2(1280, 720) # viewport size in UI units
 var _xf := Transform2D.IDENTITY # canvas (camera) transform
 var _t := 0.0
+## Stratagem-ready toasts, newest first: {key, id, title, sub, t}.
+var _toasts: Array[Dictionary] = []
+var _seen_gain := {} # id -> last Stratagems.gained value (a reset to 0 = a charge was gained)
+
+const TOAST_TIME := 2.5
+const TOAST_MAX := 3
 
 
 func _ready() -> void:
@@ -53,6 +61,7 @@ func _process(delta: float) -> void:
 	if _strat == null:
 		_strat = get_tree().get_first_node_in_group("stratagems") as Stratagems
 	_s = _mission.hud_state() if _mission else {}
+	_watch_gains(delta)
 	queue_redraw()
 
 
@@ -150,10 +159,11 @@ func _draw() -> void:
 		UiStyle.accent(self, Rect2(16, 16, 240, 40))
 		UiStyle.text(self, Vector2(30, 43), "firing range", 20, UiStyle.YELLOW)
 	_draw_top_buttons(vp)
-	_draw_vitals()
+	_draw_toasts()
 	_draw_interact_prompt(vp)
 	_draw_stratagem_bar(vp)
-	_draw_weapon_panel(vp)
+	_draw_health(vp)
+	_draw_ammo(vp)
 	_draw_perf(vp)
 	if _player.dead:
 		_draw_death(vp)
@@ -248,7 +258,7 @@ func _draw_objectives() -> void:
 	var y := 12.0
 	var w := 350.0
 	var rows: Array = _s.objectives
-	var h := 40.0 + rows.size() * 42.0
+	var h := 40.0 + rows.size() * 42.0 + 26.0
 	UiStyle.panel(self, Rect2(x, y, w, h))
 	UiStyle.accent(self, Rect2(x, y, w, h))
 	UiStyle.text(self, Vector2(x + 16, y + 26), _s.zone_name, 18, UiStyle.YELLOW)
@@ -310,16 +320,21 @@ func _draw_objectives() -> void:
 		if failed:
 			UiStyle.text(self, Vector2(x + 48, yy + 15), "failed", 12, UiStyle.RED)
 		yy += 42.0
+	# Footer: samples and kills.
+	UiIcons.sample(self, Vector2(x + 28, yy - 14), 7.0, UiStyle.BLUE)
+	UiStyle.text(self, Vector2(x + 42, yy - 8), "%d" % _s.samples, 15, UiStyle.BLUE)
+	UiIcons.skull(self, Vector2(x + 94, yy - 14), 6.5, UiStyle.TEXT)
+	UiStyle.text(self, Vector2(x + 107, yy - 8), "%d" % _s.kills, 15, UiStyle.TEXT)
 
 
-## Under the timer while standing in a passage before its midline.
+## Top-centre while standing in a passage before its midline.
 func _draw_passage_warning(vp: Vector2) -> void:
 	var list: Array = _s.passage_warning
 	if list.is_empty():
 		return
 	var w := 420.0
 	var pulse := 0.5 + 0.5 * sin(_t * 8.0)
-	var r := Rect2(vp.x * 0.5 - w * 0.5, 124, w, 44.0 + list.size() * 24.0)
+	var r := Rect2(vp.x * 0.5 - w * 0.5, 16, w, 44.0 + list.size() * 24.0)
 	UiStyle.panel(self, r, Color(0.35, 0.04, 0.02, 0.85))
 	UiStyle.panel_outline(self, r, Color(UiStyle.RED, 0.5 + 0.5 * pulse), 10.0, 3.0)
 	UiIcons.exit_marker(self, r.position + Vector2(26, 26), 10.0, UiStyle.RED)
@@ -331,16 +346,16 @@ func _draw_passage_warning(vp: Vector2) -> void:
 		yy += 24.0
 
 
-## Top-centre: mission timer (colour by stage), progress bar with the departure mark,
-## reinforcements, samples, kills.
+## Top-right, left of the pause button: compact mission timer (colour by stage, warning
+## pulse), thin time bar to the 10:00 cap with the 2:00 departure mark.
 func _draw_timer(vp: Vector2) -> void:
-	var w := 350.0
-	var r := Rect2(vp.x * 0.5 - w * 0.5, 10, w, 104)
+	var w := 168.0
+	var r := Rect2(vp.x - 16.0 - 70.0 - 8.0 - w, 10, w, 46)
 	var t: float = maxf(_s.time_left, 0.0)
 	var stage: String = _s.stage
 	var col := UiStyle.TEXT
 	var edge := Color(UiStyle.YELLOW, 0.5)
-	var label := "mission time"
+	var label := "mission"
 	var pulse := 0.5 + 0.5 * sin(_t * 9.0)
 	var alarm := false
 	# Pulse around the 5:00 and 1:00 warnings and the final 10 s.
@@ -353,46 +368,31 @@ func _draw_timer(vp: Vector2) -> void:
 		col = WARN
 	if stage == "departure":
 		col = ORANGE if pulse > 0.5 else UiStyle.YELLOW
-		label = "destroyer leaving"
+		label = "leaving"
 		edge = Color(ORANGE, 0.9)
 	elif stage == "departed":
 		col = UiStyle.RED
-		label = "destroyer departed"
+		label = "departed"
 		edge = Color(UiStyle.RED, 0.5 + 0.5 * pulse)
 	if alarm:
 		edge = Color(WARN, 0.4 + 0.6 * pulse)
 		col = col.lerp(Color.WHITE, 0.3 * pulse)
-	UiStyle.panel(self, r, Color(0, 0, 0, 0.62) if not alarm else Color(0.2, 0.1, 0.0, 0.7))
-	UiStyle.panel_outline(self, r, edge, 10.0, 2.5 if alarm or stage != "main" else 1.5)
-	UiStyle.text(self, Vector2(r.position.x, r.position.y + 20), label, 14, UiStyle.TEXT_DIM, HORIZONTAL_ALIGNMENT_CENTER, r.size.x)
-	var big := 42 + (int(pulse * 3.0) if alarm else 0)
-	UiStyle.text(self, Vector2(r.position.x, r.position.y + 58), "%d:%02d" % [int(t) / 60, int(t) % 60], big, col, HORIZONTAL_ALIGNMENT_CENTER, r.size.x)
-	if _s.stage == "departed":
-		UiStyle.text(self, Vector2(r.position.x, r.position.y + 58), "stratagems offline", 12, UiStyle.RED, HORIZONTAL_ALIGNMENT_RIGHT, r.size.x - 14)
-	# Time bar to the 10:00 cap, with the 2:00 departure mark.
-	var bar := Rect2(r.position.x + 16, r.position.y + 68, r.size.x - 32, 6)
+	UiStyle.panel(self, r, Color(0, 0, 0, 0.62) if not alarm else Color(0.2, 0.1, 0.0, 0.7), 8.0)
+	UiStyle.panel_outline(self, r, edge, 8.0, 2.5 if alarm or stage != "main" else 1.5)
+	var big := 28 + (int(pulse * 2.0) if alarm else 0)
+	UiStyle.text(self, Vector2(r.position.x + 12, r.position.y + 29), "%d:%02d" % [int(t) / 60, int(t) % 60], big, col)
+	UiStyle.text(self, Vector2(r.position.x, r.position.y + 22), label, 12, UiStyle.RED if stage == "departed" else UiStyle.TEXT_DIM, HORIZONTAL_ALIGNMENT_RIGHT, r.size.x - 12)
+	var bar := Rect2(r.position.x + 12, r.position.y + 35, r.size.x - 24, 4)
 	draw_rect(bar, Color(0, 0, 0, 0.6))
 	var f := clampf(t / Mission.MAX_TIME, 0.0, 1.0)
 	draw_rect(Rect2(bar.position, Vector2(bar.size.x * f, bar.size.y)), col if stage != "main" else Color(UiStyle.YELLOW, 0.9))
 	var mx := bar.position.x + bar.size.x * (Mission.DEPARTURE_AT / Mission.MAX_TIME)
 	draw_line(Vector2(mx, bar.position.y - 3), Vector2(mx, bar.end.y + 3), UiStyle.RED, 2.0)
-	# Reinforcements (helmets), samples, kills.
-	var y := r.position.y + 94.0
-	var rf: int = _s.reinforcements
-	var hc := UiStyle.RED if rf <= 1 else UiStyle.YELLOW
-	for i in maxi(Mission.REINFORCEMENTS, rf):
-		var ic := Vector2(r.position.x + 24 + i * 17, y - 5)
-		UiIcons.helmet(self, ic, 6.5, hc if i < rf else Color(1, 1, 1, 0.16))
-	UiStyle.text(self, Vector2(r.position.x + 24 + maxi(Mission.REINFORCEMENTS, rf) * 17, y), "x%d" % rf, 14, hc)
-	UiIcons.sample(self, Vector2(r.position.x + r.size.x * 0.5 - 14, y - 6), 7.0, UiStyle.BLUE)
-	UiStyle.text(self, Vector2(r.position.x + r.size.x * 0.5 - 2, y), "%d" % _s.samples, 15, UiStyle.BLUE)
-	UiIcons.skull(self, Vector2(r.end.x - 64, y - 6), 6.5, UiStyle.TEXT)
-	UiStyle.text(self, Vector2(r.position.x, y), "%d" % _s.kills, 15, UiStyle.TEXT, HORIZONTAL_ALIGNMENT_RIGHT, r.size.x - 16)
 
 
 ## Radio-styled announcement banners (newest at the bottom), sliding in and fading out.
 func _draw_banners(vp: Vector2) -> void:
-	var y := 128.0
+	var y := 16.0
 	var warn_list: Array = _s.passage_warning
 	if not warn_list.is_empty():
 		y += 52.0 + warn_list.size() * 24.0
@@ -411,7 +411,7 @@ func _draw_banners(vp: Vector2) -> void:
 		elif up.contains("LEAVE") or up.contains("REMAINING"):
 			col = ORANGE
 		var tw := UiStyle.font().get_string_size(up, HORIZONTAL_ALIGNMENT_LEFT, -1, 19).x
-		var w := minf(maxf(tw + 96.0, 300.0), vp.x - 560.0)
+		var w := minf(maxf(tw + 96.0, 300.0), vp.x - 760.0)
 		var r := Rect2(vp.x * 0.5 - w * 0.5 + (1.0 - slide) * -60.0, y, w, 44)
 		var fa := a * slide
 		UiStyle.panel(self, r, Color(CHAT_DARK, 0.8 * fa), 9.0)
@@ -596,71 +596,94 @@ func _draw_top_buttons(vp: Vector2) -> void:
 	_btn("pause", UiStyle.button(self, Rect2(right - 70, 10, 70, 46), "II", false, 20))
 
 
-# --- Vitals (left column, below the STRAT button) -----------------------------------
+# --- Stratagem-ready toasts (left, mid height) ----------------------------------------
 
-func _draw_vitals() -> void:
-	var r := Rect2(16, 322, 236, 100)
-	UiStyle.panel(self, r)
-	UiStyle.accent(self, r)
-	var hp_frac: float = clampf(_player.hp / _player.max_hp, 0.0, 1.0)
-	var low := hp_frac < 0.3
-	var hp_col := UiStyle.RED if low else (UiStyle.YELLOW if hp_frac < 0.6 else UiStyle.TEXT)
-	var pulse := 0.5 + 0.5 * sin(_t * 8.0)
-	UiIcons.heart(self, r.position + Vector2(26, 24), 9.0 + (1.5 * pulse if low else 0.0), hp_col)
-	UiStyle.bar(self, Rect2(r.position.x + 44, r.position.y + 12, 140, 18), hp_frac, hp_col, 10)
-	UiStyle.text(self, Vector2(r.position.x + 44, r.position.y + 27), "%d" % ceili(_player.hp), 16, Color(0.05, 0.05, 0.05) if hp_frac > 0.2 else UiStyle.TEXT, HORIZONTAL_ALIGNMENT_CENTER, 140)
-	if _player.is_healing():
-		UiStyle.text(self, Vector2(r.position.x, r.position.y + 27), "+", 22, UiStyle.GREEN, HORIZONTAL_ALIGNMENT_RIGHT, r.size.x - 14)
-	# Stamina.
-	var st: float = _player.stamina
-	var scol := Color(0.4, 0.8, 1.0) if st > 0.25 else ORANGE
-	UiStyle.text(self, Vector2(r.position.x + 16, r.position.y + 51), "stm", 12, UiStyle.TEXT_DIM)
-	UiStyle.bar(self, Rect2(r.position.x + 44, r.position.y + 41, 140, 8), st, scol)
-	# Stims and grenades.
-	var y := r.position.y + 78.0
-	for i in _player.max_stims:
-		UiIcons.syringe(self, Vector2(r.position.x + 30 + i * 22, y - 2), 8.0, UiStyle.GREEN if i < _player.stims else Color(1, 1, 1, 0.15))
-	for i in _player.max_grenades:
-		UiIcons.grenade(self, Vector2(r.position.x + 130 + i * 21, y - 2), 8.0, UiStyle.YELLOW if i < _player.grenades else Color(1, 1, 1, 0.15))
+## A reset of Stratagems.gained[id] to 0 means a charge was gained (meter filled) or an Eagle
+## was rearmed (the strat_ready sound is played by Stratagems itself).
+func _watch_gains(delta: float) -> void:
+	for tt in _toasts:
+		tt.t += delta
+	_toasts = _toasts.filter(func(tt): return tt.t < TOAST_TIME)
+	if _strat == null:
+		return
+	for id in _strat.equipped:
+		var g: float = _strat.gained.get(id, 99.0)
+		var last: float = _seen_gain.get(id, 99.0)
+		_seen_gain[id] = g
+		if g < last and g < 1.0:
+			_add_toast(id)
+
+
+func _add_toast(id: String) -> void:
+	var def: Dictionary = Stratagems.DEFS[id]
+	var rearm: bool = def.has("rearm_cost")
+	var key := "eagle" if rearm else id
+	for tt in _toasts:
+		if tt.key == key: # both Eagles rearm in the same frame: one toast
+			tt.t = 0.0
+			return
+	var title := "EAGLES REARMED" if rearm else ("%s READY" % str(def.name).to_upper())
+	var sub := "%s x%d" % [def.name, _strat.charges(id)] if rearm else "x%d charges" % _strat.charges(id)
+	_toasts.push_front({"key": key, "id": id, "title": title, "sub": sub, "t": 0.0})
+	while _toasts.size() > TOAST_MAX:
+		_toasts.pop_back()
+
+
+func _draw_toasts() -> void:
+	for i in _toasts.size():
+		var tt: Dictionary = _toasts[i]
+		var col: Color = Stratagems.DEFS[tt.id].color
+		var age: float = tt.t
+		var a := clampf((TOAST_TIME - age) / 0.5, 0.0, 1.0)
+		var slide := clampf(age / 0.15, 0.0, 1.0)
+		var r := Rect2(16.0 - (1.0 - slide) * 60.0, 240.0 + i * 54.0, 250, 46)
+		UiStyle.panel(self, r, Color(UiStyle.PANEL_SOLID, 0.85 * a), 8.0)
+		UiStyle.panel_outline(self, r, Color(col, a), 8.0, 2.0)
+		draw_rect(Rect2(r.position + Vector2(0, 5), Vector2(4, r.size.y - 10)), Color(col, a))
+		UiIcons.strat(self, tt.id, r.position + Vector2(28, 23), 12.0, Color(col, a))
+		var fs := 14
+		while fs > 10 and UiStyle.font().get_string_size(str(tt.title).to_upper(), HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x > r.size.x - 62.0:
+			fs -= 1
+		UiStyle.text(self, r.position + Vector2(52, 20), tt.title, fs, Color(UiStyle.TEXT, a), HORIZONTAL_ALIGNMENT_LEFT, r.size.x - 58)
+		UiStyle.text(self, r.position + Vector2(52, 37), tt.sub, 12, Color(col, a), HORIZONTAL_ALIGNMENT_LEFT, r.size.x - 58)
 
 
 # --- Stratagems ---------------------------------------------------------------------
 
-## Bottom-centre block between the move hint and the STIM / RELOAD buttons.
+## Bottom-centre block (UI units; x / width only) between the move hint and the STIM / RELOAD buttons.
 func _block_rect(vp: Vector2) -> Rect2:
-	var left := 300.0
-	var right := vp.x - 510.0
-	var avail := right - left
-	var w := minf(avail, 600.0)
-	return Rect2(left + (avail - w) * 0.5, 0, w, 0)
+	var b := StratMenu.block_rect(vp * _u)
+	return Rect2(b.position / _u, b.size / _u)
 
 
-## Cards: category glyph, short name, charges (+ cap pips), meter fill (cost) toward the next charge.
+## Cards = the stratagem touch buttons (TouchControls hit-tests the same StratMenu.card_rect):
+## category glyph, short name, charges (+ cap pips), meter fill (cost) toward the next charge.
 func _draw_stratagem_bar(vp: Vector2) -> void:
 	if _strat == null or _strat.equipped.is_empty():
 		return
-	var b := _block_rect(vp)
 	var n := _strat.equipped.size()
-	var gap := 6.0
-	var cw := (b.size.x - gap * (n - 1)) / n
-	var h := 66.0
-	var y := vp.y - 92.0 - 8.0 - h
 	for i in n:
 		var id: String = _strat.equipped[i]
 		var def: Dictionary = Stratagems.DEFS[id]
-		var r := Rect2(b.position.x + i * (cw + gap), y, cw, h)
+		var rr := StratMenu.card_rect(vp * _u, n, i)
+		var r := Rect2(rr.position / _u, rr.size / _u)
+		var cw := r.size.x
+		var h := r.size.y
 		var charges := _strat.charges(id)
 		var cap := _strat.cap(id)
 		var col: Color = def.color
 		var usable := charges > 0 and not _strat.locked
 		var flash: float = _strat.gained.get(id, 99.0)
 		var cd: float = _strat.status[id].cd
+		var active: bool = _strat.aim_id == id or _strat.typing_id == id
 		UiStyle.panel(self, r, Color(col, 0.26) if usable else UiStyle.PANEL_SOLID, 8.0)
-		var outline_col := UiStyle.YELLOW if flash < 1.2 else (col if usable else Color(1, 1, 1, 0.2))
-		UiStyle.panel_outline(self, r, outline_col, 8.0, 3.0 if flash < 1.2 else 2.0)
+		var outline_col := UiStyle.YELLOW if (flash < 1.2 or active) else (col if usable else Color(1, 1, 1, 0.2))
+		UiStyle.panel_outline(self, r, outline_col, 8.0, 3.0 if flash < 1.2 or active else 2.0)
 		if flash < 1.2:
 			var fa := 1.0 - flash / 1.2
 			draw_rect(r, Color(UiStyle.YELLOW, 0.3 * fa))
+		if active:
+			draw_rect(r, Color(col, 0.3))
 		var gc := col if usable else Color(0.45, 0.45, 0.45)
 		UiIcons.strat(self, id, r.position + Vector2(20, 22), 12.0, gc)
 		var qty_col := UiStyle.YELLOW if usable else UiStyle.TEXT_DIM
@@ -680,6 +703,57 @@ func _draw_stratagem_bar(vp: Vector2) -> void:
 		if _strat.locked:
 			draw_rect(r, Color(0, 0, 0, 0.5))
 			UiStyle.text(self, r.position + Vector2(0, 40), "locked", 14, UiStyle.RED, HORIZONTAL_ALIGNMENT_CENTER, cw)
+		elif not usable:
+			draw_rect(r, Color(0, 0, 0, 0.3))
+
+
+# --- Health, stamina, counters (under the cards) ------------------------------------
+
+func _draw_health(vp: Vector2) -> void:
+	var b := _block_rect(vp)
+	var x := b.position.x
+	var hw := b.size.x * 0.43
+	var y := vp.y - 70.0
+	var hp_frac: float = clampf(_player.hp / _player.max_hp, 0.0, 1.0)
+	var low := hp_frac < 0.3
+	var hp_col := UiStyle.RED if low else (UiStyle.YELLOW if hp_frac < 0.6 else UiStyle.TEXT)
+	var pulse := 0.5 + 0.5 * sin(_t * 8.0)
+	UiIcons.heart(self, Vector2(x + 10, y + 10), 8.0 + (1.5 * pulse if low else 0.0), hp_col)
+	UiStyle.bar(self, Rect2(x + 26, y, hw - 26, 20), hp_frac, hp_col, 10)
+	UiStyle.text(self, Vector2(x + 26, y + 15), "%d" % ceili(_player.hp), 16, Color(0.05, 0.05, 0.05) if hp_frac > 0.2 else UiStyle.TEXT, HORIZONTAL_ALIGNMENT_CENTER, hw - 26)
+	if _player.is_healing():
+		UiStyle.text(self, Vector2(x, y + 16), "+", 20, UiStyle.GREEN, HORIZONTAL_ALIGNMENT_RIGHT, hw - 6)
+	var st: float = _player.stamina
+	UiStyle.bar(self, Rect2(x + 26, y + 25, hw - 26, 5), st, Color(0.4, 0.8, 1.0) if st > 0.25 else ORANGE)
+	# Counters: reinforcements, stims, grenades, magazines.
+	var cx := x + hw + 10.0
+	var cell := (b.end.x - cx) / 4.0
+	var cy := y + 10.0
+	var items: Array = []
+	if _mission:
+		var rf: int = _s.reinforcements
+		items.append({"ic": "helmet", "txt": "%d" % rf, "col": UiStyle.RED if rf <= 1 else UiStyle.YELLOW})
+	else:
+		items.append({"ic": "", "txt": "", "col": UiStyle.TEXT})
+	items.append({"ic": "syringe", "txt": "%d/%d" % [_player.stims, _player.max_stims], "col": UiStyle.GREEN if _player.stims > 0 else UiStyle.TEXT_DIM})
+	items.append({"ic": "grenade", "txt": "%d/%d" % [_player.grenades, _player.max_grenades], "col": UiStyle.YELLOW if _player.grenades > 0 else UiStyle.TEXT_DIM})
+	var spare := _weapon.mags.size()
+	items.append({"ic": "mag", "txt": "%d/%d" % [spare, _weapon.stats.spare_mags], "col": UiStyle.TEXT if spare > 0 else UiStyle.RED})
+	for i in items.size():
+		var it: Dictionary = items[i]
+		if it.ic == "":
+			continue
+		var ic := Vector2(cx + i * cell + 9, cy)
+		match it.ic:
+			"helmet":
+				UiIcons.helmet(self, ic, 7.5, it.col)
+			"syringe":
+				UiIcons.syringe(self, ic, 8.0, it.col)
+			"grenade":
+				UiIcons.grenade(self, ic, 7.5, it.col)
+			"mag":
+				UiIcons.magazine(self, ic, 8.0, it.col)
+		UiStyle.text(self, Vector2(ic.x + 12, cy + 6), it.txt, 15, it.col)
 
 
 func _draw_interact_prompt(vp: Vector2) -> void:
@@ -687,96 +761,30 @@ func _draw_interact_prompt(vp: Vector2) -> void:
 	if it == null or _player.dead:
 		return
 	var b := _block_rect(vp)
-	var r := Rect2(b.position.x + b.size.x * 0.5 - 150, vp.y - 92.0 - 8.0 - 66.0 - 62.0, 300, 50)
+	var r := Rect2(b.position.x + b.size.x * 0.5 - 150, vp.y - 142.0 - 62.0, 300, 50)
 	UiStyle.panel(self, r, UiStyle.PANEL_SOLID)
 	UiStyle.accent(self, r)
 	UiStyle.text(self, r.position + Vector2(16, 22), "hold  " + it.label, 16, UiStyle.YELLOW)
 	UiStyle.bar(self, Rect2(r.position + Vector2(16, 32), Vector2(r.size.x - 32, 9)), it.progress / it.hold_time, UiStyle.YELLOW)
 
 
-## Bottom: weapon silhouette, name + fire mode, rounds, magazine pips, spare mags, status.
-func _draw_weapon_panel(vp: Vector2) -> void:
-	var b := _block_rect(vp)
-	var r := Rect2(b.position.x, vp.y - 92.0, b.size.x, 82)
-	UiStyle.panel(self, r)
-	UiStyle.accent(self, r)
+## Rounds in the magazine, under the RELOAD button (positions match TouchControls), with the
+## fire mode as a tiny label next to it.
+func _draw_ammo(vp: Vector2) -> void:
 	var w := _weapon
-	var x := r.position.x + 16
-	var y := r.position.y
-	# Silhouette (rotated to point right) and name.
-	var local := Transform2D(PI / 2.0, Vector2(1.0, 1.0), 0.0, Vector2(x + 44, y + 40))
-	draw_set_transform_matrix(Transform2D(Vector2(_u, 0), Vector2(0, _u), Vector2.ZERO) * local)
-	WeaponArt.draw(self, w.stats.model, 0.0)
-	draw_set_transform(Vector2.ZERO, 0.0, Vector2(_u, _u))
-	UiStyle.text(self, Vector2(x + 96, y + 22), w.stats.display_name, 15, UiStyle.YELLOW)
-	var mode := w.fire_mode_name()
-	var mw := UiStyle.font().get_string_size(mode.to_upper(), HORIZONTAL_ALIGNMENT_LEFT, -1, 12).x + 12
-	UiStyle.panel(self, Rect2(r.end.x - mw - 14, y + 8, mw, 20), Color(UiStyle.YELLOW, 0.2), 4.0)
-	UiStyle.text(self, Vector2(r.end.x - mw - 14, y + 23), mode, 12, UiStyle.YELLOW, HORIZONTAL_ALIGNMENT_CENTER, mw)
-	if w.has_support():
-		var other: FirearmStats = w.slots[1 - w.slot].stats
-		UiStyle.text(self, Vector2(x, y + 76), "swap: " + other.display_name, 12, UiStyle.GREEN)
-	# Rounds.
+	var cx := (vp.x * _u - 320.0) / _u
+	var base := vp.y - 12.0 / _u
 	var total := w.rounds_loaded()
 	var low := total <= w.stats.mag_size / 4
 	var rounds := "%d+1" % w.stats.mag_size if total > w.stats.mag_size else "%d" % total
-	UiStyle.text(self, Vector2(x + 96, y + 62), rounds, 34, UiStyle.RED if low else UiStyle.TEXT)
-	var rw := UiStyle.font().get_string_size(rounds.to_upper(), HORIZONTAL_ALIGNMENT_LEFT, -1, 34).x
-	# Magazine pips: one per round, fills right to left.
-	var n: int = w.stats.mag_size
-	var avail := r.end.x - (x + 96 + rw + 14) - 12.0
-	var spare: int = w.mags.size()
-	var mag_w := minf(12.0 * spare, 70.0)
-	var pip_area := avail - mag_w - 16.0
-	var pw := clampf(pip_area / maxf(n, 1), 1.5, 7.0)
-	var px0 := x + 96 + rw + 14
-	var busy := w.state == Firearm.State.RELOADING or w.state == Firearm.State.CLEARING
-	if busy:
-		var k := w.state_progress()
-		UiStyle.bar(self, Rect2(px0, y + 44, pip_area, 12), k, UiStyle.BLUE if not w.jammed else UiStyle.RED)
-	else:
-		var rows := 1 if pw * n <= pip_area else 2
-		var per_row := int(ceil(n / float(rows)))
-		pw = clampf(pip_area / maxf(per_row, 1), 1.5, 7.0)
-		for i in n:
-			var rr := i / per_row
-			var cc := i % per_row
-			var filled := i < w.mag
-			var c := Color(0.95, 0.95, 0.9) if filled else Color(1, 1, 1, 0.14)
-			if filled and low:
-				c = UiStyle.RED
-			draw_rect(Rect2(px0 + cc * pw, y + 40 + rr * 11, maxf(pw - 1.0, 1.0), 9), c)
-	# Spare mags (fill = rounds left) and count.
-	var mx := r.end.x - mag_w - 14
-	for i in spare:
-		var mh := 22.0
-		var fill := mh * w.mags[i] / float(maxi(w.stats.mag_size, 1))
-		var rx := mx + i * 12
-		if rx > r.end.x - 20:
-			break
-		draw_rect(Rect2(rx, y + 40, 9, mh), Color(1, 1, 1, 0.14))
-		draw_rect(Rect2(rx, y + 40 + mh - fill, 9, fill), UiStyle.TEXT)
-		draw_rect(Rect2(rx, y + 40, 9, mh), Color(0, 0, 0, 0.6), false, 1.0)
-	UiStyle.text(self, Vector2(mx, y + 74), "mags %d" % spare, 13, UiStyle.TEXT_DIM if spare > 0 else UiStyle.RED)
-	var status := ""
-	var col := UiStyle.YELLOW
+	var col := UiStyle.RED if low else UiStyle.TEXT
 	if w.jammed:
-		status = "jammed - clear"
 		col = UiStyle.RED
-	elif w.state == Firearm.State.RELOADING:
-		status = "reloading"
-	elif w.state == Firearm.State.CLEARING:
-		status = "clearing"
-	elif w.state == Firearm.State.DRAWING:
-		status = "readying"
-	elif w.blocked > 0.0:
-		status = "blocked"
 	elif w.dry_flash > 0.0:
-		status = "empty - reload" if not w.mags.is_empty() else "out of ammo"
 		col = UiStyle.RED
-	if status != "":
-		var nw := UiStyle.font().get_string_size(str(w.stats.display_name).to_upper(), HORIZONTAL_ALIGNMENT_LEFT, -1, 15).x
-		UiStyle.text(self, Vector2(x + 96 + nw + 12, y + 22), status, 14, col)
+	var tw := UiStyle.font().get_string_size(rounds.to_upper(), HORIZONTAL_ALIGNMENT_LEFT, -1, 28).x
+	UiStyle.text(self, Vector2(cx - tw * 0.5 - 12.0, base), rounds, 28, col)
+	UiStyle.text(self, Vector2(cx + tw * 0.5 - 8.0, base), w.fire_mode_name(), 11, UiStyle.YELLOW)
 
 
 func _draw_perf(vp: Vector2) -> void:
