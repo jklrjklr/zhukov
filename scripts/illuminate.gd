@@ -22,7 +22,9 @@ const PX := Firearm.PX_PER_M
 const KNOCKBACK := 300.0
 const STUN_DECAY := 0.5
 const STUN_TIME := 0.7
-const RAYS := 16
+const RAYS := 12
+## Beyond this distance from the Helldiver units think and steer less often.
+const LOD_FAR_M := 30.0
 const FEELER := 60.0
 const CHASE_TIME := 4.0
 const OUTLINE := Color(0.05, 0.05, 0.07)
@@ -278,7 +280,8 @@ func _physics_process(delta: float) -> void:
 		return
 	_tick += 1
 	_chase_t = maxf(_chase_t - delta, 0.0)
-	if _tick % 5 == 0 or target == null or not is_instance_valid(target):
+	var far: bool = _player == null or global_position.distance_squared_to(_player.global_position) > pow(LOD_FAR_M * PX, 2)
+	if _tick % (12 if far else 5) == 0 or target == null or not is_instance_valid(target):
 		_pick_target()
 
 	var walk: float = (_player.move_speed if _player else 180.0)
@@ -357,7 +360,7 @@ func _physics_process(delta: float) -> void:
 
 	if flying:
 		_steer = (_goal - global_position).normalized() if global_position.distance_to(_goal) > 8.0 else _steer
-	elif _tick % (4 if kind == Kind.VOTELESS else 3) == 0 and speed > 0.0:
+	elif _tick % (8 if far else (4 if kind == Kind.VOTELESS else 3)) == 0 and speed > 0.0:
 		_steer = _steer.lerp(_steer_dir((_goal - global_position).normalized()), 0.5).normalized()
 	if global_position.distance_to(_goal) < 8.0:
 		speed = 0.0
