@@ -199,7 +199,8 @@ func is_alerted() -> bool:
 
 
 func kind_name() -> String:
-	return _cfg.name
+	var cfg: Dictionary = _cfg if not _cfg.is_empty() else KINDS[kind]
+	return cfg.get("name", "Bug")
 
 
 ## Send it somewhere: chase=true runs straight at the player, else it investigates pos.
