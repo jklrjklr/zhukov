@@ -56,6 +56,13 @@ static func run(host: Node) -> void:
 		sb.ring(Vector2(4, 4), 1.0, 1.0, Color(1, 1, 1, 0.012))
 		sb.end()
 		layer.add_child(sb)
+	var pbs: Array[ParticleBatch] = []
+	for u in [false, true]:
+		var pb := ParticleBatch.new(4, u)
+		pb.dot(Vector2(4, 4), Vector2(1, 1), 0.5, 1.0, 2.0, Color(1, 1, 1, 0.012), 3.0, true)
+		pb.ring(Vector2(4, 4), 1.0, 2.0, 0.5, 1.0, Color(1, 1, 1, 0.012))
+		layer.add_child(pb)
+		pbs.append(pb)
 	var ab := AtlasBatch.new(RigAtlas.texture(), 4)
 	ab.frame_begin()
 	ab.frame_push(tiny, Color(1, 1, 1, 0.012), Color(0, 0, 0, 0.01))
@@ -70,10 +77,10 @@ static func run(host: Node) -> void:
 	spr.modulate = Color(1, 1, 1, 0.012)
 	layer.add_child(spr)
 	host.add_child.call_deferred(layer)
-	# The objects the fight would create lazily: effects node, rig layers, overlay.
-	Fx.get_fx(host)
 	var tree := host.get_tree()
 	for i in 6:
+		for pb in pbs:
+			pb.tick(0.016)
 		await tree.process_frame
 	if is_instance_valid(layer):
 		layer.queue_free()

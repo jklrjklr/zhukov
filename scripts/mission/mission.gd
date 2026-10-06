@@ -174,6 +174,12 @@ func _ready() -> void:
 	Sfx.warm(Warmup.SOUNDS)
 
 
+func _exit_tree() -> void:
+	# Effects (decal cell textures, particle batches) must not outlive the mission.
+	Fx.reset()
+	Enemies.clear()
+
+
 # --- Public API --------------------------------------------------------------------
 
 func announce(text: String, chirp := true) -> void:
