@@ -170,6 +170,8 @@ func _ready() -> void:
 	announce(NAME, false)
 	announce("HELLPOD INBOUND", false)
 	Sfx.play_ui("hellpod_streak", -2.0)
+	Warmup.run(self) # compile shader variants / load fight sounds now, not in the first fight
+	Sfx.warm(Warmup.SOUNDS)
 
 
 # --- Public API --------------------------------------------------------------------

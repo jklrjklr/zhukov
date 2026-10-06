@@ -179,6 +179,17 @@ func _pick(name: String) -> AudioStream:
 	return list[randi() % list.size()]
 
 
+## Loads the files of these slots a few per frame (their first play would otherwise read the files
+## in the middle of a fight). Call at mission start.
+func warm(names: Array, per_frame := 3) -> void:
+	var i := 0
+	for n in names:
+		streams(n)
+		i += 1
+		if i % per_frame == 0:
+			await get_tree().process_frame
+
+
 func _voices(name: String) -> int:
 	var n := 0
 	for i in _slots.size():

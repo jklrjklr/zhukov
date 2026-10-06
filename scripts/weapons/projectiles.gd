@@ -109,6 +109,8 @@ func add_puff(pos: Vector2, scale := 1.0) -> void:
 
 
 func _update_bolts(delta: float) -> void:
+	if _bolts.is_empty():
+		return
 	var space := get_world_2d().direct_space_state
 	for b in _bolts:
 		b.t += delta
@@ -140,6 +142,8 @@ func spawn_bile(from: Vector2, to: Vector2) -> void:
 
 
 func _update_bile(delta: float) -> void:
+	if _biles.is_empty() and _acid.is_empty():
+		return
 	var player := get_tree().get_first_node_in_group("player") as Node2D
 	for b in _biles:
 		b.t += delta
@@ -250,6 +254,8 @@ func _rocket_blast(st: FirearmStats, at: Vector2) -> void:
 
 
 func _update_grenades(delta: float) -> void:
+	if _grenades.is_empty():
+		return
 	for g in _grenades:
 		g.t += delta
 		var k := clampf(g.t / g.flight, 0.0, 1.0)
