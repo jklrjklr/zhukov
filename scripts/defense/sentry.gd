@@ -31,6 +31,7 @@ var _done_t := -1.0
 
 func _ready() -> void:
 	scale = Vector2.ONE * Vis.VISUAL_SCALE # drawn (and colliding) bigger
+	z_index = 2 # above the shared enemy rig layers (z 1): bugs swarm around it, not over it
 	add_to_group("sentries")
 	collision_layer = 1
 	collision_mask = 0
