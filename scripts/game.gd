@@ -32,6 +32,9 @@ var shake_enabled := true
 ## FPS / frame-time overlay (pause menu toggle), off by default.
 var perf_overlay := false
 const SETTINGS_PATH := "user://settings.cfg"
+## Sight-cone rendering (pause menu toggle, saved): Vision.Mode QUAD (default, no 2D lights), RAYS (dark polygon), LIGHT (PointLight2D).
+var vision_mode: int = Vision.Mode.QUAD
+signal vision_mode_changed
 
 
 func _ready() -> void:
@@ -41,6 +44,7 @@ func _ready() -> void:
 	if cfg.load(SETTINGS_PATH) == OK:
 		shake_enabled = bool(cfg.get_value("video", "shake", true))
 		perf_overlay = bool(cfg.get_value("video", "perf", false))
+		vision_mode = clampi(int(cfg.get_value("video", "vision", Vision.Mode.QUAD)), Vision.Mode.LIGHT, Vision.Mode.QUAD)
 
 
 func set_shake(on: bool) -> void:
@@ -57,6 +61,24 @@ func set_perf_overlay(on: bool) -> void:
 	cfg.load(SETTINGS_PATH)
 	cfg.set_value("video", "perf", on)
 	cfg.save(SETTINGS_PATH)
+
+
+func set_vision_mode(m: int) -> void:
+	vision_mode = m
+	var cfg := ConfigFile.new()
+	cfg.load(SETTINGS_PATH)
+	cfg.set_value("video", "vision", m)
+	cfg.save(SETTINGS_PATH)
+	vision_mode_changed.emit()
+
+
+## Next vision mode in the pause menu cycle: QUAD -> RAYS -> LIGHT -> QUAD.
+func cycle_vision_mode() -> void:
+	set_vision_mode({Vision.Mode.QUAD: Vision.Mode.RAYS, Vision.Mode.RAYS: Vision.Mode.LIGHT}.get(vision_mode, Vision.Mode.QUAD))
+
+
+func vision_mode_name() -> String:
+	return {Vision.Mode.QUAD: "QUAD", Vision.Mode.RAYS: "POLY", Vision.Mode.LIGHT: "LIGHT"}.get(vision_mode, "?")
 
 
 func reset_stats() -> void:

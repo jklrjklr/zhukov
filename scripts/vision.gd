@@ -1,11 +1,12 @@
 class_name Vision
 extends Node2D
-## Player sight cone (shadows only while Game.shadows_enabled), two render modes:
-## - LIGHT (native builds, default): a cone-shaped PointLight2D on the head with
-##   real-time per-frame shadows from LightOccluder2Ds (rocks, walls, crates, trunks);
-##   a CanvasModulate darkens everything unlit. Soft edges, shadows every frame.
-## - RAYS (web, cheap): RAYS rays cast across the cone; anything outside the sight
-##   polygon is covered by a dark fan overlay.
+## Player sight cone, three render modes (Game.vision_mode, pause-menu toggle, saved):
+## - QUAD (default, all platforms, no 2D lights / CanvasModulate / occluders): one dark quad with a
+##   shader. The RAYS ray fan is uploaded each cast as a 1-D distance texture; the shader works out
+##   cone, wall-limited range and soft edges per pixel and shades explored areas lighter (memory fog,
+##   a low-res explored grid). One draw call.
+## - RAYS: the same ray fan covered by a dark triangle-fan polygon outside the sight cone (one draw call).
+## - LIGHT (comparison): a cone-shaped PointLight2D on the head; a CanvasModulate darkens the rest.
 ## World geometry (collision layer 1) blocks sight; enemies/dummies (layer 2) do not.
 ## Nodes in group "concealable" (enemies, dummies) fade out when not in sight; close
 ## ones stay faintly visible ("you sense them"). Hidden ones are not drawn at all.
@@ -27,7 +28,7 @@ const TEX_SIZE := 320
 ## Light mask bit used only for the player's own body light.
 const SELF_MASK := 2
 
-enum Mode { AUTO, LIGHT, RAYS }
+enum Mode { AUTO, LIGHT, RAYS, QUAD }
 ## Draw order: above world, enemies, props; below projectiles and the player.
 const Z := 10
 
@@ -40,7 +41,7 @@ const Z := 10
 ## m, ...and reach sense_alpha here.
 @export var sense_full := 3.0
 @export_range(0.0, 1.0) var sense_alpha := 0.55
-## AUTO = LIGHT on native builds, RAYS on web.
+## AUTO = follow Game.vision_mode (the pause-menu setting); anything else forces that mode.
 @export var mode := Mode.AUTO
 
 var _player: CharacterBody2D
@@ -51,8 +52,20 @@ var _origin := Vector2.ZERO
 var _forward := Vector2.UP
 var _half_fov := 0.0
 var _tick := 0
-var _use_light := false
+var _mode := -1
 var _cone: PointLight2D
+var _light_nodes: Array[Node] = []
+var _ray_img: Image
+var _ray_tex: ImageTexture
+var _quad_mat: ShaderMaterial
+var _quad_center := Vector2(INF, INF)
+var _cast_origin := Vector2.ZERO
+var _cast_forward := Vector2.UP
+var _cast_half := 0.0
+var _explored: PackedByteArray
+var _explored_img: Image
+var _explored_tex: ImageTexture
+var _explored_dirty := false
 var _hip_tex: ImageTexture
 var _ads_tex: ImageTexture
 
@@ -63,9 +76,30 @@ func _ready() -> void:
 	top_level = true
 	z_as_relative = false
 	z_index = Z
-	_use_light = mode == Mode.LIGHT or (mode == Mode.AUTO and not OS.has_feature("web"))
-	if _use_light:
-		_setup_light.call_deferred()
+	_apply_mode.call_deferred()
+	Game.vision_mode_changed.connect(_apply_mode)
+
+
+func _wanted_mode() -> int:
+	return Game.vision_mode if mode == Mode.AUTO else mode
+
+
+## (Re)build the active mode; also used by the runtime toggle. Tears the other modes down.
+func _apply_mode() -> void:
+	var want := _wanted_mode()
+	if want == _mode:
+		return
+	if _mode == Mode.LIGHT:
+		_teardown_light()
+	_mode = want
+	material = null
+	_ends.clear()
+	_quad_center = Vector2(INF, INF)
+	if _mode == Mode.LIGHT:
+		_setup_light()
+	elif _mode == Mode.QUAD:
+		_setup_quad()
+	queue_redraw()
 
 
 ## Shadow caster for a prop (LIGHT mode; null while Game.shadows_enabled is off). Only edges facing away from the light cast,
@@ -98,6 +132,7 @@ func _setup_light() -> void:
 	var dark := CanvasModulate.new()
 	dark.color = AMBIENT
 	get_tree().current_scene.add_child(dark)
+	_light_nodes.append(dark)
 	_hip_tex = _build_texture(fov_degrees)
 	_ads_tex = _build_texture(_weapon.stats.ads_fov)
 	_cone = PointLight2D.new()
@@ -109,6 +144,7 @@ func _setup_light() -> void:
 	_cone.energy = 0.85
 	_cone.range_item_cull_mask = 1
 	_player.add_child(_cone)
+	_light_nodes.append(_cone)
 	# The cone's apex is on the head, so give the body its own small light
 	# that only affects the player (light mask bit 2).
 	for ci in [_player] + _player.get_children():
@@ -131,6 +167,18 @@ func _setup_light() -> void:
 	self_light.energy = 0.85
 	self_light.range_item_cull_mask = SELF_MASK
 	_player.add_child(self_light)
+	_light_nodes.append(self_light)
+
+
+func _teardown_light() -> void:
+	for n in _light_nodes:
+		if is_instance_valid(n):
+			n.queue_free()
+	_light_nodes.clear()
+	_cone = null
+	for ci in [_player] + _player.get_children():
+		if ci is CanvasItem and ci != self:
+			ci.light_mask = 1
 
 
 func _build_texture(fov: float) -> ImageTexture:
@@ -160,18 +208,26 @@ func _physics_process(delta: float) -> void:
 	_forward = Vector2.UP.rotated(_player.global_rotation)
 	_half_fov = deg_to_rad(lerpf(fov_degrees, _weapon.stats.ads_fov, _weapon.ads_amount()) / 2.0)
 	_tick += 1
-	if _use_light:
+	if _wanted_mode() != _mode:
+		_apply_mode()
+	if _mode == Mode.LIGHT:
 		if _cone:
 			_cone.texture = _ads_tex if _weapon.ads_amount() >= 0.5 else _hip_tex
 	elif _tick % 2 == 0 or _ends.is_empty():
 		_cast_rays()
-		queue_redraw()
+		if _mode == Mode.QUAD:
+			_update_quad()
+		else:
+			queue_redraw()
 	_update_concealment(delta)
 
 
 func _cast_rays() -> void:
 	var space := get_world_2d().direct_space_state
 	var reach := view_distance * PX
+	_cast_origin = _origin
+	_cast_forward = _forward
+	_cast_half = _half_fov
 	_ends.resize(RAYS + 1)
 	for i in RAYS + 1:
 		var a := lerpf(-_half_fov, _half_fov, float(i) / RAYS)
@@ -238,7 +294,10 @@ func _retarget() -> void:
 
 
 func _draw() -> void:
-	if _use_light or _ends.is_empty():
+	if _mode == Mode.QUAD:
+		_draw_quad_rect()
+		return
+	if _mode != Mode.RAYS or _ends.is_empty():
 		return
 	# One triangle batch (no triangulation, one draw call):
 	# - a fan from the head around the back (outside the cone),
@@ -263,3 +322,123 @@ func _draw() -> void:
 	colors.resize(pts.size())
 	colors.fill(DARK)
 	RenderingServer.canvas_item_add_triangle_array(get_canvas_item(), indices, pts, colors)
+
+
+# --- QUAD mode ------------------------------------------------------------------------
+
+const QUAD_HALF := 9000.0
+const QUAD_SHADER := """
+shader_type canvas_item;
+render_mode unshaded;
+uniform vec2 origin;
+uniform vec2 pl_pos;
+uniform vec2 fwd;
+uniform float half_fov;
+uniform float reach;
+uniform float n_rays;
+uniform sampler2D rays : filter_linear, repeat_disable;
+uniform sampler2D explored : filter_linear, repeat_disable;
+uniform vec4 bounds;
+uniform vec4 dark;
+uniform float mem_amount;
+varying vec2 wpos;
+void vertex() {
+	wpos = (MODEL_MATRIX * vec4(VERTEX, 0.0, 1.0)).xy;
+}
+void fragment() {
+	vec2 d = wpos - origin;
+	float r = length(d);
+	vec2 dn = d / max(r, 0.001);
+	float a = atan(fwd.x * dn.y - fwd.y * dn.x, dot(fwd, dn));
+	float u = clamp(a / half_fov * 0.5 + 0.5, 0.0, 1.0);
+	float vd = texture(rays, vec2((u * n_rays + 0.5) / (n_rays + 1.0), 0.5)).r * reach;
+	float edge = 0.0873;
+	float cone = 1.0 - smoothstep(half_fov - edge, half_fov + edge, abs(a));
+	float wall = 1.0 - smoothstep(vd - 30.0, vd + 12.0, r);
+	float far_fade = 1.0 - smoothstep(0.75 * reach, reach, r);
+	float self_lit = 1.0 - smoothstep(80.0, 115.0, length(wpos - pl_pos));
+	float vis = max(cone * wall * far_fade, self_lit);
+	float mem = texture(explored, (wpos - bounds.xy) / bounds.zw).r;
+	COLOR = vec4(dark.rgb, dark.a * (1.0 - vis) * (1.0 - mem_amount * mem));
+}
+"""
+## Memory fog grid: world rectangle (m) covered by all zones + passages, cell size (m).
+const MEM_RECT := Rect2(-80.0, -350.0, 160.0, 430.0)
+const MEM_CELL := 2.5
+## Darkness left over in explored (seen before) areas, as a fraction of the full dark alpha.
+const MEM_AMOUNT := 0.35
+var _mem_w := 0
+var _mem_h := 0
+
+
+func _setup_quad() -> void:
+	var sh := Shader.new()
+	sh.code = QUAD_SHADER
+	_quad_mat = ShaderMaterial.new()
+	_quad_mat.shader = sh
+	if _ray_img == null:
+		var n := (RAYS + 1) * 2
+		var d := PackedByteArray()
+		d.resize(n)
+		_ray_img = Image.create_from_data(RAYS + 1, 1, false, Image.FORMAT_RH, d)
+		_ray_tex = ImageTexture.create_from_image(_ray_img)
+		_mem_w = ceili(MEM_RECT.size.x / MEM_CELL)
+		_mem_h = ceili(MEM_RECT.size.y / MEM_CELL)
+		_explored = PackedByteArray()
+		_explored.resize(_mem_w * _mem_h)
+		_explored_img = Image.create_from_data(_mem_w, _mem_h, false, Image.FORMAT_R8, _explored)
+		_explored_tex = ImageTexture.create_from_image(_explored_img)
+	_quad_mat.set_shader_parameter("rays", _ray_tex)
+	_quad_mat.set_shader_parameter("explored", _explored_tex)
+	_quad_mat.set_shader_parameter("n_rays", float(RAYS))
+	_quad_mat.set_shader_parameter("dark", DARK)
+	_quad_mat.set_shader_parameter("mem_amount", MEM_AMOUNT)
+	_quad_mat.set_shader_parameter("bounds", Vector4(MEM_RECT.position.x * PX, MEM_RECT.position.y * PX, MEM_RECT.size.x * PX, MEM_RECT.size.y * PX))
+	_quad_mat.set_shader_parameter("reach", view_distance * PX)
+	material = _quad_mat
+
+
+## One dark quad around the player (re-recorded only when the player walked far from its centre).
+func _draw_quad_rect() -> void:
+	_quad_center = _player.global_position if _player else Vector2.ZERO
+	draw_rect(Rect2(_quad_center - Vector2.ONE * QUAD_HALF, Vector2.ONE * QUAD_HALF * 2.0), Color.WHITE)
+
+
+func _update_quad() -> void:
+	var reach := view_distance * PX
+	var bytes := _ray_img.get_data()
+	for i in RAYS + 1:
+		bytes.encode_half(i * 2, minf(_origin.distance_to(_ends[i]) / reach, 1.0))
+	_ray_img.set_data(RAYS + 1, 1, false, Image.FORMAT_RH, bytes)
+	_ray_tex.update(_ray_img)
+	_quad_mat.set_shader_parameter("origin", _cast_origin)
+	_quad_mat.set_shader_parameter("pl_pos", _player.global_position)
+	_quad_mat.set_shader_parameter("fwd", _cast_forward)
+	_quad_mat.set_shader_parameter("half_fov", _cast_half)
+	if _origin.distance_squared_to(_quad_center) > 3000.0 * 3000.0:
+		queue_redraw()
+	if _tick % 6 == 0:
+		_mark_explored()
+	if _explored_dirty and _tick % 12 == 0:
+		_explored_dirty = false
+		_explored_img.set_data(_mem_w, _mem_h, false, Image.FORMAT_R8, _explored)
+		_explored_tex.update(_explored_img)
+
+
+## Mark the cells along every other ray (up to its wall hit) as explored.
+func _mark_explored() -> void:
+	var cell := MEM_CELL * PX
+	var org := MEM_RECT.position * PX
+	for i in range(0, RAYS + 1, 2):
+		var to: Vector2 = _ends[i] - _origin
+		var n := int(to.length() / cell) + 1
+		for k in n + 1:
+			var p := _origin + to * (float(k) / n)
+			var cx := int((p.x - org.x) / cell)
+			var cy := int((p.y - org.y) / cell)
+			if cx < 0 or cy < 0 or cx >= _mem_w or cy >= _mem_h:
+				continue
+			var idx := cy * _mem_w + cx
+			if _explored[idx] == 0:
+				_explored[idx] = 255
+				_explored_dirty = true

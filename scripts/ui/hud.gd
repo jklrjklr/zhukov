@@ -127,7 +127,7 @@ func _signature() -> int:
 	var w := _weapon
 	var a: Array = [get_viewport_rect().size, _paused, p.dead, snappedf(p.hp / p.max_hp, 0.004), ceili(p.hp), int(p.stamina * 200.0),
 		p.stims, p.grenades, p.is_healing(), w.rounds_loaded(), w.mags.size(), w.fire_mode_name(), w.jammed, w.dry_flash > 0.0,
-		Game.perf_overlay]
+		Game.perf_overlay, Game.vision_mode]
 	var it: Interactable = p.interact_target
 	if it != null:
 		a.append([it.label, int(it.progress / it.hold_time * 120.0)])
@@ -194,6 +194,8 @@ func _input(event: InputEvent) -> void:
 				Game.set_shake(not Game.shake_enabled)
 			"perf":
 				Game.set_perf_overlay(not Game.perf_overlay)
+			"vision":
+				Game.cycle_vision_mode()
 	elif _mission and _mission.end_ready:
 		match hit:
 			"retry":
@@ -896,15 +898,25 @@ func _draw_ammo(vp: Vector2) -> void:
 	UiStyle.text(self, Vector2(cx + tw * 0.5 - 8.0, base), w.fire_mode_name(), 11, UiStyle.YELLOW)
 
 
-## Perf overlay (pause menu toggle, off by default): FPS, frame time, script / physics time.
+## Perf overlay (pause menu toggle, off by default): FPS, frame / script / physics time, draw calls,
+## objects in frame, node count, live enemies, decals / fx, vision mode.
 func _draw_perf(vp: Vector2) -> void:
 	var fps := Engine.get_frames_per_second()
 	var proc_ms := Performance.get_monitor(Performance.TIME_PROCESS) * 1000.0
 	var phys_ms := Performance.get_monitor(Performance.TIME_PHYSICS_PROCESS) * 1000.0
-	var txt := "%d FPS  frame %.1f ms  proc %.1f  phys %.1f  enemies %d  decals %d  fx %d" % [fps, 1000.0 / maxf(fps, 1.0), proc_ms, phys_ms, Enemies.count(), Fx.decal_count(), Fx.particle_count()]
-	var tw := UiStyle.font().get_string_size(txt.to_upper(), HORIZONTAL_ALIGNMENT_LEFT, -1, 13).x
-	draw_rect(Rect2(6, vp.y - 24, tw + 16, 20), Color(0, 0, 0, 0.55))
-	UiStyle.text(self, Vector2(14, vp.y - 9), txt, 13, Color(0.7, 1.0, 0.7))
+	var lines := [
+		"%d FPS  frame %.1f ms  proc %.1f  phys %.1f" % [fps, 1000.0 / maxf(fps, 1.0), proc_ms, phys_ms],
+		"draws %d  objs %d  nodes %d  enemies %d" % [int(Performance.get_monitor(Performance.RENDER_TOTAL_DRAW_CALLS_IN_FRAME)),
+			int(Performance.get_monitor(Performance.RENDER_TOTAL_OBJECTS_IN_FRAME)), get_tree().get_node_count(), Enemies.count()],
+		"vision %s  decals %d  fx %d" % [Game.vision_mode_name(), Fx.decal_count(), Fx.particle_count()],
+	]
+	var tw := 0.0
+	for l in lines:
+		tw = maxf(tw, UiStyle.font().get_string_size(l.to_upper(), HORIZONTAL_ALIGNMENT_LEFT, -1, 13).x)
+	var h := 6.0 + 18.0 * lines.size()
+	draw_rect(Rect2(6, vp.y - h - 4, tw + 16, h), Color(0, 0, 0, 0.55))
+	for i in lines.size():
+		UiStyle.text(self, Vector2(14, vp.y - h + 14 + 18 * i), lines[i], 13, Color(0.7, 1.0, 0.7))
 
 
 # --- Overlays -----------------------------------------------------------------------
@@ -937,7 +949,8 @@ func _draw_pause(vp: Vector2) -> void:
 	_btn("restart", UiStyle.button(self, Rect2(x, vp.y * 0.31 + 72, w, 60), "RESTART"))
 	_btn("shake", UiStyle.button(self, Rect2(x, vp.y * 0.31 + 144, w, 60), "SCREEN SHAKE: " + ("ON" if Game.shake_enabled else "OFF"), false, 20))
 	_btn("perf", UiStyle.button(self, Rect2(x, vp.y * 0.31 + 216, w, 60), "PERF OVERLAY: " + ("ON" if Game.perf_overlay else "OFF"), false, 20))
-	_btn("menu", UiStyle.button(self, Rect2(x, vp.y * 0.31 + 288, w, 60), "ABANDON MISSION" if _mission else "MAIN MENU"))
+	_btn("vision", UiStyle.button(self, Rect2(x, vp.y * 0.31 + 288, w, 60), "VISION: " + Game.vision_mode_name(), false, 20))
+	_btn("menu", UiStyle.button(self, Rect2(x, vp.y * 0.31 + 360, w, 60), "ABANDON MISSION" if _mission else "MAIN MENU"))
 
 
 ## Run lost / mission complete: objectives done or failed, kills, samples, time.

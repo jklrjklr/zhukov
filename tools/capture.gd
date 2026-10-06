@@ -14,6 +14,7 @@ var _keep_alive := false
 var _no_enemies := false
 ## Second argument `stress`: +40 alerted bugs in front of the player (draw / AI load test).
 var _stress := false
+## `vision=quad|rays|light`: vision mode for this run (not saved).
 ## `hide=hud|zones|actors|fx|light`: ablation for perf attribution (what costs how much).
 var _hide := ""
 ## Perf sampling (combat window): per-frame monitors averaged and printed as PERF lines.
@@ -31,6 +32,8 @@ func _ready() -> void:
 	for a in args:
 		if a.begins_with("hide="):
 			_hide = a.substr(5)
+		if a.begins_with("vision="):
+			Game.vision_mode = {"light": Vision.Mode.LIGHT, "rays": Vision.Mode.RAYS, "quad": Vision.Mode.QUAD}[a.substr(7)]
 	var scene := (load("res://scenes/mission.tscn") as PackedScene).instantiate()
 	add_child(scene)
 	_m = scene.get_node("Mission")
