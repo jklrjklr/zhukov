@@ -8,16 +8,20 @@ config_version=5
 config/name="Zhukov"
 config/version="0.7.1"
 run/main_scene="res://scenes/main_menu.tscn"
+run/max_fps=60
 config/features=PackedStringArray("4.6", "GL Compatibility")
 
 [display]
 
 window/size/viewport_width=1280
 window/size/viewport_height=720
-; Render at the base resolution (aspect-expanded, ~1560x720 landscape) and upscale:
-; sharp enough on phones while keeping fill cost fixed.
-window/stretch/mode="viewport"
+; Layout is authored at 1280x720 (aspect-expanded, e.g. ~1600x720 on a 2400x1080 phone); canvas_items
+; renders it at the window's native resolution (1080p) instead of upscaling a 720p viewport.
+window/stretch/mode="canvas_items"
 window/stretch/aspect="expand"
+window/vsync/vsync_mode=1
+window/frame_pacing/android/enable_frame_pacing=true
+window/frame_pacing/android/swappy_mode=2
 window/handheld/orientation=4
 
 [input_devices]

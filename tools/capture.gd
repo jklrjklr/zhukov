@@ -225,4 +225,12 @@ func _run() -> void:
 	await shot("9_low_hp")
 	await wait(3.0)
 	await shot("10_aftermath")
+	# Pause menu with the perf overlay on (layout check at the window size).
+	var hud: Control = get_tree().root.find_child("Hud", true, false)
+	Game.perf_overlay = true
+	hud._set_paused(true)
+	await wait(0.4)
+	await shot("11_pause")
+	hud._set_paused(false)
+	Game.perf_overlay = false
 	get_tree().quit()

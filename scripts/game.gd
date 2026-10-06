@@ -38,6 +38,7 @@ signal vision_mode_changed
 
 
 func _ready() -> void:
+	Engine.max_fps = 60 # with vsync (project setting) and Android frame pacing: steady 60 fps, no wasted battery on 120 Hz panels
 	reset_stats()
 	RigAtlas.ensure(get_tree())
 	var cfg := ConfigFile.new()
