@@ -38,7 +38,8 @@ func _init(tex: Texture2D, cap := 512) -> void:
 	_mm.mesh = QuadMesh2D.corner()
 	_mm.instance_count = cap
 	_mm.custom_aabb = AABB(Vector3(-1.0e6, -1.0e6, -1.0), Vector3(2.0e6, 2.0e6, 2.0)) # never culled by a stale bound
-	_mm.visible_instance_count = 0
+	# NOTE: visible_instance_count is never touched: every change of it costs a whole-buffer rebuild in
+	# the renderer (measured +20 ms / frame on desktop GL). Unused slots stay degenerate (zero scale).
 	multimesh = _mm
 	texture = tex
 	texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS
@@ -64,7 +65,6 @@ func alloc() -> int:
 		_grow()
 	var i := _hi
 	_hi += 1
-	_mm.visible_instance_count = _hi
 	return i
 
 
@@ -131,8 +131,9 @@ func frame_push(xf: Transform2D, c: Color, uv_rect: Color) -> void:
 
 
 func frame_end() -> void:
+	for i in range(_fn, _hi):
+		hide_slot(i) # rows the previous frame used and this one did not
 	_hi = _fn
-	_mm.visible_instance_count = _fn
 	visible = _fn > 0
 
 
@@ -145,4 +146,3 @@ func _grow() -> void:
 	_buf.resize(_cap * STRIDE)
 	_mm.instance_count = _cap
 	_mm.buffer = _buf
-	_mm.visible_instance_count = _hi

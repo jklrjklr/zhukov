@@ -10,6 +10,10 @@ extends Node
 ##  - PERF lines: averages over the fight window (draw calls, objects, process ms, max frame).
 ##  - POST lines: what happens after the fight (per-frame process time, node churn, queue_free /
 ##    node_added bursts, corpse / decal / particle counts) and the worst frames.
+##  - FIRSTUSE lines: the worst frame right after each kind of event happens for the first time
+##    (muzzle flash / tracers, decals, explosion, acid, bug spawn, HP bar + badge, telegraph, corpse bake,
+##    grenade + sounds, sentry deploy): canvas shader variants compile and sound files load on first use.
+##  - PHYSICS lines: physics ms per tick with each system switched off in turn.
 
 const P := 60.0
 var _m: Mission
@@ -26,6 +30,8 @@ var _removed := 0
 var _last_t := 0
 var _marks: Array[String] = []
 var _fired := 0
+var _got: Array = []
+var _got2: Array = []
 var _t0 := 0
 var _script_ms := 0.0
 var _probe_end: Node
@@ -56,6 +62,9 @@ class _EndProbe extends Node:
 
 func _process(_d: float) -> void:
 	_t0 = Time.get_ticks_usec()
+	if not _vp_rid.is_valid():
+		_vp_rid = get_viewport().get_viewport_rid()
+		RenderingServer.viewport_set_measure_render_time(_vp_rid, true)
 	if _keep_alive and _p.hp < 60.0:
 		_p.hp = 60.0
 	var now := Time.get_ticks_usec()
@@ -309,6 +318,88 @@ func _phys_avg(sec: float) -> float:
 	return sum / maxf(n, 1)
 
 
+## First-use stalls: the worst frame (wall ms) in the 5 frames after each kind of event happens for the first time,
+## against the idle median. Shader variants compile and sound files load the first time they are needed.
+func _frame_ms(n: int) -> Array:
+	var out: Array = []
+	var last := Time.get_ticks_usec()
+	for i in n:
+		await get_tree().process_frame
+		var now := Time.get_ticks_usec()
+		out.append((now - last) / 1000.0)
+		last = now
+	return out
+
+
+func _probe(label: String, fn: Callable, base: float) -> void:
+	var t0 := Time.get_ticks_usec()
+	fn.call()
+	var call_ms := (Time.get_ticks_usec() - t0) / 1000.0
+	var frames: Array = await _frame_ms(5)
+	var worst := 0.0
+	for f in frames:
+		worst = maxf(worst, f)
+	print("CENSUS FIRSTUSE %-44s event call %6.1f ms, worst following frame %6.1f ms (idle median %.1f ms, +%.1f)" % [label, call_ms, worst, base, worst - base])
+
+
+func _first_use() -> void:
+	var frames: Array = await _frame_ms(20)
+	frames.sort()
+	var base: float = frames[10]
+	var pp := _p.global_position
+	var proj := get_tree().get_first_node_in_group("projectiles")
+	await _probe("player burst: muzzle flash, tracers, casings", func() -> void:
+		_p.weapon.trigger = true
+		_p.weapon.fire_mode_index = _p.weapon.stats.fire_modes.size() - 1, base)
+	_p.weapon.trigger = false
+	await _wait(0.4)
+	await _probe("blood splat (decal)", func() -> void: Fx.splat(self, pp + Vector2(40, -160), Vector2.UP, Color(0.5, 0.66, 0.14), true), base)
+	await _probe("explosion (flash, ring, sparks, smoke, scorch)", func() -> void: Fx.explosion(self, pp + Vector2(-300, -500), 150.0), base)
+	await _probe("acid pool decal + splash", func() -> void:
+		Fx.bile_pool(self, pp + Vector2(300, -500), 90.0)
+		Fx.bile_splash(self, pp + Vector2(300, -500)), base)
+	await _probe("bug spawn (rig parts, collision)", func() -> void:
+		_got = _spawn([Terminid.Kind.WARRIOR], pp + Vector2(0, -900), false), base)
+	await _wait(0.5)
+	_frames.clear()
+	_rec = true
+	await _probe("2nd bug spawn (for comparison)", func() -> void:
+		_got2 = _spawn([Terminid.Kind.SCAVENGER], pp + Vector2(100, -900), false), base)
+	_rec = false
+	for f in _frames:
+		print("CENSUS SPAWNFRAME dt=%.1f script=%.2f physics=%.2f render_cpu=%.1f draws=%d objects=%d nodes=%d added=%d" % [f.dt, f.script, f.physics, f.render_cpu, f.draws, f.objects, f.nodes, f.added])
+	_frames.clear()
+	await _wait(0.5)
+	var hit := {"damage": 1.0, "base_damage": 1.0, "armor_penetration": 5, "armor_damage": 0.0, "destruction_level": 0,
+		"stagger": 0.0, "dir": Vector2.UP, "meters": 0.0, "aim_point": null}
+	await _probe("first HP bar / badge / hit flash", func() -> void:
+		if not _got.is_empty() and is_instance_valid(_got[0]):
+			_got[0].take_hit(hit), base)
+	await _wait(0.5)
+	await _probe("enemy telegraph (melee arc / call ring)", func() -> void:
+		if not _got.is_empty() and is_instance_valid(_got[0]):
+			_got[0].state = Terminid.State.ATTACK
+			_got[0]._attack_t = 0.2
+			_got[0]._struck = false, base)
+	await _wait(0.5)
+	await _probe("enemy death -> corpse", func() -> void:
+		if not _got.is_empty() and is_instance_valid(_got[0]):
+			var kill := hit.duplicate()
+			kill.damage = 9999.0
+			_got[0].take_hit(kill), base)
+	await _wait(1.2)
+	await _probe("grenade throw + frag explosion + sounds", func() -> void:
+		proj.spawn_grenade(pp, pp + Vector2(0, -300), _p)
+		Sfx.play("explosion_big", pp, 0.0)
+		Sfx.play("bile_splash", pp, 0.0), base)
+	await _wait(2.8)
+	await _probe("sentry deploy", func() -> void:
+		_sentry = Sentry.new()
+		_sentry.position = pp + Vector2(2.5 * P, -3.0 * P)
+		_p.get_parent().add_child(_sentry), base)
+	await _wait(0.5)
+
+
 func _wait(sec: float) -> void:
 	await get_tree().create_timer(sec, true, false, true).timeout
 
@@ -351,10 +442,8 @@ func _post_report(label: String) -> void:
 func _run() -> void:
 	await _wait(3.3)
 	var pp := _p.global_position
-	# Sentry (as the stratagem pod would deploy it), a few meters ahead.
-	_sentry = Sentry.new()
-	_sentry.position = pp + Vector2(2.5 * P, -3.0 * P)
-	_p.get_parent().add_child(_sentry)
+	await _first_use() # also deploys the sentry (as the stratagem pod would), a few meters ahead of the player
+	pp = _p.global_position
 	_spawn([Terminid.Kind.WARRIOR, Terminid.Kind.WARRIOR, Terminid.Kind.SCAVENGER, Terminid.Kind.SCAVENGER,
 		Terminid.Kind.SCAVENGER, Terminid.Kind.HUNTER], pp + Vector2(0, -11 * P))
 	_spawn([Terminid.Kind.BILE_SPITTER], pp + Vector2(-4 * P, -14 * P))

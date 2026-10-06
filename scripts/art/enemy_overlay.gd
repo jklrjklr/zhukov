@@ -28,11 +28,17 @@ var _atlas_size := Vector2.ONE
 static func get_for(from: Node) -> EnemyOverlay:
 	if _inst != null and is_instance_valid(_inst) and not _inst.is_queued_for_deletion():
 		return _inst
+	return attach(from.get_parent() if from.get_parent() != null else from.get_tree().current_scene)
+
+
+## Create the shared overlay next to the enemies (Warmup does it at mission start).
+static func attach(host: Node) -> EnemyOverlay:
+	if _inst != null and is_instance_valid(_inst) and not _inst.is_queued_for_deletion():
+		return _inst
 	_inst = EnemyOverlay.new()
 	_inst.name = "EnemyOverlay"
 	_inst.z_index = 11
 	_inst.z_as_relative = false
-	var host: Node = from.get_parent() if from.get_parent() != null else from.get_tree().current_scene
 	host.add_child.call_deferred(_inst)
 	return _inst
 

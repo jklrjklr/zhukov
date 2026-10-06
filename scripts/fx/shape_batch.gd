@@ -53,6 +53,7 @@ var _n := 0
 var _cap := 0
 ## Instance data (16 floats each: transform in 8, colour 4, custom 4), uploaded once in end().
 var _buf := PackedFloat32Array()
+var _prev := 0
 
 
 func _init(cap := 512, unshaded := false) -> void:
@@ -65,7 +66,6 @@ func _init(cap := 512, unshaded := false) -> void:
 	_mm.mesh = QuadMesh2D.centered()
 	_mm.instance_count = cap
 	_mm.custom_aabb = AABB(Vector3(-1.0e6, -1.0e6, -1.0), Vector3(2.0e6, 2.0e6, 2.0)) # never culled by a stale / identity bound
-	_mm.visible_instance_count = 0
 	multimesh = _mm
 	var key := "unshaded" if unshaded else "lit"
 	if not _shaders.has(key):
@@ -82,10 +82,20 @@ func begin() -> void:
 	_n = 0
 
 
+## Rows the previous frame used and this one did not are collapsed. visible_instance_count is never
+## touched: every change of it costs a whole-buffer rebuild in the renderer (+20 ms / frame measured).
 func end() -> void:
-	_mm.visible_instance_count = _n
-	if _n > 0:
+	for i in range(_n, _prev):
+		var o := i * 16
+		_buf[o] = 0.0
+		_buf[o + 1] = 0.0
+		_buf[o + 3] = 0.0
+		_buf[o + 4] = 0.0
+		_buf[o + 5] = 0.0
+		_buf[o + 7] = 0.0
+	if _n > 0 or _prev > 0:
 		_mm.buffer = _buf
+	_prev = _n
 	visible = _n > 0
 
 

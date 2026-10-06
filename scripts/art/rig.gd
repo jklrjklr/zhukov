@@ -48,12 +48,18 @@ static func batches() -> Array[AtlasBatch]:
 	return _batches
 
 
-func _enter_tree() -> void:
-	var bs := Rig.batches()
+## Create the layers and put them next to the enemies (done at mission start by Warmup, otherwise
+## by the first rig that enters a tree).
+static func attach(host: Node) -> void:
+	Rig.batches()
 	if _holder.get_parent() == null and not _holder.has_meta("queued"):
 		_holder.set_meta("queued", true)
-		var host: Node = get_parent().get_parent() if get_parent() != null and get_parent().get_parent() != null else get_tree().current_scene
 		host.add_child.call_deferred(_holder)
+
+
+func _enter_tree() -> void:
+	var host: Node = get_parent().get_parent() if get_parent() != null and get_parent().get_parent() != null else get_tree().current_scene
+	Rig.attach(host)
 
 
 func setup(d: Dictionary, art_scale: float) -> void:

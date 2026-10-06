@@ -11,7 +11,8 @@ const SOUNDS := ["bug_alert", "bug_attack", "bug_big_step", "bug_chitter", "bug_
 	"footstep_run", "hellpod_impact", "hellpod_streak", "hit_armor", "hit_flesh", "hit_metal", "mag_in", "mag_out", "orbital_shot",
 	"orbital_whistle", "player_hit", "player_death", "sentry_deploy", "sentry_shot", "smg_shot", "shield_hit", "stim", "strat_error",
 	"strat_input", "strat_open", "strat_ready", "throw", "radio_chirp", "reinforce", "breach", "burrow", "objective_progress",
-	"objective_complete", "pickup_ammo", "resupply_open", "passage_seal", "nest_hole_destroyed", "ui_click"]
+	"objective_complete", "pickup_ammo", "resupply_open", "passage_seal", "nest_hole_destroyed", "ui_click",
+	"rifle_shot", "shotgun_shot", "rocket_launch", "plasma_shot", "bolt", "bot_blaster", "reload", "bile_spit", "terminal_beep"]
 
 
 class Painter extends Node2D:
@@ -77,6 +78,11 @@ static func run(host: Node) -> void:
 	spr.modulate = Color(1, 1, 1, 0.012)
 	layer.add_child(spr)
 	host.add_child.call_deferred(layer)
+	# The shared enemy layers and overlay would otherwise be created with the first bug.
+	var actors := host.get_node_or_null("Actors")
+	if actors != null:
+		Rig.attach(actors)
+		EnemyOverlay.attach(actors)
 	var tree := host.get_tree()
 	for i in 6:
 		for pb in pbs:
