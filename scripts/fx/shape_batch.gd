@@ -51,10 +51,13 @@ static var _shaders := {}
 var _mm: MultiMesh
 var _n := 0
 var _cap := 0
+## Instance data (16 floats each: transform in 8, colour 4, custom 4), uploaded once in end().
+var _buf := PackedFloat32Array()
 
 
 func _init(cap := 512, unshaded := false) -> void:
 	_cap = cap
+	_buf.resize(cap * 16)
 	_mm = MultiMesh.new()
 	_mm.transform_format = MultiMesh.TRANSFORM_2D
 	_mm.use_colors = true
@@ -81,6 +84,8 @@ func begin() -> void:
 
 func end() -> void:
 	_mm.visible_instance_count = _n
+	if _n > 0:
+		_mm.buffer = _buf
 	visible = _n > 0
 
 
@@ -95,9 +100,24 @@ func is_full() -> bool:
 func _put(xf: Transform2D, col: Color, kind: float, p1 := 0.0, p2 := 0.0, p3 := 0.0) -> void:
 	if _n >= _cap:
 		return
-	_mm.set_instance_transform_2d(_n, xf)
-	_mm.set_instance_color(_n, col)
-	_mm.set_instance_custom_data(_n, Color(kind, p1, p2, p3))
+	var o := _n * 16
+	var a := xf.x
+	var b := xf.y
+	var c := xf.origin
+	_buf[o] = a.x
+	_buf[o + 1] = b.x
+	_buf[o + 3] = c.x
+	_buf[o + 4] = a.y
+	_buf[o + 5] = b.y
+	_buf[o + 7] = c.y
+	_buf[o + 8] = col.r
+	_buf[o + 9] = col.g
+	_buf[o + 10] = col.b
+	_buf[o + 11] = col.a
+	_buf[o + 12] = kind
+	_buf[o + 13] = p1
+	_buf[o + 14] = p2
+	_buf[o + 15] = p3
 	_n += 1
 
 

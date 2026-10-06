@@ -284,6 +284,14 @@ func _bind() -> void:
 	for e in _eyes:
 		e.self_modulate = Color(0.1, 0.05, 0.04)
 	touch_colors()
+	# Everything animate() does not write keeps its local transform (composed once).
+	var animated: Array = [_body, _abd, _head, _sac, _glow]
+	animated.append_array(_lu)
+	animated.append_array(_ll)
+	animated.append_array(_mand)
+	animated.append_array(_cu)
+	animated.append_array(_cl)
+	fix_static(animated)
 
 
 ## One frame of procedural animation. move 0..1 (fraction of run speed), turn rad/s (signed),

@@ -423,7 +423,8 @@ func _process(delta: float) -> void:
 		every = 1 if d2 < RIG_LOD1_PX2 else (2 if d2 < RIG_LOD2_PX2 else 4)
 	_lod_acc += delta
 	if every > 1 and (Engine.get_process_frames() + _lod_phase) % every != 0:
-		_rig.flush() # keeps following the body with the last pose
+		if every == 2:
+			_rig.flush() # mid range keeps following the body with the last pose (far ones, off screen, wait)
 		return
 	delta = _lod_acc
 	_lod_acc = 0.0

@@ -1,10 +1,13 @@
 class_name AtlasBatch
 extends MultiMeshInstance2D
 ## One MultiMesh of textured quads from a single atlas = one draw call for every instance in it
-## (the enemy rig layers, UI icons ...). Each instance has a Transform2D mapping the unit quad onto
+## (the enemy rig layers, UI badges ...). Each instance has a Transform2D mapping the unit quad onto
 ## its place (offset / size / rotation of the art included), an instance colour (tint, alpha) and
-## the normalised atlas rect in the custom data. Slots are allocated / released by the users;
-## unused ones are collapsed to a degenerate quad. The buffer doubles when full.
+## the normalised atlas rect in the custom data. The instance data lives in ONE PackedFloat32Array
+## (16 floats per instance: 2D transform in 8, colour 4, custom 4) that users write with plain
+## stores (a native call per part per frame is several times slower) and that is uploaded once per
+## frame, after every user has run (late process priority). Slots are allocated / released by the
+## users; unused ones are collapsed to a degenerate quad. The buffer doubles when full.
 ## Keep the node at the canvas origin without a transform (instance transforms are world).
 
 const SHADER := """
@@ -13,24 +16,28 @@ void vertex() {
 	UV = INSTANCE_CUSTOM.xy + UV * INSTANCE_CUSTOM.zw;
 }
 """
+const STRIDE := 16
 static var _shader: Shader
-const ZERO := Transform2D(Vector2.ZERO, Vector2.ZERO, Vector2.ZERO)
 
 var _mm: MultiMesh
 var _cap := 0
 var _hi := 0
 var _free: Array[int] = []
+var _buf := PackedFloat32Array()
+var _dirty := false
+var _fn := 0
 
 
 func _init(tex: Texture2D, cap := 512) -> void:
 	_cap = cap
+	_buf.resize(cap * STRIDE)
 	_mm = MultiMesh.new()
 	_mm.transform_format = MultiMesh.TRANSFORM_2D
 	_mm.use_colors = true
 	_mm.use_custom_data = true
 	_mm.mesh = QuadMesh2D.corner()
 	_mm.instance_count = cap
-	_mm.custom_aabb = AABB(Vector3(-1.0e6, -1.0e6, -1.0), Vector3(2.0e6, 2.0e6, 2.0)) # never culled by a stale / identity bound
+	_mm.custom_aabb = AABB(Vector3(-1.0e6, -1.0e6, -1.0), Vector3(2.0e6, 2.0e6, 2.0)) # never culled by a stale bound
 	_mm.visible_instance_count = 0
 	multimesh = _mm
 	texture = tex
@@ -41,6 +48,13 @@ func _init(tex: Texture2D, cap := 512) -> void:
 	var m := ShaderMaterial.new()
 	m.shader = _shader
 	material = m
+	process_priority = 1000 # after every enemy / overlay has written its instances this frame
+
+
+func _process(_delta: float) -> void:
+	if _dirty:
+		_dirty = false
+		_mm.buffer = _buf
 
 
 func alloc() -> int:
@@ -51,35 +65,58 @@ func alloc() -> int:
 	var i := _hi
 	_hi += 1
 	_mm.visible_instance_count = _hi
-	_mm.set_instance_transform_2d(i, ZERO)
 	return i
 
 
 func release(i: int) -> void:
-	_mm.set_instance_transform_2d(i, ZERO)
+	hide_slot(i)
 	_free.append(i)
 
 
 func hide_slot(i: int) -> void:
-	_mm.set_instance_transform_2d(i, ZERO)
+	var o := i * STRIDE
+	_buf[o] = 0.0
+	_buf[o + 1] = 0.0
+	_buf[o + 3] = 0.0
+	_buf[o + 4] = 0.0
+	_buf[o + 5] = 0.0
+	_buf[o + 7] = 0.0
+	_dirty = true
 
 
 func set_xf(i: int, xf: Transform2D) -> void:
-	_mm.set_instance_transform_2d(i, xf)
+	var o := i * STRIDE
+	var a := xf.x
+	var b := xf.y
+	var c := xf.origin
+	_buf[o] = a.x
+	_buf[o + 1] = b.x
+	_buf[o + 3] = c.x
+	_buf[o + 4] = a.y
+	_buf[o + 5] = b.y
+	_buf[o + 7] = c.y
+	_dirty = true
 
 
 func set_color(i: int, c: Color) -> void:
-	_mm.set_instance_color(i, c)
+	var o := i * STRIDE + 8
+	_buf[o] = c.r
+	_buf[o + 1] = c.g
+	_buf[o + 2] = c.b
+	_buf[o + 3] = c.a
+	_dirty = true
 
 
 func set_uv(i: int, r: Color) -> void:
-	_mm.set_instance_custom_data(i, r)
+	var o := i * STRIDE + 12
+	_buf[o] = r.r
+	_buf[o + 1] = r.g
+	_buf[o + 2] = r.b
+	_buf[o + 3] = r.a
+	_dirty = true
 
 
 ## Per-frame mode (overlays): frame_begin(), frame_push() ..., frame_end(); slots 0..n-1 are rewritten.
-var _fn := 0
-
-
 func frame_begin() -> void:
 	_fn = 0
 
@@ -87,9 +124,9 @@ func frame_begin() -> void:
 func frame_push(xf: Transform2D, c: Color, uv_rect: Color) -> void:
 	if _fn >= _cap:
 		_grow()
-	_mm.set_instance_transform_2d(_fn, xf)
-	_mm.set_instance_color(_fn, c)
-	_mm.set_instance_custom_data(_fn, uv_rect)
+	set_xf(_fn, xf)
+	set_color(_fn, c)
+	set_uv(_fn, uv_rect)
 	_fn += 1
 
 
@@ -104,10 +141,8 @@ func used() -> int:
 
 
 func _grow() -> void:
-	var old := _mm.buffer
 	_cap *= 2
+	_buf.resize(_cap * STRIDE)
 	_mm.instance_count = _cap
-	if not old.is_empty():
-		old.resize(_cap * 16)
-		_mm.buffer = old
+	_mm.buffer = _buf
 	_mm.visible_instance_count = _hi

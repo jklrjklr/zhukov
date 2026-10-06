@@ -162,6 +162,11 @@ func _bind() -> void:
 	for e in _eyes:
 		e.self_modulate = Color(0.1, 0.05, 0.04)
 	touch_colors()
+	var animated: Array = [_body, _head, _sac, _glint]
+	animated.append_array(_upper)
+	animated.append_array(_foot)
+	animated.append_array(_plates)
+	fix_static(animated)
 
 
 ## move 0..1 of stalk speed (>1 when charging), charging widens the stride, rear 0..1 = wind-up

@@ -22,6 +22,8 @@ var _drawn: Array[RigPart] = []
 var _variant := {}
 var _hidden := false
 var _col_dirty := true
+var _dirty := true
+var _last_root := Transform2D()
 var _last_mod := Color(0, 0, 0, 0)
 var _last_alpha := -1.0
 var _art_scale := 1.0
@@ -84,7 +86,6 @@ func setup(d: Dictionary, art_scale: float) -> void:
 		parts.append(rp)
 	tree_exiting.connect(_release_all)
 	visibility_changed.connect(_on_visibility)
-	commit()
 
 
 static func _uv(r: Rect2, atlas_size: Vector2) -> Color:
@@ -142,33 +143,57 @@ func set_variant(id: String, variant: String) -> void:
 		Rig.batches()[rp.layer].set_uv(rp.slot, rp.uv)
 
 
-## Recompose every part (call after the pose changed). Rig-space transforms are cached; flush()
-## only multiplies them by the rig's world transform.
+## The pose changed (called at the end of animate()): the next flush recomposes every part.
 func commit() -> void:
+	_dirty = true
+
+
+## Parts that the rig's animation never touches are composed once (their local transform is cached).
+func fix_static(animated: Array) -> void:
 	for p in parts:
-		var loc := Transform2D(p.rotation, p.scale, 0.0, p.position)
-		p.chain = loc if p.parent == null else p.parent.chain * loc
-		if p.drawn:
-			p.rel = p.chain * p.quad
+		p.fixed = not animated.has(p)
+		if p.fixed:
+			p.local = Transform2D(p.rotation, p.scale, 0.0, p.position)
 
 
-## Write the world transforms (and tint) into the batch slots. Cheap enough to run every frame.
+## Write the world transforms (and tint) into the batch slots. Cheap enough to run every frame:
+## after an animation step every part is recomposed (parent chain x local x quad); when only the
+## body moved, the stored instance transforms are shifted by the root's change (one multiply each).
 func flush() -> void:
 	if _hidden or corpse_sprite != null:
 		return
-	var bs := Rig.batches()
 	var root := global_transform
+	var bs := _batches
 	var par := get_parent() as CanvasItem
 	var alpha := par.modulate.a if par != null else 1.0
-	if modulate != _last_mod or alpha != _last_alpha or _col_dirty:
+	if _col_dirty or modulate != _last_mod or alpha != _last_alpha:
 		_last_mod = modulate
 		_last_alpha = alpha
 		_col_dirty = false
 		var m := Color(modulate.r, modulate.g, modulate.b, modulate.a * alpha)
 		for p in _drawn:
 			bs[p.layer].set_color(p.slot, m * p.self_modulate)
-	for p in _drawn:
-		bs[p.layer].set_xf(p.slot, root * p.rel if p.visible else AtlasBatch.ZERO)
+	if _dirty:
+		_dirty = false
+		for p in parts:
+			var loc: Transform2D = p.local if p.fixed else Transform2D(p.rotation, p.scale, 0.0, p.position)
+			var ch: Transform2D = (root if p.parent == null else p.parent.world) * loc
+			p.world = ch
+			if p.drawn:
+				var t: Transform2D = ch * p.quad
+				p.inst = t
+				if p.visible:
+					bs[p.layer].set_xf(p.slot, t)
+				else:
+					bs[p.layer].hide_slot(p.slot)
+	elif root != _last_root:
+		var delta := root * _last_root.affine_inverse()
+		for p in _drawn:
+			if p.visible:
+				var t: Transform2D = delta * p.inst
+				p.inst = t
+				bs[p.layer].set_xf(p.slot, t)
+	_last_root = root
 
 
 ## Mark colours dirty (a part's self_modulate / visible changed).
@@ -189,6 +214,7 @@ func _on_visibility() -> void:
 			bs[p.layer].hide_slot(p.slot)
 	else:
 		_col_dirty = true
+		_dirty = true
 		flush()
 
 

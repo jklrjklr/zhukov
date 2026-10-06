@@ -16,7 +16,7 @@ const N := 8
 ## Texels per layer px (a 1080p phone at the 0.5 camera zoom shows 0.75 screen px per world px).
 const SCALE := 0.7
 const MARGIN := 8.0
-const PREFETCH := 560.0
+const PREFETCH := 380.0
 
 ## paint(canvas: CanvasItem, clip: Rect2) draws everything of the layer intersecting clip (layer-local px).
 var paint: Callable
@@ -82,7 +82,7 @@ func _process(delta: float) -> void:
 			budget -= 1
 	# Free far tiles, one per update.
 	for c in _tiles.keys():
-		if _dist_to_rect(center, cell_rect(c)) > r_load + TILE * 1.2:
+		if _dist_to_rect(center, cell_rect(c)) > r_load + TILE * 0.5:
 			_free_tile(c)
 			break
 

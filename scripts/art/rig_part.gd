@@ -20,6 +20,9 @@ var tex_key := ""
 var quad := Transform2D()
 ## Normalised atlas rect (x, y, w, h) of the current texture variant.
 var uv := Color(0, 0, 0, 0)
-## Composed transform in rig space, and the same with the quad (what the instance uses).
-var chain := Transform2D()
-var rel := Transform2D()
+## Never animated by the rig's own code (pose fixed relative to its parent): local transform cached.
+var fixed := false
+var local := Transform2D()
+## World transform of the bone and of the drawn quad (the MultiMesh instance) as of the last flush.
+var world := Transform2D()
+var inst := Transform2D()

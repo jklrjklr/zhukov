@@ -114,20 +114,25 @@ func _fire() -> void:
 		Enemies.broadcast_sound(global_position, 90.0, 10.0)
 
 
+## Nearest visible enemy within range. The registry (Enemies.list) is the only source (no group
+## scans); squared distances reject most candidates, and a ray is only cast for a candidate that
+## would beat the best so far. Called every 6th tick, not every tick.
 func _find_target() -> Node2D:
-	var space := get_world_2d().direct_space_state
 	var best: Node2D = null
-	var best_d := RANGE_M * PX
+	var best_d2 := RANGE_M * PX * RANGE_M * PX
+	var me := global_position
+	var space := get_world_2d().direct_space_state
+	var q := PhysicsRayQueryParameters2D.create(me, me, 1)
+	q.exclude = [get_rid()]
 	for n in Enemies.list:
-		var d := global_position.distance_to(n.global_position)
-		if d >= best_d:
+		var d2 := me.distance_squared_to(n.global_position)
+		if d2 >= best_d2:
 			continue
-		var q := PhysicsRayQueryParameters2D.create(global_position, n.global_position, 1)
-		q.exclude = [get_rid()]
+		q.to = n.global_position
 		if not space.intersect_ray(q).is_empty():
 			continue
 		best = n
-		best_d = d
+		best_d2 = d2
 	return best
 
 
