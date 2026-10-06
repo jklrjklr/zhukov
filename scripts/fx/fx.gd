@@ -2,19 +2,26 @@ class_name Fx
 extends Node2D
 ## Central visual effects (graphics pass). One instance per scene, created lazily by the
 ## static helpers (Fx.explosion(self, ...)); gameplay code only calls the helpers.
-## - Persistent decals (blood, pools, scorch, bile, casings, bullet pocks): ring buffer
-##   capped at DECAL_CAP, the oldest ones fade out. Stored in chunks of DECAL_CHUNK decals,
-##   one canvas item per chunk: a new decal only re-records the newest chunk, fading ones only
-##   their own chunks, and nothing is re-recorded while nothing changes.
+## - Persistent decals (blood, pools, scorch, bile, casings, bullet pocks, baked corpses): kept in
+##   CELL x CELL px cells, each rendered INTO A TEXTURE (SubViewport, premultiplied) that new decals
+##   are blitted into incrementally; fading / expired decals rebuild their cell (rate limited, fade in
+##   FADE_STEPS steps). The cost on screen is one draw call per visible cell, not one per blob.
 ## - Particles (dust, smoke, debris, sparks, flashes, shockwave rings): pooled dictionaries,
-##   hard cap PARTICLE_CAP, drawn in two batched canvas items: LOW (under the sight
-##   darkness: blood, dust, smoke) and HIGH (unshaded, glows through the dark: flashes,
+##   hard cap PARTICLE_CAP, drawn through two ShapeBatch MultiMeshes (one draw call each): LOW (under
+##   the sight darkness: blood, dust, smoke) and HIGH (unshaded, glows through the dark: flashes,
 ##   sparks, rings).
 ## - Screen shake (small, capped, respects Game.shake_enabled) and optional hit-stop.
 
 const DECAL_CAP := 300
-const DECAL_CHUNK := 32
+const CORPSE_CAP := 24
 const FADE_TIME := 4.0
+const FADE_STEPS := 3
+## Decal cells: world px per cell, texels per px, and the extra texels around a cell.
+const CELL := 1024.0
+const DECAL_SCALE := 0.6
+const CELL_MARGIN := 8.0
+const CELL_JOBS := 2
+const REBUILD_COOLDOWN := 0.35
 const PARTICLE_CAP := 380
 const SHAKE_MAX := 12.0
 const PX := 60.0
@@ -31,13 +38,15 @@ enum P { DOT, SPARK, CHIP, RING, FLASH }
 
 static var _inst: Fx
 
-var _chunks: Array = [] # {n: Node2D, items: Array[Dictionary], dirty: bool}
-var _low: Node2D
-var _high: Node2D
-var _decals: Array[Dictionary] = []
+var _cells := {} # Vector2i -> {vp, sprite, painter, items: Array, pending: Array, job: Array, rebuild: bool, last: float, v: Vector2i}
+var _low: ShapeBatch
+var _high: ShapeBatch
+var _decals: Array[Dictionary] = [] # creation order, live ones only (fading ones move to _fade)
+var _fade: Array[Dictionary] = []
 var _live := 0
-var _fading := 0
-var _redraw_cd := 0.0
+var _live_corpses := 0
+var _recent_blood: Array = [] # [pos, msec] of the latest blood decals (merged when stacked)
+var _blit_mat: CanvasItemMaterial
 var _low_p: Array[Dictionary] = []
 var _high_p: Array[Dictionary] = []
 var _shake := 0.0
@@ -119,6 +128,13 @@ static func landing(from: Node, pos: Vector2, radius_px := 110.0) -> void:
 	var f := get_fx(from)
 	if f:
 		f._landing(pos, radius_px)
+
+
+## A dead enemy's baked picture (RigAtlas entry key, the rig's world transform, world extent in px).
+static func corpse(from: Node, key: String, xf: Transform2D, extent: float) -> void:
+	var f := get_fx(from)
+	if f:
+		f.add_corpse(key, xf, extent)
 
 
 static func casing(from: Node, pos: Vector2, rot: float) -> void:
@@ -205,6 +221,10 @@ static func decal_count() -> int:
 	return _inst._live if is_instance_valid(_inst) else 0
 
 
+static func corpse_count() -> int:
+	return _inst._live_corpses if is_instance_valid(_inst) else 0
+
+
 static func particle_count() -> int:
 	return (_inst._low_p.size() + _inst._high_p.size()) if is_instance_valid(_inst) else 0
 
@@ -213,27 +233,124 @@ static func particle_count() -> int:
 
 func _init() -> void:
 	process_mode = Node.PROCESS_MODE_PAUSABLE
-	_low = _layer(9, false)
-	_low.draw.connect(_draw_low)
-	_high = _layer(13, true)
-	_high.draw.connect(_draw_high)
-
-
-func _layer(z: int, unshaded: bool) -> Node2D:
-	var n := Node2D.new()
-	n.z_index = z
-	n.z_as_relative = false
-	if unshaded:
-		var m := CanvasItemMaterial.new()
-		m.light_mode = CanvasItemMaterial.LIGHT_MODE_UNSHADED
-		n.material = m
-	add_child(n)
-	return n
+	_low = ShapeBatch.new(PARTICLE_CAP, false)
+	_low.z_index = 9
+	_low.z_as_relative = false
+	add_child(_low)
+	_high = ShapeBatch.new(PARTICLE_CAP, true)
+	_high.z_index = 13
+	_high.z_as_relative = false
+	add_child(_high)
+	_blit_mat = CanvasItemMaterial.new()
+	_blit_mat.blend_mode = CanvasItemMaterial.BLEND_MODE_PREMULT_ALPHA
 
 
 # --- Decals -------------------------------------------------------------------------
 
+static func _cell_of(p: Vector2) -> Vector2i:
+	return Vector2i(int(floor(p.x / CELL)), int(floor(p.y / CELL)))
+
+
+## World bounds of what a decal draws (everything grows by K about the decal's point).
+func _decal_bb(d: Dictionary) -> Rect2:
+	var p: Vector2 = d.p
+	var s: float = d.s
+	var r := 12.0
+	match d.k:
+		"blood":
+			r = 3.8 * s
+		"pool":
+			r = 1.9 * s
+		"scorch":
+			r = 1.6 * s
+		"bile":
+			r = 1.3 * s
+		"pock":
+			r = 3.2 * s + 2.0
+		"casing":
+			r = 6.0
+		"corpse":
+			r = d.r
+	if d.k == "corpse":
+		return Rect2(p, Vector2.ZERO).grow(r + 4.0)
+	return Rect2(p, Vector2.ZERO).grow(r * K + 4.0)
+
+
+func _get_cell(v: Vector2i) -> Dictionary:
+	if _cells.has(v):
+		return _cells[v]
+	var px := int(ceil((CELL + CELL_MARGIN * 2.0) * DECAL_SCALE))
+	var s := float(px) / (CELL + CELL_MARGIN * 2.0)
+	var origin := Vector2(v) * CELL - Vector2(CELL_MARGIN, CELL_MARGIN)
+	var vp := SubViewport.new()
+	vp.size = Vector2i(px, px)
+	vp.transparent_bg = true
+	vp.disable_3d = true
+	vp.render_target_update_mode = SubViewport.UPDATE_DISABLED
+	vp.canvas_item_default_texture_filter = Viewport.DEFAULT_CANVAS_ITEM_TEXTURE_FILTER_LINEAR_WITH_MIPMAPS
+	var xf := Transform2D(Vector2(s, 0), Vector2(0, s), -origin * s)
+	vp.tree_entered.connect(func() -> void: vp.canvas_transform = xf) # needs the viewport's canvas, i.e. in the tree
+	add_child(vp)
+	var painter := Node2D.new()
+	vp.add_child(painter)
+	var sprite := Sprite2D.new()
+	sprite.name = "Decal%d_%d" % [v.x, v.y]
+	sprite.centered = false
+	sprite.position = origin
+	sprite.scale = Vector2.ONE / s
+	sprite.texture = vp.get_texture()
+	sprite.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
+	sprite.material = _blit_mat
+	sprite.z_index = -8
+	sprite.z_as_relative = false
+	add_child(sprite)
+	var cell := {"vp": vp, "sprite": sprite, "painter": painter, "items": [], "pending": [], "job": [], "rebuild": true,
+		"last": -10.0, "v": v}
+	painter.draw.connect(func() -> void:
+		for d in cell.job:
+			_draw_decal(painter, d))
+	_cells[v] = cell
+	return cell
+
+
+func _file_decal(d: Dictionary) -> void:
+	var bb := _decal_bb(d)
+	var c0 := _cell_of(bb.position)
+	var c1 := _cell_of(bb.end)
+	var cl: Array[Vector2i] = []
+	for y in range(c0.y, c1.y + 1):
+		for x in range(c0.x, c1.x + 1):
+			var cell := _get_cell(Vector2i(x, y))
+			(cell.items as Array).append(d)
+			(cell.pending as Array).append(d)
+			cl.append(Vector2i(x, y))
+	d["cells"] = cl
+
+
+func _unfile_decal(d: Dictionary) -> void:
+	for v: Vector2i in d.cells:
+		if _cells.has(v):
+			var cell: Dictionary = _cells[v]
+			(cell.items as Array).erase(d)
+			cell.rebuild = true
+
+
+func _touch_cells(d: Dictionary) -> void:
+	for v: Vector2i in d.cells:
+		if _cells.has(v):
+			_cells[v].rebuild = true
+
+
 func add_decal(kind: String, pos: Vector2, rot: float, size: float, col: Color) -> void:
+	if kind == "blood":
+		# Stacked hits (an automatic weapon / the sentry on one bug) leave one stain, not twenty.
+		var now := Time.get_ticks_msec()
+		for r in _recent_blood:
+			if now - (r[1] as int) < 600 and (r[0] as Vector2).distance_squared_to(pos) < 16.0 * 16.0:
+				return
+		_recent_blood.append([pos, now])
+		if _recent_blood.size() > 6:
+			_recent_blood.pop_front()
 	var blobs := PackedVector3Array()
 	var dir := Vector2.from_angle(rot)
 	var side := dir.orthogonal()
@@ -275,107 +392,158 @@ func add_decal(kind: String, pos: Vector2, rot: float, size: float, col: Color) 
 				hl.append(Vector3(q.x, q.y, 0.7))
 		"casing":
 			pass
-	var d := {"k": kind, "p": pos, "r": rot, "s": size, "c": col, "b": blobs, "h": hl, "f": -1.0}
+	var d := {"k": kind, "p": pos, "r": rot, "s": size, "c": col, "b": blobs, "h": hl, "f": -1.0, "step": 0}
 	_decals.append(d)
-	var ch: Dictionary = _chunks.back() if not _chunks.is_empty() else {}
-	if ch.is_empty() or (ch.items as Array).size() >= DECAL_CHUNK:
-		ch = {"n": _layer(-8, false), "items": [], "dirty": false}
-		(ch.n as Node2D).draw.connect(_draw_chunk.bind(ch))
-		_chunks.append(ch)
-	(ch.items as Array).append(d)
-	ch.dirty = true
+	_file_decal(d)
 	_live += 1
 	if _live > DECAL_CAP:
 		for o in _decals:
-			if (o.f as float) < 0.0:
-				o.f = 0.0
-				_live -= 1
-				_fading += 1
+			if o.k != "corpse":
+				_start_fade(o)
 				break
 
 
+## A dead enemy's static corpse picture (RigAtlas entry `key`, drawn with the rig's final transform).
+func add_corpse(key: String, xf: Transform2D, extent: float) -> void:
+	var d := {"k": "corpse", "p": xf.origin, "r": extent, "s": 1.0, "c": Color.WHITE, "b": PackedVector3Array(), "h": PackedVector3Array(),
+		"f": -1.0, "step": 0, "key": key, "xf": xf}
+	_decals.append(d)
+	_file_decal(d)
+	_live_corpses += 1
+	if _live_corpses > CORPSE_CAP:
+		for o in _decals:
+			if o.k == "corpse":
+				_start_fade(o)
+				break
+
+
+func _start_fade(d: Dictionary) -> void:
+	_decals.erase(d)
+	d.f = 0.0
+	_fade.append(d)
+	if d.k == "corpse":
+		_live_corpses -= 1
+	else:
+		_live -= 1
+
+
 func _update_decals(delta: float) -> void:
-	if _fading > 0:
-		var gone := false
-		for d in _decals:
-			var f: float = d.f
-			if f >= 0.0:
-				d.f = f + delta
-				if f + delta >= FADE_TIME:
-					gone = true
-		for ch in _chunks:
-			for d in ch.items:
-				if (d.f as float) >= 0.0:
-					ch.dirty = true
-					break
-		if gone:
-			_decals = _decals.filter(func(d): return (d.f as float) < FADE_TIME)
-			_fading = _decals.size() - _live
-			var keep: Array = []
-			for ch in _chunks:
-				ch.items = (ch.items as Array).filter(func(d): return (d.f as float) < FADE_TIME)
-				if (ch.items as Array).is_empty() and ch != _chunks.back():
-					(ch.n as Node2D).queue_free()
+	if not _fade.is_empty():
+		var step_t := FADE_TIME / FADE_STEPS
+		var gone: Array[Dictionary] = []
+		for d in _fade:
+			d.f = (d.f as float) + delta
+			var st := int((d.f as float) / step_t)
+			if st != d.step:
+				d.step = st
+				if st >= FADE_STEPS:
+					gone.append(d)
 				else:
-					ch.dirty = true
-					keep.append(ch)
-			_chunks = keep
-	_redraw_cd -= delta
-	if _redraw_cd <= 0.0:
-		_redraw_cd = 0.1
-		for ch in _chunks:
-			if ch.dirty:
-				ch.dirty = false
-				(ch.n as Node2D).queue_redraw()
+					_touch_cells(d)
+		for d in gone:
+			_fade.erase(d)
+			_unfile_decal(d)
+	_flush_cells()
 
 
-func _draw_chunk(ch: Dictionary) -> void:
-	var n: Node2D = ch.n
-	for d in ch.items:
-		n.draw_set_transform((d.p as Vector2) * (1.0 - K), 0.0, Vector2(K, K))
-		var a := 1.0
-		var f: float = d.f
-		if f >= 0.0:
-			a = 1.0 - f / FADE_TIME
-		var col: Color = d.c
-		var s: float = d.s
-		var p: Vector2 = d.p
-		var blobs: PackedVector3Array = d.b
-		var hl: PackedVector3Array = d.h
-		match d.k:
-			"blood":
-				col.a = 0.72 * a
-				for b in blobs:
-					n.draw_circle(Vector2(b.x, b.y), b.z, col)
-			"pool":
-				col.a = 0.82 * a
-				for b in blobs:
-					n.draw_circle(Vector2(b.x, b.y), b.z, col.darkened(0.15))
-				var lc := col.lightened(0.25)
-				lc.a = 0.55 * a
-				for b in hl:
-					n.draw_circle(Vector2(b.x, b.y), b.z, lc)
-			"scorch":
-				for b in blobs:
-					n.draw_circle(Vector2(b.x, b.y), b.z, Color(0.03, 0.025, 0.02, 0.2 * a))
-				for b in hl:
-					n.draw_circle(Vector2(b.x, b.y), b.z, Color(0.0, 0.0, 0.0, 0.25 * a))
-			"bile":
-				col.a = 0.6 * a
-				for b in blobs:
-					n.draw_circle(Vector2(b.x, b.y), b.z, col.darkened(0.2))
-				for b in hl:
-					n.draw_circle(Vector2(b.x, b.y), b.z, Color(0.85, 1.0, 0.4, 0.7 * a))
-			"pock":
-				n.draw_circle(p, s, Color(0.04, 0.035, 0.03, 0.55 * a))
-				for b in hl:
-					n.draw_circle(Vector2(b.x, b.y), b.z, Color(0.1, 0.09, 0.08, 0.5 * a))
-			"casing":
-				var dir := Vector2.from_angle(d.r)
-				col.a = a
-				n.draw_line(p - dir * 2.4, p + dir * 2.4, Color(0.08, 0.06, 0.03, 0.6 * a), 3.6)
-				n.draw_line(p - dir * 2.0, p + dir * 2.0, col, 2.2)
-				n.draw_circle(p + dir * 2.0, 0.9, col.lightened(0.4))
+func _flush_cells() -> void:
+	var now := Time.get_ticks_msec() * 0.001
+	var jobs := 0
+	var dead: Array[Vector2i] = []
+	for v in _cells:
+		var cell: Dictionary = _cells[v]
+		if (cell.items as Array).is_empty():
+			dead.append(v)
+			continue
+		if jobs >= CELL_JOBS:
+			continue
+		var vp: SubViewport = cell.vp
+		var do_rebuild: bool = cell.rebuild and now - (cell.last as float) >= REBUILD_COOLDOWN
+		if not do_rebuild and (cell.pending as Array).is_empty():
+			continue
+		var list: Array = cell.items if do_rebuild else cell.pending
+		if not RigAtlas.baked:
+			var wait := false
+			for d in list:
+				if d.k == "corpse":
+					wait = true
+					break
+			if wait:
+				continue
+		cell.job = list.duplicate()
+		(cell.pending as Array).clear()
+		if do_rebuild:
+			cell.rebuild = false
+			cell.last = now
+			vp.render_target_clear_mode = SubViewport.CLEAR_MODE_ONCE
+		else:
+			vp.render_target_clear_mode = SubViewport.CLEAR_MODE_NEVER
+		vp.render_target_update_mode = SubViewport.UPDATE_ONCE
+		(cell.painter as Node2D).queue_redraw()
+		jobs += 1
+	for v in dead:
+		var cell: Dictionary = _cells[v]
+		_cells.erase(v)
+		(cell.sprite as Node).queue_free()
+		(cell.vp as Node).queue_free()
+
+
+func _notification(what: int) -> void:
+	if what == NOTIFICATION_APPLICATION_RESUMED:
+		for v in _cells:
+			_cells[v].rebuild = true
+			_cells[v].last = -10.0
+
+
+func _draw_decal(n: Node2D, d: Dictionary) -> void:
+	var a := 1.0 - float(d.step) / FADE_STEPS
+	var col: Color = d.c
+	var p: Vector2 = d.p
+	if d.k == "corpse":
+		var e := RigAtlas.entry(d.key)
+		var xf: Transform2D = d.xf
+		n.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS
+		n.draw_set_transform_matrix(xf)
+		var r := Rect2(e.rect)
+		n.draw_texture_rect_region(RigAtlas.texture(), Rect2((e.bounds as Rect2).position * RigAtlas.SS, r.size), r, Color(1, 1, 1, a))
+		return
+	n.draw_set_transform(p * (1.0 - K), 0.0, Vector2(K, K))
+	var blobs: PackedVector3Array = d.b
+	var hl: PackedVector3Array = d.h
+	match d.k:
+		"blood":
+			col.a = 0.72 * a
+			for b in blobs:
+				n.draw_circle(Vector2(b.x, b.y), b.z, col)
+		"pool":
+			col.a = 0.82 * a
+			for b in blobs:
+				n.draw_circle(Vector2(b.x, b.y), b.z, col.darkened(0.15))
+			var lc := col.lightened(0.25)
+			lc.a = 0.55 * a
+			for b in hl:
+				n.draw_circle(Vector2(b.x, b.y), b.z, lc)
+		"scorch":
+			for b in blobs:
+				n.draw_circle(Vector2(b.x, b.y), b.z, Color(0.03, 0.025, 0.02, 0.2 * a))
+			for b in hl:
+				n.draw_circle(Vector2(b.x, b.y), b.z, Color(0.0, 0.0, 0.0, 0.25 * a))
+		"bile":
+			col.a = 0.6 * a
+			for b in blobs:
+				n.draw_circle(Vector2(b.x, b.y), b.z, col.darkened(0.2))
+			for b in hl:
+				n.draw_circle(Vector2(b.x, b.y), b.z, Color(0.85, 1.0, 0.4, 0.7 * a))
+		"pock":
+			n.draw_circle(p, d.s, Color(0.04, 0.035, 0.03, 0.55 * a))
+			for b in hl:
+				n.draw_circle(Vector2(b.x, b.y), b.z, Color(0.1, 0.09, 0.08, 0.5 * a))
+		"casing":
+			var dir := Vector2.from_angle(d.r)
+			col.a = a
+			n.draw_line(p - dir * 2.4, p + dir * 2.4, Color(0.08, 0.06, 0.03, 0.6 * a), 3.6)
+			n.draw_line(p - dir * 2.0, p + dir * 2.0, col, 2.2)
+			n.draw_circle(p + dir * 2.0, 0.9, col.lightened(0.4))
 
 
 # --- Particles ----------------------------------------------------------------------
@@ -432,7 +600,8 @@ func _update_particles(arr: Array[Dictionary], delta: float) -> void:
 		i -= 1
 
 
-func _draw_particles(n: Node2D, arr: Array[Dictionary]) -> void:
+func _write_particles(b: ShapeBatch, arr: Array[Dictionary]) -> void:
+	b.begin()
 	for q in arr:
 		var k: float = (q.t as float) / (q.life as float)
 		var col: Color = q.c
@@ -444,36 +613,24 @@ func _draw_particles(n: Node2D, arr: Array[Dictionary]) -> void:
 				col.a *= 1.0 - k
 				var rr := lerpf(s0, s1, k) * K
 				if q.get("soft", false):
-					n.draw_texture_rect(Zone.soft_texture(), Rect2(p - Vector2(rr, rr), Vector2(rr, rr) * 2.0), false, col)
+					b.soft(p, rr, col)
 				else:
-					n.draw_circle(p, rr, col)
+					b.disc(p, rr, col)
 			P.SPARK:
 				var v: Vector2 = q.v
 				col.a *= 1.0 - k
-				n.draw_line(p, p - v.normalized() * s0 * K * (1.0 - k * 0.6), col, s1 * K)
+				b.line(p, p - v.normalized() * s0 * K * (1.0 - k * 0.6), s1 * K, col)
 			P.CHIP:
 				col.a *= 1.0 - k * k
-				n.draw_set_transform(p, q.rot)
-				n.draw_rect(Rect2(-s0 * 0.5 * K, -s1 * 0.5 * K, s0 * K, s1 * K), col)
-				n.draw_set_transform(Vector2.ZERO)
+				b.rect(p, Vector2(s0 * K, s1 * K), q.rot, col)
 			P.RING:
 				var e := 1.0 - pow(1.0 - k, 3.0)
 				col.a *= 1.0 - k
-				n.draw_arc(p, lerpf(s0, s1, e), 0.0, TAU, 40, col, maxf((q.w as float) * K * (1.0 - k * 0.7), 1.0))
+				b.ring(p, lerpf(s0, s1, e), maxf((q.w as float) * K * (1.0 - k * 0.7), 1.0), col)
 			P.FLASH:
 				col.a *= 1.0 - k
-				var r := lerpf(s0, s1, sqrt(k))
-				n.draw_circle(p, r, col)
-				var c2 := Color(1, 1, 0.9, col.a)
-				n.draw_circle(p, r * 0.5, c2)
-
-
-func _draw_low() -> void:
-	_draw_particles(_low, _low_p)
-
-
-func _draw_high() -> void:
-	_draw_particles(_high, _high_p)
+				b.flash(p, lerpf(s0, s1, sqrt(k)), col)
+	b.end()
 
 
 # --- Effect recipes -----------------------------------------------------------------
@@ -621,13 +778,10 @@ func _hit_stop(seconds: float) -> void:
 func _process(delta: float) -> void:
 	_update_particles(_low_p, delta)
 	_update_particles(_high_p, delta)
-	if not _low_p.is_empty() or _low.get_meta("had", false):
-		_low.queue_redraw()
-		_low.set_meta("had", not _low_p.is_empty())
-	if not _high_p.is_empty() or _high.get_meta("had", false):
-		_high.queue_redraw()
-		_high.set_meta("had", not _high_p.is_empty())
+	_write_particles(_low, _low_p)
+	_write_particles(_high, _high_p)
 	_update_decals(delta)
+	Enemies.reap(2)
 	var cam := get_viewport().get_camera_2d()
 	if cam:
 		if _shake > 0.05:

@@ -19,14 +19,14 @@ var _amp := 5.0
 var _aware := false
 var _flash_on := false
 var _legs_idle := false
-var _upper: Array[Node2D] = [] # fl, fr, bl, br
-var _foot: Array[Node2D] = []
-var _sac: Node2D
-var _body: Node2D
-var _head: Node2D
-var _plates: Array[Node2D] = []
-var _eyes: Array[Sprite2D] = []
-var _glint: Sprite2D
+var _upper: Array[RigPart] = [] # fl, fr, bl, br
+var _foot: Array[RigPart] = []
+var _sac: RigPart
+var _body: RigPart
+var _head: RigPart
+var _plates: Array[RigPart] = []
+var _eyes: Array[RigPart] = []
+var _glint: RigPart
 
 
 static func make(art_scale: float) -> ChargerRig:
@@ -161,6 +161,7 @@ func _bind() -> void:
 	_glint.self_modulate = Color(1, 0.25, 0.1)
 	for e in _eyes:
 		e.self_modulate = Color(0.1, 0.05, 0.04)
+	touch_colors()
 
 
 ## move 0..1 of stalk speed (>1 when charging), charging widens the stride, rear 0..1 = wind-up
@@ -182,7 +183,7 @@ func animate(delta: float, move: float, charging: bool, rear: float, glint: bool
 			var p := leg_point(front, s, stride, _amp, _curl)
 			var root := leg_root(front, s, p)
 			var v := p - root
-			var up: Node2D = _upper[i]
+			var up: RigPart = _upper[i]
 			up.rotation = v.angle()
 			up.scale.x = v.length() / LEG_L0
 			Rig.place(_foot[i], p)
@@ -200,6 +201,7 @@ func animate(delta: float, move: float, charging: bool, rear: float, glint: bool
 		var ec := Color(1, 0.2, 0.1) if aware else Color(0.1, 0.05, 0.04)
 		for e in _eyes:
 			e.self_modulate = ec
+		touch_colors()
 	var tint := 1.0 + 0.9 * clampf(flash * 12.0, 0.0, 1.0)
 	if _curl > 0.0:
 		modulate = Color.WHITE.lerp(Color(0.6, 0.55, 0.55), _curl)
@@ -207,6 +209,7 @@ func animate(delta: float, move: float, charging: bool, rear: float, glint: bool
 	elif tint > 1.0 or _flash_on:
 		_flash_on = tint > 1.0
 		modulate = Color(tint, tint, tint)
+	commit()
 
 
 func settled() -> bool:

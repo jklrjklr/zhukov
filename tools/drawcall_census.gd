@@ -75,7 +75,7 @@ func _process(_d: float) -> void:
 			"nodes": Performance.get_monitor(Performance.OBJECT_NODE_COUNT),
 			"orphans": Performance.get_monitor(Performance.OBJECT_ORPHAN_NODE_COUNT),
 			"added": _added, "removed": _removed,
-			"enemies": Enemies.list.size(), "corpses": Enemies.corpses.size(),
+			"enemies": Enemies.list.size(), "corpses": Fx.corpse_count(),
 			"decals": Fx.decal_count(), "particles": Fx.particle_count(),
 			"t": now / 1.0e6, "mark": "; ".join(_marks),
 		})

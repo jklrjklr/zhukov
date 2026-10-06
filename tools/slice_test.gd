@@ -458,7 +458,9 @@ func _stratagem_input_tests() -> void:
 		"stagger": 0.0, "dir": Vector2.UP, "meters": 0.0, "aim_point": null})
 	check("dead bug leaves the registry and stops physics", bug1.is_dead() and not Enemies.list.has(bug1) and not bug1.is_physics_processing())
 	await wait(1.5)
-	check("dead bug freezes into one corpse sprite and stops processing", bug1._rig.corpse_sprite != null and not bug1.is_processing())
+	check("dead bug is baked into the decal layer (no node left, or an idle one about to be reaped)",
+		not is_instance_valid(bug1) or (bug1._rig.corpse_sprite != null and not bug1.is_processing()))
+	check("the corpse decal exists", (load("res://scripts/fx/fx.gd") as GDScript).call("corpse_count") >= 1)
 	check("perf overlay is off by default", not root.get_node("Game").perf_overlay)
 	var hud := _scene.get_node("HUD/Hud")
 	check("HUD has a camera overlay layer and a redraw signature", hud._overlay != null and hud._signature() != 0)

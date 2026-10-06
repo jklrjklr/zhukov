@@ -80,8 +80,6 @@ var _sep := Vector2.ZERO
 var _turn := 0.0
 var _rig: ChargerRig
 var _tele: Node2D
-var _bb: Node2D
-var _bb_sig := 0
 ## Awareness (see Awareness): level, suspicion meter, last cue, quiet seconds, LOS dwell, call timer.
 var level := Awareness.Level.UNAWARE
 var suspicion := 0.0
@@ -114,8 +112,6 @@ func _ready() -> void:
 	_rig = ChargerRig.make(ART_SCALE)
 	add_child(_rig)
 	_tele = Enemies.make_overlay(self, _draw_tele)
-	_bb = Enemies.make_overlay(self, _draw_bb)
-	_bb.scale = Vector2.ONE * Game.BILLBOARD_SCALE
 	_new_wander()
 
 
@@ -530,12 +526,13 @@ func _process(delta: float) -> void:
 	if state == State.DEAD:
 		if _rig.corpse_sprite == null:
 			_rig.animate(delta, 0.0, false, 0.0, false, false, false, 0.0, true)
+			_rig.flush()
 			if _rig.settled():
 				_rig.become_corpse()
-				Enemies.add_corpse(self)
 		_update_overlays()
 		if _numbers.is_empty() and _rig.corpse_sprite != null:
 			set_process(false)
+			Enemies.add_corpse(self)
 		return
 	_update_overlays()
 	if not visible or (_player != null and global_position.distance_squared_to(_player.global_position) > RIG_RANGE_PX2):
@@ -546,6 +543,7 @@ func _process(delta: float) -> void:
 	var calling := state == State.CALL
 	_rig.animate(delta, move, charging, 1.0 if (windup or calling) else 0.0, windup and int(_t * 10.0) % 2 == 0, state == State.STUNNED,
 		is_alerted(), _flash, false)
+	_rig.flush()
 
 
 func _update_overlays() -> void:
@@ -557,17 +555,7 @@ func _update_overlays() -> void:
 		_tele.queue_redraw()
 	elif _tele.visible:
 		_tele.visible = false
-	if not dead or not _numbers.is_empty():
-		_bb.visible = true
-		_bb.global_rotation = -Enemies.cam_rot(self)
-		var sig := int(clampf(hp / max_hp, 0.0, 1.0) * 64.0) | (_icon_kind() << 8) | (int(_icon_pop() * 8.0) << 10) | (int(_bounce_t * 30.0) << 16) | (int(dead) << 24) | (int(suspicion * 16.0) << 26)
-		if not _numbers.is_empty():
-			sig = randi()
-		if sig != _bb_sig:
-			_bb_sig = sig
-			_bb.queue_redraw()
-	elif _bb.visible:
-		_bb.visible = false
+	EnemyOverlay.set_active(self, not dead or not _numbers.is_empty())
 
 
 func _icon_kind() -> int:
@@ -633,18 +621,25 @@ func _draw_charge_lane() -> void:
 			Color(1, 0.35, 0.2, maxf(a, 0.05)), 4.0)
 
 
-## Screen-aligned: HP bar (always on the heavy), awareness icon, ricochet shield, numbers.
-func _draw_bb() -> void:
+func overlay_has_numbers() -> bool:
+	return not _numbers.is_empty()
+
+
+func overlay_numbers(o: EnemyOverlay) -> void:
+	EnemyUi.numbers(o, _numbers, -RADIUS / Game.BILLBOARD_SCALE - 40.0, Color(1, 0.55, 0.15), 18)
+
+
+## Screen-aligned on the shared overlay: HP bar (always on the heavy), awareness badge, ricochet shield.
+func overlay_draw(o: EnemyOverlay) -> void:
+	if state == State.DEAD:
+		return
 	var rb := RADIUS / Game.BILLBOARD_SCALE
 	var top := -rb - 34.0
-	if state != State.DEAD:
-		var w := 64.0
-		EnemyUi.hp_bar(_bb, top, w, 8.0, hp / max_hp, 1.0, true, Color(0.9, 0.3, 0.15))
-		for i in range(1, 4):
-			_bb.draw_line(Vector2(-w * 0.5 + w * i / 4.0, top), Vector2(-w * 0.5 + w * i / 4.0, top + 8.0), Color(0, 0, 0, 0.6), 1.0)
-		EnemyUi.icon(_bb, _icon_kind(), Vector2(0, top - 16.0), 11.0, suspicion, _icon_pop())
-		if _bounce_t > 0.0:
-			var a := clampf(_bounce_t / 0.3, 0.0, 1.0)
-			EnemyUi.shield(_bb, Vector2(rb * 0.8 + 10.0, -rb * 0.3 - (0.7 - _bounce_t) * 24.0), a, 1.15)
-	if not _numbers.is_empty():
-		EnemyUi.numbers(_bb, _numbers, -rb - 40.0, Color(1, 0.55, 0.15), 18)
+	var w := 64.0
+	o.hp_bar(self, top, w, 8.0, hp / max_hp, 1.0, true, Color(0.9, 0.3, 0.15))
+	for i in range(1, 4):
+		o.bar_tick(self, -w * 0.5 + w * i / 4.0, top, 8.0, Color(0, 0, 0, 0.6))
+	o.icon(self, _icon_kind(), Vector2(0, top - 16.0), 11.0, suspicion, _icon_pop())
+	if _bounce_t > 0.0:
+		var a := clampf(_bounce_t / 0.3, 0.0, 1.0)
+		o.shield(self, Vector2(rb * 0.8 + 10.0, -rb * 0.3 - (0.7 - _bounce_t) * 24.0), a, 1.15)

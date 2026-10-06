@@ -104,7 +104,8 @@ func _bake_tile(c: Vector2i) -> void:
 	vp.canvas_item_default_texture_filter = Viewport.DEFAULT_CANVAS_ITEM_TEXTURE_FILTER_LINEAR
 	# Cover the margin exactly: texels per px = px / (TILE + 2 MARGIN).
 	var s := float(px) / (TILE + MARGIN * 2.0)
-	vp.canvas_transform = Transform2D(Vector2(s, 0), Vector2(0, s), -origin * s)
+	var xf := Transform2D(Vector2(s, 0), Vector2(0, s), -origin * s)
+	vp.tree_entered.connect(func() -> void: vp.canvas_transform = xf)
 	add_child(vp)
 	var sprite := Sprite2D.new()
 	sprite.name = "GroundTile%d_%d" % [c.x, c.y]

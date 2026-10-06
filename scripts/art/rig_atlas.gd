@@ -12,6 +12,8 @@ extends Node
 ## Texels per art unit.
 const SS := 2.0
 const PAD := 6
+const UI_BOUNDS := Rect2(-14, -14, 28, 28)
+const ICON_LEVELS := 16
 const WIDTH := 1024
 
 static var _entries: Dictionary = {} # key -> {rect: Rect2i, bounds: Rect2, draw: Callable, mode: int, def, composite: bool}
@@ -68,6 +70,15 @@ static func _layout() -> void:
 			var over: Dictionary = c.over
 			list.append({"key": "%s/corpse" % d.key, "bounds": c.bounds, "mode": RigArt.Mode.DEAD,
 				"draw": func(ci: CanvasItem, t: Transform2D, mode: int) -> void: RigArt.composite(ci, t, parts, over, mode)})
+	# UI badges of the enemy overlays: alert "!", suspicion "?" at 17 fill levels, ricochet shield.
+	list.append({"key": "ui/alert", "bounds": UI_BOUNDS, "mode": RigArt.Mode.NORMAL,
+		"draw": func(ci: CanvasItem, _t: Transform2D, _m: int) -> void: EnemyUi.icon(ci, EnemyUi.Icon.ALERT, Vector2.ZERO, 9.0, 0.0, 1.0)})
+	for i in ICON_LEVELS + 1:
+		var fill := float(i) / ICON_LEVELS
+		list.append({"key": "ui/susp%d" % i, "bounds": UI_BOUNDS, "mode": RigArt.Mode.NORMAL,
+			"draw": func(ci: CanvasItem, _t: Transform2D, _m: int) -> void: EnemyUi.icon(ci, EnemyUi.Icon.SUSPICIOUS, Vector2.ZERO, 9.0, fill, 1.0)})
+	list.append({"key": "ui/shield", "bounds": Rect2(-11, -12, 22, 24), "mode": RigArt.Mode.NORMAL,
+		"draw": func(ci: CanvasItem, _t: Transform2D, _m: int) -> void: EnemyUi.shield(ci, Vector2.ZERO, 1.0, 1.0)})
 	for e in list:
 		var b: Rect2 = e.bounds
 		var w := int(ceil(b.size.x * SS))

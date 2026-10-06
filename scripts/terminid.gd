@@ -151,10 +151,7 @@ var _sep := Vector2.ZERO
 var _sleep_acc := 0.0
 var _turn := 0.0
 var _rig: BugRig
-var _tele: Node2D
-var _bb: Node2D
 var _tele_on := false
-var _bb_sig := 0
 var _lod_acc := 0.0
 var _lod_phase := 0
 
@@ -189,9 +186,6 @@ func _ready() -> void:
 	run_speed = walk * _cfg.run
 	_rig = BugRig.make(kind, radius / 15.0)
 	add_child(_rig)
-	_tele = Enemies.make_overlay(self, _draw_tele)
-	_bb = Enemies.make_overlay(self, _draw_bb)
-	_bb.scale = Vector2.ONE * Game.BILLBOARD_SCALE
 	_new_wander()
 
 
@@ -429,6 +423,7 @@ func _process(delta: float) -> void:
 		every = 1 if d2 < RIG_LOD1_PX2 else (2 if d2 < RIG_LOD2_PX2 else 4)
 	_lod_acc += delta
 	if every > 1 and (Engine.get_process_frames() + _lod_phase) % every != 0:
+		_rig.flush() # keeps following the body with the last pose
 		return
 	delta = _lod_acc
 	_lod_acc = 0.0
@@ -450,17 +445,19 @@ func _process(delta: float) -> void:
 		mode = BugRig.M.STUN
 	var move := clampf(velocity.length() / (run_speed * PX), 0.0, 1.0)
 	_rig.animate(delta, move, _turn, mode, k, level == Awareness.Level.ALERT, _flash, hp < max_hp * 0.5)
+	_rig.flush()
 
 
 func _process_dead(delta: float) -> void:
 	if _rig != null and _rig.corpse_sprite == null:
 		_rig.animate(delta, 0.0, 0.0, BugRig.M.DEAD, 0.0, false, 0.0, false)
+		_rig.flush()
 		if _rig.settled():
-			_rig.become_corpse()
-			Enemies.add_corpse(self)
+			_rig.become_corpse() # baked into the decal layer; this node is only needed for floating numbers
 	_update_overlays()
 	if _numbers.is_empty() and _rig != null and _rig.corpse_sprite != null:
 		set_process(false)
+		Enemies.add_corpse(self) # freed a couple of frames later (no queue_free bursts)
 
 
 func _physics_process(delta: float) -> void:
@@ -834,36 +831,19 @@ func _die(dir: Vector2) -> void:
 	velocity = Vector2.ZERO
 	rotation = (dir as Vector2).angle() + PI / 2.0 + randf_range(-0.6, 0.6)
 	set_physics_process(false)
-	_tele.visible = false
+	_tele_on = false
 	get_tree().create_timer(40.0, false).timeout.connect(queue_free)
 
 
 # --- Overlays (the body itself is a rig; nothing here re-records per frame) ----------------
 
+## Registers with the shared EnemyOverlay while there is a bar / badge / telegraph / number to show.
 func _update_overlays() -> void:
 	var dead := state == State.DEAD
 	_tele_on = not dead and ((state == State.ATTACK and not _struck) or state == State.SPIT or state == State.CALL or is_stunned())
-	if _tele_on:
-		_tele.visible = true
-		_tele.queue_redraw()
-	elif _tele.visible:
-		_tele.visible = false
 	var heavy: bool = kind == Kind.BILE_SPITTER
-	var icon := _icon_kind()
-	var bar_a := _bar_alpha(heavy)
-	if not dead and (bar_a > 0.0 or icon != EnemyUi.Icon.NONE or _bounce_t > 0.0) or not _numbers.is_empty():
-		_bb.visible = true
-		_bb.global_rotation = -Enemies.cam_rot(self)
-		var sig := int(clampf(hp / max_hp, 0.0, 1.0) * 48.0) | (int(bar_a * 8.0) << 8) | (icon << 12) | (int(_icon_pop() * 8.0) << 14) \
-			| (int(_bounce_t * 30.0) << 22) | (int(suspicion * 16.0) << 27)
-		if not _numbers.is_empty():
-			sig = randi()
-		if sig != _bb_sig:
-			_bb_sig = sig
-			_bb.queue_redraw()
-	elif _bb.visible:
-		_bb.visible = false
-		_bb_sig = -1
+	var show_bb: bool = not dead and (_bar_alpha(heavy) > 0.0 or _icon_kind() != EnemyUi.Icon.NONE or _bounce_t > 0.0)
+	EnemyOverlay.set_active(self, _tele_on or show_bb or not _numbers.is_empty())
 
 
 func _bar_alpha(heavy: bool) -> float:
@@ -888,59 +868,74 @@ func _icon_pop() -> float:
 	return 1.0 + 0.5 * clampf(1.0 - _aware_t / 0.35, 0.0, 1.0) if level == Awareness.Level.ALERT else 1.0
 
 
-## Melee wind-up arc, bile target circle, stun stars (enemy-local frame).
-func _draw_tele() -> void:
-	var s := radius / 15.0
-	if state == State.ATTACK and not _struck:
-		var k := clampf(_attack_t / _cfg.windup, 0.0, 1.0)
-		var reach_px: float = radius + (_cfg.reach + 0.25) * PX
-		var a0 := -PI / 2.0 - deg_to_rad(70.0)
-		var a1 := -PI / 2.0 + deg_to_rad(70.0)
-		_tele.draw_arc(Vector2.ZERO, reach_px, a0, a1, 14, Color(1, 0.25, 0.1, 0.25 + 0.5 * k), 3.0)
-		_tele.draw_arc(Vector2.ZERO, reach_px * k, a0, a1, 14, Color(1, 0.3, 0.1, 0.35), 2.0)
-	if state == State.SPIT and _player != null:
-		var tp := to_local(_player.global_position)
-		var k := clampf(_special_t / SPIT_WINDUP, 0.0, 1.0)
-		var rr := 1.8 * PX
-		_tele.draw_circle(tp, rr, Color(0.6, 0.85, 0.15, 0.1 + 0.18 * k))
-		_tele.draw_arc(tp, rr, 0.0, TAU, 32, Color(0.75, 1.0, 0.25, 0.8), 2.5)
-		_tele.draw_arc(tp, rr * (1.0 - k * 0.85), 0.0, TAU, 28, Color(1.0, 0.95, 0.3, 0.9), 3.0)
-		var from := Vector2(0, -radius)
-		var steps := 10
-		for i in steps:
-			if i % 2 == 0:
-				var a := from.lerp(tp, float(i) / steps)
-				var b := from.lerp(tp, float(i + 1) / steps)
-				_tele.draw_line(a, b, Color(0.8, 1.0, 0.3, 0.45), 2.0)
-	if state == State.CALL:
-		# Pulsing orange pheromone ring + call progress.
-		var kk := clampf(_call_t / Awareness.CALL_TIME, 0.0, 1.0)
-		var ph := fmod(_call_t * 1.6, 1.0)
-		var base := radius * 1.3
-		_tele.draw_circle(Vector2.ZERO, base * (1.0 + 2.2 * ph), Color(1.0, 0.55, 0.1, 0.16 * (1.0 - ph)))
-		_tele.draw_arc(Vector2.ZERO, base * (1.0 + 2.2 * ph), 0.0, TAU, 40, Color(1.0, 0.6, 0.15, 0.85 * (1.0 - ph)), 3.0 * Vis.VISUAL_SCALE)
-		_tele.draw_arc(Vector2.ZERO, base, 0.0, TAU, 40, Color(1.0, 0.55, 0.1, 0.35), 2.0 * Vis.VISUAL_SCALE)
-		_tele.draw_arc(Vector2.ZERO, base * 1.12, -PI / 2.0, -PI / 2.0 + TAU * kk, 40, Color(1.0, 0.85, 0.3, 0.9), 3.5 * Vis.VISUAL_SCALE)
-	if is_stunned():
-		var a := Time.get_ticks_msec() * 0.006
-		for i in 3:
-			_tele.draw_circle(Vector2(0, -11.0 * s) + Vector2.from_angle(a + i * TAU / 3.0) * 9.0 * s, 1.6 * s, UiStyle.YELLOW)
+func overlay_has_numbers() -> bool:
+	return not _numbers.is_empty()
 
 
-## Screen-aligned: HP bar, awareness icon, ricochet shield, damage numbers.
-func _draw_bb() -> void:
+func overlay_numbers(o: EnemyOverlay) -> void:
+	EnemyUi.numbers(o, _numbers, -radius / Game.BILLBOARD_SCALE - 12.0, Color(1, 0.35, 0.2), 16)
+
+
+## Everything this enemy shows on the shared overlay this frame: telegraph (world space, rotates
+## with the body) and the screen-aligned HP bar / badge / shield.
+func overlay_draw(o: EnemyOverlay) -> void:
+	var dead := state == State.DEAD
+	var al := modulate.a
+	if _tele_on:
+		_draw_tele(o, al)
+	if dead:
+		return
 	var rb := radius / Game.BILLBOARD_SCALE
 	var top := -rb - 14.0
 	var heavy: bool = kind == Kind.BILE_SPITTER
 	var a := _bar_alpha(heavy)
 	if a > 0.0:
-		EnemyUi.hp_bar(_bb, top - 4.0, 40.0 if heavy else 28.0, 6.0, hp / max_hp, a, heavy)
+		o.hp_bar(self, top - 4.0, 40.0 if heavy else 28.0, 6.0, hp / max_hp, a, heavy)
 		top -= 10.0
 	var icon := _icon_kind()
 	if icon != EnemyUi.Icon.NONE:
-		EnemyUi.icon(_bb, icon, Vector2(0, top - 8.0), 9.0, suspicion, _icon_pop())
+		o.icon(self, icon, Vector2(0, top - 8.0), 9.0, suspicion, _icon_pop())
 	if _bounce_t > 0.0:
 		var ba := clampf(_bounce_t / 0.3, 0.0, 1.0)
-		EnemyUi.shield(_bb, Vector2(rb * 0.9 + 6.0, -rb * 0.5 - (0.7 - _bounce_t) * 22.0), ba)
-	if not _numbers.is_empty():
-		EnemyUi.numbers(_bb, _numbers, -rb - 12.0, Color(1, 0.35, 0.2), 16)
+		o.shield(self, Vector2(rb * 0.9 + 6.0, -rb * 0.5 - (0.7 - _bounce_t) * 22.0), ba)
+
+
+## Melee wind-up arc, bile target circle, call ring, stun stars (world space, from the enemy's frame).
+func _draw_tele(o: EnemyOverlay, al: float) -> void:
+	var sh := o.shapes
+	var s := radius / 15.0
+	var me := global_position
+	var rot := global_rotation
+	if state == State.ATTACK and not _struck:
+		var k := clampf(_attack_t / _cfg.windup, 0.0, 1.0)
+		var reach_px: float = radius + (_cfg.reach + 0.25) * PX
+		var a0 := -PI / 2.0 - deg_to_rad(70.0) + rot
+		var sweep := deg_to_rad(140.0)
+		sh.arc(me, reach_px, a0, sweep, 3.0, Color(1, 0.25, 0.1, (0.25 + 0.5 * k) * al))
+		sh.arc(me, reach_px * k, a0, sweep, 2.0, Color(1, 0.3, 0.1, 0.35 * al))
+	if state == State.SPIT and _player != null:
+		var tp := _player.global_position
+		var k := clampf(_special_t / SPIT_WINDUP, 0.0, 1.0)
+		var rr := 1.8 * PX
+		sh.disc(tp, rr, Color(0.6, 0.85, 0.15, (0.1 + 0.18 * k) * al))
+		sh.ring(tp, rr, 2.5, Color(0.75, 1.0, 0.25, 0.8 * al))
+		sh.ring(tp, rr * (1.0 - k * 0.85), 3.0, Color(1.0, 0.95, 0.3, 0.9 * al))
+		var from := me + Vector2(0, -radius).rotated(rot)
+		var steps := 10
+		for i in steps:
+			if i % 2 == 0:
+				sh.line(from.lerp(tp, float(i) / steps), from.lerp(tp, float(i + 1) / steps), 2.0, Color(0.8, 1.0, 0.3, 0.45 * al))
+	if state == State.CALL:
+		# Pulsing orange pheromone ring + call progress.
+		var kk := clampf(_call_t / Awareness.CALL_TIME, 0.0, 1.0)
+		var ph := fmod(_call_t * 1.6, 1.0)
+		var base := radius * 1.3
+		var vs := Vis.VISUAL_SCALE
+		sh.disc(me, base * (1.0 + 2.2 * ph), Color(1.0, 0.55, 0.1, 0.16 * (1.0 - ph) * al))
+		sh.ring(me, base * (1.0 + 2.2 * ph), 3.0 * vs, Color(1.0, 0.6, 0.15, 0.85 * (1.0 - ph) * al))
+		sh.ring(me, base, 2.0 * vs, Color(1.0, 0.55, 0.1, 0.35 * al))
+		sh.arc(me, base * 1.12, -PI / 2.0 + rot, TAU * kk, 3.5 * vs, Color(1.0, 0.85, 0.3, 0.9 * al))
+	if is_stunned():
+		var a := Time.get_ticks_msec() * 0.006
+		for i in 3:
+			sh.disc(me + (Vector2(0, -11.0 * s) + Vector2.from_angle(a + i * TAU / 3.0) * 9.0 * s).rotated(rot), 1.6 * s, Color(UiStyle.YELLOW, al))

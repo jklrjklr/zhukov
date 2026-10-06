@@ -31,19 +31,19 @@ var _flash_on := false
 var _legs_idle := false
 var _knee := Vector2.ZERO
 var _tip := Vector2.ZERO
-var _lu: Array[Node2D] = []
-var _ll: Array[Node2D] = []
-var _body: Node2D
-var _abd: Node2D
-var _head: Node2D
-var _thorax: Node2D
-var _sac: Node2D
-var _glow: Sprite2D
-var _mand: Array[Node2D] = []
-var _eyes: Array[Sprite2D] = []
-var _cu: Array[Node2D] = []
-var _cl: Array[Node2D] = []
-var _plates: Array[Node2D] = []
+var _lu: Array[RigPart] = []
+var _ll: Array[RigPart] = []
+var _body: RigPart
+var _abd: RigPart
+var _head: RigPart
+var _thorax: RigPart
+var _sac: RigPart
+var _glow: RigPart
+var _mand: Array[RigPart] = []
+var _eyes: Array[RigPart] = []
+var _cu: Array[RigPart] = []
+var _cl: Array[RigPart] = []
+var _plates: Array[RigPart] = []
 var _lut_u: Array
 var _lut_l: Array
 var _sgn := PackedFloat32Array()
@@ -283,6 +283,7 @@ func _bind() -> void:
 		_glow.visible = false
 	for e in _eyes:
 		e.self_modulate = Color(0.1, 0.05, 0.04)
+	touch_colors()
 
 
 ## One frame of procedural animation. move 0..1 (fraction of run speed), turn rad/s (signed),
@@ -326,18 +327,18 @@ func animate(delta: float, move: float, turn: float, mode: int, k: float, aware:
 				var f := x - n
 				var au: PackedFloat32Array = _lut_u[li]
 				var al: PackedFloat32Array = _lut_l[li]
-				(_lu[li] as Node2D).rotation = au[n] + (au[n + 1] - au[n]) * f
-				(_ll[li] as Node2D).rotation = al[n] + (al[n + 1] - al[n]) * f
+				_lu[li].rotation = au[n] + (au[n + 1] - au[n]) * f
+				_ll[li].rotation = al[n] + (al[n + 1] - al[n]) * f
 		else:
 			for i in 3:
 				for si in 2:
 					var s := -1.0 if si == 0 else 1.0
 					var li := i * 2 + si
 					var kt := leg_pose(i, s, gait, _reach, _tuck, _curl)
-					var root: Vector2 = (_lu[li] as Node2D).position / RigAtlas.SS
+					var root: Vector2 = _lu[li].position / RigAtlas.SS
 					var ur := (kt[0] - root).angle()
-					(_lu[li] as Node2D).rotation = ur
-					(_ll[li] as Node2D).rotation = (kt[1] - kt[0]).angle() - ur
+					_lu[li].rotation = ur
+					_ll[li].rotation = (kt[1] - kt[0]).angle() - ur
 	# Body: bob, breathing, lunge.
 	var bob := sin(phase * 2.0) * 0.45 * _move
 	var breathe := 1.0 + 0.022 * sin(_clock * 2.3 + _seed) * (1.0 - _move)
@@ -360,8 +361,8 @@ func animate(delta: float, move: float, turn: float, mode: int, k: float, aware:
 			var mid := Vector2(s * (11.0 - _reach * 3.0), -17.0 - _reach * 3.0)
 			var tip := Vector2(s * (7.0 - _reach * 4.0), -25.0 - _reach * 7.0)
 			var ua := (mid - base).angle()
-			(_cu[si] as Node2D).rotation = ua
-			(_cl[si] as Node2D).rotation = (tip - mid).angle() - ua
+			_cu[si].rotation = ua
+			_cl[si].rotation = (tip - mid).angle() - ua
 	if _sac:
 		var pulse := 1.0 + 0.06 * sin(_clock * 8.0) + _spit * 0.18
 		_sac.scale = Vector2(pulse, pulse)
@@ -371,11 +372,13 @@ func animate(delta: float, move: float, turn: float, mode: int, k: float, aware:
 			var gs := (2.0 + _spit * 3.2) / 3.0
 			_glow.scale = Vector2(gs, gs)
 			_glow.self_modulate = Color(0.8, 1.0, 0.3, 0.8)
+			touch_colors()
 	if aware != _aware:
 		_aware = aware
 		var ec := Color(1.0, 0.18, 0.1) if aware else Color(0.1, 0.05, 0.04)
 		for e in _eyes:
 			e.self_modulate = ec
+		touch_colors()
 	if wounded:
 		set_variant("thorax", "wound")
 	# Hit flash / death tint via modulate.
@@ -387,6 +390,7 @@ func animate(delta: float, move: float, turn: float, mode: int, k: float, aware:
 	elif tint > 1.0 or _flash_on:
 		_flash_on = tint > 1.0
 		modulate = Color(tint, tint, tint)
+	commit()
 
 
 ## The death curl has finished.

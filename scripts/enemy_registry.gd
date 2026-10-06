@@ -6,10 +6,11 @@ extends RefCounted
 ## Also: sound broadcast, the camera rotation (cached per frame), cheap separation vectors and
 ## the corpse cap.
 
-const CORPSE_CAP := 24
-
 static var list: Array[Node2D] = []
-static var corpses: Array[Node2D] = []
+## Dead enemies whose corpse is baked into the decal layer: their (now empty) nodes are freed a
+## couple per frame (Enemies.reap, called by Fx), never in one burst.
+static var corpses := 0
+static var _reap: Array = []
 static var _cam_frame := -1
 static var _cam_rot := 0.0
 
@@ -22,7 +23,6 @@ static func add(n: Node2D) -> void:
 
 static func remove(n: Node2D) -> void:
 	list.erase(n)
-	corpses.erase(n)
 
 
 static func count() -> int:
@@ -31,16 +31,21 @@ static func count() -> int:
 
 static func clear() -> void:
 	list.clear()
-	corpses.clear()
+	_reap.clear()
 
 
-## A dead enemy froze into a static corpse sprite: the oldest ones beyond the cap are freed.
+## A dead enemy's corpse is baked into the decal layer: the node can go (queued, freed over frames).
 static func add_corpse(n: Node2D) -> void:
-	corpses.append(n)
-	while corpses.size() > CORPSE_CAP:
-		var old: Node2D = corpses.pop_front()
-		if is_instance_valid(old):
-			old.queue_free()
+	corpses += 1
+	_reap.append(n)
+
+
+static func reap(max_n: int) -> void:
+	while max_n > 0 and not _reap.is_empty():
+		var n: Variant = _reap.pop_front()
+		if is_instance_valid(n) and not (n as Node).is_queued_for_deletion():
+			(n as Node).queue_free()
+			max_n -= 1
 
 
 ## Sound broadcast: only enemies inside the sound's hard cap (Awareness.cap_m) are asked.
@@ -64,7 +69,7 @@ static func cam_rot(from: CanvasItem) -> float:
 	return _cam_rot
 
 
-## Small overlay child of an enemy; `fn` draws it. Hidden (and so free) until needed.
+## Small overlay child of an enemy (the charger's lane / dust); `fn` draws it. Hidden until needed.
 static func make_overlay(owner_node: Node2D, fn: Callable, z := 0) -> Node2D:
 	var n := Node2D.new()
 	n.visible = false
