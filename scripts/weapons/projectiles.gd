@@ -51,12 +51,14 @@ const GRENADE_BLAST := {
 }
 
 
+var _batch: ShapeBatch
+
+
 func _ready() -> void:
 	add_to_group("projectiles")
-	# Tracers, bolts and grenades glow through the sight darkness.
-	var m := CanvasItemMaterial.new()
-	m.light_mode = CanvasItemMaterial.LIGHT_MODE_UNSHADED
-	material = m
+	# Tracers, bolts and grenades glow through the sight darkness (unshaded batch).
+	_batch = ShapeBatch.new(768, true)
+	add_child(_batch)
 
 
 func spawn_bullet(pos: Vector2, vel: Vector2, stats: FirearmStats, shooter: CollisionObject2D, land: Variant = null) -> void:
@@ -236,7 +238,7 @@ func _physics_process(delta: float) -> void:
 	for s in _scorches:
 		s.t += delta
 	_scorches = _scorches.filter(func(s): return s.t < 40.0)
-	queue_redraw()
+	_write()
 
 
 func _rocket_blast(st: FirearmStats, at: Vector2) -> void:
@@ -300,69 +302,71 @@ func explode(center: Vector2, p: Dictionary) -> void:
 			})
 
 
-func _draw() -> void:
+## Every bullet, casing, puff, bolt, grenade and acid pool of the frame is written into ONE
+## ShapeBatch (one draw call): circles / arcs never batch as canvas commands.
+func _write() -> void:
+	var b := _batch
+	b.begin()
 	for a in _acid:
 		var fade := clampf(ACID_TIME - a.t, 0.0, 1.0)
-		draw_circle(a.pos, ACID_RADIUS_M * PX, Color(0.55, 0.75, 0.1, 0.35 * fade))
-		draw_circle(a.pos, ACID_RADIUS_M * PX * 0.6, Color(0.75, 0.95, 0.2, 0.3 * fade))
-	for b in _biles:
-		var k: float = b.t / BILE_FLIGHT
+		b.disc(a.pos, ACID_RADIUS_M * PX, Color(0.55, 0.75, 0.1, 0.35 * fade))
+		b.disc(a.pos, ACID_RADIUS_M * PX * 0.6, Color(0.75, 0.95, 0.2, 0.3 * fade))
+	for bl in _biles:
+		var k: float = bl.t / BILE_FLIGHT
 		var lift := sin(k * PI) * 40.0
 		var mr := ACID_RADIUS_M * PX
-		draw_arc(b.to, mr, 0.0, TAU, 32, Color(0.75, 1.0, 0.25, 0.55), 2.0 * K)
-		draw_arc(b.to, mr * (1.0 - k * 0.9), 0.0, TAU, 28, Color(1.0, 0.95, 0.3, 0.9), 2.5 * K)
-		draw_circle(b.to, mr, Color(0.6, 0.85, 0.15, 0.12))
-		if Game.shadows_enabled: draw_circle(b.pos, 4.0 * K, Color(0, 0, 0, 0.3))
-		draw_circle(b.pos + Vector2(0, -lift), 6.0 * K, Color(0.7, 0.95, 0.2, 0.9))
+		b.ring(bl.to, mr, 2.0 * K, Color(0.75, 1.0, 0.25, 0.55))
+		b.ring(bl.to, mr * (1.0 - k * 0.9), 2.5 * K, Color(1.0, 0.95, 0.3, 0.9))
+		b.disc(bl.to, mr, Color(0.6, 0.85, 0.15, 0.12))
+		if Game.shadows_enabled: b.disc(bl.pos, 4.0 * K, Color(0, 0, 0, 0.3))
+		b.disc(bl.pos + Vector2(0, -lift), 6.0 * K, Color(0.7, 0.95, 0.2, 0.9))
 	for g in _grenades:
 		var k := clampf(g.t / g.flight, 0.0, 1.0)
 		var lift := sin(k * PI) * 18.0
-		if Game.shadows_enabled: draw_circle(g.pos, 5.0 * K, Color(0, 0, 0, 0.35)) # shadow
+		if Game.shadows_enabled: b.disc(g.pos, 5.0 * K, Color(0, 0, 0, 0.35)) # shadow
 		var p: Vector2 = g.pos + Vector2(0, -lift)
-		draw_circle(p, (5.5 + lift * 0.1) * K, Color(0.08, 0.08, 0.08))
-		draw_circle(p, (4.0 + lift * 0.1) * K, Color(0.3, 0.38, 0.22))
+		b.disc(p, (5.5 + lift * 0.1) * K, Color(0.08, 0.08, 0.08))
+		b.disc(p, (4.0 + lift * 0.1) * K, Color(0.3, 0.38, 0.22))
 		if g.t > GRENADE_FUSE - 0.6 and int(g.t * 12.0) % 2 == 0:
-			draw_circle(p, 2.0 * K, Color(1, 0.2, 0.1))
-	for b in _bolts:
-		var head: Vector2 = b.pos
-		var dir := (b.vel as Vector2).normalized()
-		if b.plasma:
-			draw_line(head - dir * 20.0, head, Color(0.6, 0.35, 1.0, 0.35), 10.0 * K)
-			draw_circle(head, 7.0 * K, Color(0.7, 0.45, 1.0, 0.5))
-			draw_circle(head, 4.0 * K, Color(0.9, 0.8, 1.0, 0.95))
+			b.disc(p, 2.0 * K, Color(1, 0.2, 0.1))
+	for bo in _bolts:
+		var head: Vector2 = bo.pos
+		var dir := (bo.vel as Vector2).normalized()
+		if bo.plasma:
+			b.line(head - dir * 20.0, head, 10.0 * K, Color(0.6, 0.35, 1.0, 0.35))
+			b.disc(head, 7.0 * K, Color(0.7, 0.45, 1.0, 0.5))
+			b.disc(head, 4.0 * K, Color(0.9, 0.8, 1.0, 0.95))
 			continue
-		draw_line(head - dir * 26.0, head, Color(1, 0.2, 0.15, 0.35), 6.0 * K)
-		draw_line(head - dir * 18.0, head, Color(1, 0.55, 0.45, 0.95), 2.5 * K)
+		b.line(head - dir * 26.0, head, 6.0 * K, Color(1, 0.2, 0.15, 0.35))
+		b.line(head - dir * 18.0, head, 2.5 * K, Color(1, 0.55, 0.45, 0.95))
 	for c in _casings:
-		var size: Vector2 = c.size
 		var col: Color = c.color
 		if not c.get("shell", false):
 			col.a = clampf(c.life - c.t, 0.0, 1.0)
-		draw_set_transform(c.pos, c.rot)
-		draw_rect(Rect2(-size * K / 2.0, size * K), col)
-	draw_set_transform(Vector2.ZERO)
-	for b in _bullets:
-		var head: Vector2 = b.pos
-		var tail: Vector2 = b.tail
-		if (b.stats as FirearmStats).bullet_type == FirearmStats.BulletType.ROCKET:
-			var dir := (b.vel as Vector2).normalized()
-			draw_line(head - dir * 70.0, head, Color(0.8, 0.8, 0.8, 0.35), 6.0 * K) # smoke
-			draw_line(head - dir * 14.0, head, Color(0.25, 0.28, 0.2), 5.0 * K)
-			draw_circle(head - dir * 15.0, 3.5 * K, Color(1, 0.7, 0.2))
+		b.rect(c.pos, (c.size as Vector2) * K, c.rot, col)
+	for bu in _bullets:
+		var head: Vector2 = bu.pos
+		var tail: Vector2 = bu.tail
+		if (bu.stats as FirearmStats).bullet_type == FirearmStats.BulletType.ROCKET:
+			var dir := (bu.vel as Vector2).normalized()
+			b.line(head - dir * 70.0, head, 6.0 * K, Color(0.8, 0.8, 0.8, 0.35)) # smoke
+			b.line(head - dir * 14.0, head, 5.0 * K, Color(0.25, 0.28, 0.2))
+			b.disc(head - dir * 15.0, 3.5 * K, Color(1, 0.7, 0.2))
 			continue
 		if head.distance_to(tail) > TRACER_LEN:
 			tail = head - (head - tail).normalized() * TRACER_LEN
-		draw_line(tail, head, Color(1, 0.7, 0.25, 0.14), 6.0 * K)
-		draw_line(tail, head, Color(1, 0.85, 0.45, 0.3), 3.0 * K)
-		draw_line(head.lerp(tail, 0.4), head, Color(1, 0.97, 0.8, 0.95), 1.6 * K)
-		draw_circle(head, 1.8 * K, Color(1, 1, 0.9, 0.9))
-	for p in _puffs:
-		var k: float = p.t / 0.25
-		if p.get("bolt", false):
-			draw_circle(p.pos, (2.0 + k * 6.0) * K, Color(1, 0.35, 0.25, 0.8 * (1.0 - k)))
-		elif p.has("scale"):
-			draw_circle(p.pos, (6.0 + k * 20.0) * (p.scale as float) * K, Color(0.3, 0.3, 0.3, 0.6 * (1.0 - k)))
-		elif p.get("ground", false):
-			draw_circle(p.pos, (2.0 + k * 6.0) * K, Color(0.55, 0.45, 0.3, 0.7 * (1.0 - k)))
+		b.line(tail, head, 6.0 * K, Color(1, 0.7, 0.25, 0.14))
+		b.line(tail, head, 3.0 * K, Color(1, 0.85, 0.45, 0.3))
+		b.line(head.lerp(tail, 0.4), head, 1.6 * K, Color(1, 0.97, 0.8, 0.95))
+		b.disc(head, 1.8 * K, Color(1, 1, 0.9, 0.9))
+	for pf in _puffs:
+		var k: float = pf.t / 0.25
+		if pf.get("bolt", false):
+			b.disc(pf.pos, (2.0 + k * 6.0) * K, Color(1, 0.35, 0.25, 0.8 * (1.0 - k)))
+		elif pf.has("scale"):
+			b.disc(pf.pos, (6.0 + k * 20.0) * (pf.scale as float) * K, Color(0.3, 0.3, 0.3, 0.6 * (1.0 - k)))
+		elif pf.get("ground", false):
+			b.disc(pf.pos, (2.0 + k * 6.0) * K, Color(0.55, 0.45, 0.3, 0.7 * (1.0 - k)))
 		else:
-			draw_circle(p.pos, (3.0 + k * 9.0) * K, Color(0.9, 0.85, 0.7, 0.6 * (1.0 - k)))
+			b.disc(pf.pos, (3.0 + k * 9.0) * K, Color(0.9, 0.85, 0.7, 0.6 * (1.0 - k)))
+	b.end()

@@ -20,6 +20,12 @@ var _cd := 0.0
 var _tick := 0
 var _flash := 0.0
 var _hurt := 0.0
+var _barrel: Node2D
+var _hurt_n: Node2D
+var _flash_n: Node2D
+var _bar: Node2D
+var _bar_w := -1
+var _shots := 0
 var _done_t := -1.0
 
 
@@ -43,6 +49,7 @@ func _ready() -> void:
 	_stats.range_max = RANGE_M + 10.0
 	_stats.muzzle_velocity = 700.0
 	_aim = randf() * TAU
+	_build_art()
 
 
 func take_damage(amount: float, _from: Vector2, _knock := true) -> void:
@@ -80,7 +87,15 @@ func _physics_process(delta: float) -> void:
 		_done_t = maxf(_done_t, 0.0) + delta
 		if _done_t > 1.5:
 			_destroy()
-	queue_redraw()
+	_barrel.rotation = _aim
+	_flash_n.visible = _flash > 0.0
+	if _flash_n.visible:
+		_flash_n.rotation = _aim
+	_hurt_n.visible = _hurt > 0.0
+	var bw := int(30.0 * ammo / AMMO)
+	if bw != _bar_w:
+		_bar_w = bw
+		_bar.queue_redraw()
 
 
 func _fire() -> void:
@@ -90,7 +105,10 @@ func _fire() -> void:
 	var muzzle := global_position + Vector2.from_angle(_aim) * 26.0 * Vis.VISUAL_SCALE
 	var proj := get_tree().get_first_node_in_group("projectiles")
 	proj.spawn_bullet(muzzle, dir * _stats.muzzle_velocity * PX, _stats, self)
-	Sfx.play("sentry_shot", muzzle, -6.0, 0.05)
+	# Every other round gets its report (starting a voice is the expensive part of a shot).
+	_shots += 1
+	if _shots % 2 == 1:
+		Sfx.play("sentry_shot", muzzle, -3.0, 0.05)
 	_flash = 0.04
 	if ammo % 10 == 0:
 		Enemies.broadcast_sound(global_position, 90.0, 10.0)
@@ -113,20 +131,33 @@ func _find_target() -> Node2D:
 	return best
 
 
-func _draw() -> void:
+## Static art on child nodes: nothing is re-recorded per tick, the barrel only rotates (a transform),
+## the muzzle flash toggles, the ammo bar redraws when its width changes (every ~10 rounds).
+func _build_art() -> void:
 	var outline := Color(0.06, 0.06, 0.06)
-	for i in 3:
-		var a := TAU * i / 3.0 + PI / 2.0
-		draw_line(Vector2.ZERO, Vector2.from_angle(a) * 20.0, outline, 5.0)
-		draw_line(Vector2.ZERO, Vector2.from_angle(a) * 19.0, Color(0.3, 0.32, 0.28), 3.0)
-	draw_circle(Vector2.ZERO, 11.0, outline)
-	draw_circle(Vector2.ZERO, 9.5, Color(0.35, 0.4, 0.32) if _hurt <= 0.0 else Color(0.9, 0.5, 0.4))
-	var f := Vector2.from_angle(_aim)
-	draw_line(Vector2.ZERO, f * 28.0, outline, 6.0)
-	draw_line(Vector2.ZERO, f * 27.0, Color(0.18, 0.18, 0.18), 3.5)
-	draw_rect(Rect2(-5, -5, 10, 10), UiStyle.YELLOW.darkened(0.2))
-	if _flash > 0.0:
-		draw_circle(f * 30.0, 6.0, Color(1, 0.85, 0.4, 0.9))
-	# Ammo bar
-	draw_rect(Rect2(-16, 22, 32, 4), outline)
-	draw_rect(Rect2(-15, 23, 30.0 * ammo / AMMO, 2), UiStyle.YELLOW)
+	_art(func(n: Node2D) -> void:
+		for i in 3:
+			var a := TAU * i / 3.0 + PI / 2.0
+			n.draw_line(Vector2.ZERO, Vector2.from_angle(a) * 20.0, outline, 5.0)
+			n.draw_line(Vector2.ZERO, Vector2.from_angle(a) * 19.0, Color(0.3, 0.32, 0.28), 3.0)
+		n.draw_circle(Vector2.ZERO, 11.0, outline)
+		n.draw_circle(Vector2.ZERO, 9.5, Color(0.35, 0.4, 0.32)))
+	_hurt_n = _art(func(n: Node2D) -> void: n.draw_circle(Vector2.ZERO, 9.5, Color(0.9, 0.5, 0.4)))
+	_hurt_n.visible = false
+	_barrel = _art(func(n: Node2D) -> void:
+		n.draw_line(Vector2.ZERO, Vector2(28.0, 0), outline, 6.0)
+		n.draw_line(Vector2.ZERO, Vector2(27.0, 0), Color(0.18, 0.18, 0.18), 3.5))
+	_art(func(n: Node2D) -> void: n.draw_rect(Rect2(-5, -5, 10, 10), UiStyle.YELLOW.darkened(0.2)))
+	_flash_n = _art(func(n: Node2D) -> void: n.draw_circle(Vector2(30.0, 0), 6.0, Color(1, 0.85, 0.4, 0.9)))
+	_flash_n.visible = false
+	_bar = _art(func(n: Node2D) -> void:
+		n.draw_rect(Rect2(-16, 22, 32, 4), outline)
+		n.draw_rect(Rect2(-15, 23, 30.0 * ammo / AMMO, 2), UiStyle.YELLOW))
+	_bar.rotation = 0.0
+
+
+func _art(fn: Callable) -> Node2D:
+	var n := Node2D.new()
+	n.draw.connect(fn.bind(n))
+	add_child(n)
+	return n

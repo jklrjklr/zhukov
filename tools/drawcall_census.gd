@@ -102,12 +102,27 @@ func cat_of(n: Node) -> String:
 		match f:
 			"bug_rig.gd", "charger_rig.gd", "rig.gd", "rig_batch.gd":
 				return "rig parts"
+			"atlas_batch.gd":
+				if str(a.name).begins_with("RigLayer"):
+					return "rig parts (3 MultiMesh layers)"
+				return "enemy overlays (batched)"
+			"tile_layer.gd":
+				return "zone baked ground tiles"
 			"enemy_overlay.gd":
 				return "enemy overlays (batched)"
 			"fx.gd":
 				if a != n:
 					return "fx decals" if (n.name.begins_with("Decal") or (n is CanvasItem and (n as CanvasItem).z_index == -8)) else "fx particles"
 				return "other"
+			"shape_batch.gd":
+				var pf := _script_file(a.get_parent()) if a.get_parent() != null else ""
+				if pf == "fx.gd":
+					return "fx particles"
+				if pf == "projectiles.gd":
+					return "projectiles / tracers / casings"
+				if pf == "enemy_overlay.gd":
+					return "enemy overlays (batched)"
+				return "other: shape_batch.gd"
 			"projectiles.gd", "proj_batch.gd":
 				return "projectiles / tracers / casings"
 			"sentry.gd":
@@ -260,6 +275,40 @@ func _sample(label: String, sec: float) -> void:
 	print(out)
 
 
+## Which system costs how much physics time: switch each off in turn and compare TIME_PHYSICS_PROCESS.
+func _physics_ablation() -> void:
+	var targets := {
+		"enemies (bugs + charger) physics": func() -> Array: return Enemies.list.duplicate(),
+		"sentry": func() -> Array: return [_sentry] if is_instance_valid(_sentry) else [],
+		"projectiles": func() -> Array: return get_tree().get_nodes_in_group("projectiles"),
+		"mission": func() -> Array: return [_m],
+		"player": func() -> Array: return [_p],
+	}
+	var base := await _phys_avg(1.2)
+	print("CENSUS PHYSICS baseline %.2f ms/tick (%d enemies)" % [base, Enemies.list.size()])
+	for k in targets:
+		var nodes: Array = targets[k].call()
+		for n in nodes:
+			if is_instance_valid(n):
+				n.set_physics_process(false)
+		var v := await _phys_avg(1.2)
+		for n in nodes:
+			if is_instance_valid(n):
+				n.set_physics_process(true)
+		print("CENSUS PHYSICS without %-34s %.2f ms/tick  (costs %.2f)" % [k, v, base - v])
+
+
+func _phys_avg(sec: float) -> float:
+	var sum := 0.0
+	var n := 0
+	var t_end := Time.get_ticks_msec() + int(sec * 1000.0)
+	while Time.get_ticks_msec() < t_end:
+		await get_tree().physics_frame
+		sum += Performance.get_monitor(Performance.TIME_PHYSICS_PROCESS) * 1000.0
+		n += 1
+	return sum / maxf(n, 1)
+
+
 func _wait(sec: float) -> void:
 	await get_tree().create_timer(sec, true, false, true).timeout
 
@@ -323,6 +372,7 @@ func _run() -> void:
 	await _wait(1.0)
 	await _sample("fight (sentry + player firing)", 3.0)
 	await _ablate()
+	await _physics_ablation()
 	# Airstrike + barrage on top of the fight.
 	_marks.append("airstrike")
 	_s.locked = false

@@ -46,6 +46,7 @@ const ALIASES := {
 var _cache := {} # name -> Array[AudioStream]
 var _loop_cache := {} # name -> AudioStream (loop enabled copy)
 var _players: Array[AudioStreamPlayer2D] = []
+var _slots := PackedStringArray() # slot name each pool player last played (parallel to _players)
 var _ui: Array[AudioStreamPlayer] = []
 var _next := 0
 var _next_ui := 0
@@ -75,6 +76,7 @@ func _ready() -> void:
 		p.bus = "SFX"
 		add_child(p)
 		_players.append(p)
+		_slots.append("")
 	for i in 4:
 		var u := AudioStreamPlayer.new()
 		u.bus = "SFX"
@@ -179,10 +181,25 @@ func _pick(name: String) -> AudioStream:
 
 func _voices(name: String) -> int:
 	var n := 0
-	for p in _players:
-		if p.playing and p.get_meta("slot", "") == name:
+	for i in _slots.size():
+		if _slots[i] == name and _players[i].playing:
 			n += 1
 	return n
+
+
+## Starting a voice (decoder set-up) is the costly part of a sound: at most this many positional
+## one-shots start per rendered frame (others of the low-priority kind are skipped).
+const MAX_STARTS_PER_FRAME := 3
+const PRIORITY := ["explosion", "death", "orbital", "eagle", "hellpod", "pelican", "deploy", "splash", "player", "beacon", "strat"]
+var _start_frame := -1
+var _starts := 0
+
+
+func _is_priority(name: String) -> bool:
+	for k in PRIORITY:
+		if name.contains(k):
+			return true
+	return false
 
 
 ## Positional sound at a world position.
@@ -190,10 +207,17 @@ func play(name: String, pos: Vector2, volume_db := 0.0, pitch_var := 0.06) -> vo
 	var s := _pick(name)
 	if s == null or _voices(name) >= MAX_VOICES:
 		return
+	var f := Engine.get_process_frames()
+	if f != _start_frame:
+		_start_frame = f
+		_starts = 0
+	if _starts >= MAX_STARTS_PER_FRAME and not _is_priority(name):
+		return
+	_starts += 1
 	var p := _players[_next]
+	_slots[_next] = name
 	_next = (_next + 1) % POOL
 	p.stream = s
-	p.set_meta("slot", name)
 	p.global_position = pos
 	p.volume_db = volume_db
 	p.pitch_scale = 1.0 + randf_range(-pitch_var, pitch_var)

@@ -21,7 +21,7 @@ const CELL := 1024.0
 const DECAL_SCALE := 0.6
 const CELL_MARGIN := 8.0
 const CELL_JOBS := 2
-const REBUILD_COOLDOWN := 0.35
+const REBUILD_COOLDOWN := 0.6
 const PARTICLE_CAP := 380
 const SHAKE_MAX := 12.0
 const PX := 60.0
@@ -495,6 +495,25 @@ func _notification(what: int) -> void:
 			_cells[v].last = -10.0
 
 
+static var _disc: ImageTexture
+
+
+## 64 px anti-aliased white disc: decal blobs are textured rects (they batch; draw_circle polygons do not).
+static func disc_texture() -> ImageTexture:
+	if _disc == null:
+		var img := Image.create(64, 64, false, Image.FORMAT_RGBA8)
+		for y in 64:
+			for x in 64:
+				var d := Vector2(x + 0.5 - 32.0, y + 0.5 - 32.0).length() / 32.0
+				img.set_pixel(x, y, Color(1, 1, 1, clampf((1.0 - d) * 32.0 * 0.5 + 0.5, 0.0, 1.0)))
+		_disc = ImageTexture.create_from_image(img)
+	return _disc
+
+
+static func _blob(n: CanvasItem, c: Vector2, r: float, col: Color) -> void:
+	n.draw_texture_rect(disc_texture(), Rect2(c - Vector2(r, r), Vector2(r, r) * 2.0), false, col)
+
+
 func _draw_decal(n: Node2D, d: Dictionary) -> void:
 	var a := 1.0 - float(d.step) / FADE_STEPS
 	var col: Color = d.c
@@ -514,36 +533,36 @@ func _draw_decal(n: Node2D, d: Dictionary) -> void:
 		"blood":
 			col.a = 0.72 * a
 			for b in blobs:
-				n.draw_circle(Vector2(b.x, b.y), b.z, col)
+				_blob(n, Vector2(b.x, b.y), b.z, col)
 		"pool":
 			col.a = 0.82 * a
 			for b in blobs:
-				n.draw_circle(Vector2(b.x, b.y), b.z, col.darkened(0.15))
+				_blob(n, Vector2(b.x, b.y), b.z, col.darkened(0.15))
 			var lc := col.lightened(0.25)
 			lc.a = 0.55 * a
 			for b in hl:
-				n.draw_circle(Vector2(b.x, b.y), b.z, lc)
+				_blob(n, Vector2(b.x, b.y), b.z, lc)
 		"scorch":
 			for b in blobs:
-				n.draw_circle(Vector2(b.x, b.y), b.z, Color(0.03, 0.025, 0.02, 0.2 * a))
+				_blob(n, Vector2(b.x, b.y), b.z, Color(0.03, 0.025, 0.02, 0.2 * a))
 			for b in hl:
-				n.draw_circle(Vector2(b.x, b.y), b.z, Color(0.0, 0.0, 0.0, 0.25 * a))
+				_blob(n, Vector2(b.x, b.y), b.z, Color(0.0, 0.0, 0.0, 0.25 * a))
 		"bile":
 			col.a = 0.6 * a
 			for b in blobs:
-				n.draw_circle(Vector2(b.x, b.y), b.z, col.darkened(0.2))
+				_blob(n, Vector2(b.x, b.y), b.z, col.darkened(0.2))
 			for b in hl:
-				n.draw_circle(Vector2(b.x, b.y), b.z, Color(0.85, 1.0, 0.4, 0.7 * a))
+				_blob(n, Vector2(b.x, b.y), b.z, Color(0.85, 1.0, 0.4, 0.7 * a))
 		"pock":
-			n.draw_circle(p, d.s, Color(0.04, 0.035, 0.03, 0.55 * a))
+			_blob(n, p, d.s, Color(0.04, 0.035, 0.03, 0.55 * a))
 			for b in hl:
-				n.draw_circle(Vector2(b.x, b.y), b.z, Color(0.1, 0.09, 0.08, 0.5 * a))
+				_blob(n, Vector2(b.x, b.y), b.z, Color(0.1, 0.09, 0.08, 0.5 * a))
 		"casing":
 			var dir := Vector2.from_angle(d.r)
 			col.a = a
 			n.draw_line(p - dir * 2.4, p + dir * 2.4, Color(0.08, 0.06, 0.03, 0.6 * a), 3.6)
 			n.draw_line(p - dir * 2.0, p + dir * 2.0, col, 2.2)
-			n.draw_circle(p + dir * 2.0, 0.9, col.lightened(0.4))
+			_blob(n, p + dir * 2.0, 0.9, col.lightened(0.4))
 
 
 # --- Particles ----------------------------------------------------------------------
