@@ -5,7 +5,7 @@ extends Node2D
 ## objective / POI / enemy slots chosen on top of it are randomised each run.
 ## Zone-local layout is authored in metres (north = -y); the node sits at the zone's
 ## world centre. South and north walls have an 8 m opening where the passages join.
-## Draws the static ground, walls and rocks in one canvas item (z below actors).
+## The static ground, details, walls and rocks are baked lazily into tile textures (TileLayer), z below actors.
 ## Props with behaviour (crates, trees, nest holes, terminals) are created by Mission
 ## from the spot lists here.
 
@@ -45,9 +45,8 @@ var rocks: Array[Dictionary] = []
 var _rng := RandomNumberGenerator.new()
 var _clear: Array[Dictionary] = [] # {pos, r} px, local: keep free of rocks/trees/crates
 var _forest: Array[Dictionary] = []
-## Detail items (cracks, pebbles, tufts, goo...) bucketed in CHUNKS x CHUNKS draw nodes so
-## off-screen chunks are culled by the renderer. Baked once in build().
-var _chunks: Array = []
+## Detail items (cracks, pebbles, tufts, goo...) are filed per tile cell, baked by TileLayer on demand.
+var _cells := {} # Vector2i (TileLayer cell) -> Array of items
 var _goo_spots: Array[Vector2] = []
 
 
@@ -326,7 +325,6 @@ func _blunt_blob(radius: float) -> PackedVector2Array:
 ## zone type) + soft blotches; detail items live in culled chunks; props (rocks, walls) in
 ## one node with drop shadows and height shading. Nothing is re-recorded after build().
 
-const CHUNKS := 4
 const GRASS := [Color(0.3, 0.38, 0.18), Color(0.36, 0.42, 0.2), Color(0.44, 0.44, 0.22)]
 const GOO := Color(0.46, 0.34, 0.3)
 
@@ -376,58 +374,62 @@ func _ramp(a: Color, b: Color, c: Color) -> Gradient:
 	return g
 
 
+var _noise: Array = [] # big, blotch, grain
+var _patches: Array[Dictionary] = []
+var _tiles: TileLayer
+
+
 func _bake() -> void:
 	var ground: Color = GROUNDS[type]
 	var clear := Color(ground.r, ground.g, ground.b, 0.0)
 	# Layer textures.
 	var tint: Array = [Color(0.55, 0.38, 0.15), Color(0.4, 0.4, 0.42), Color(0.2, 0.42, 0.14)]
-	var big := _noise_tex(512, 0.010, _ramp(Color(0.1, 0.07, 0.04, 0.55), clear, Color(1.0, 0.9, 0.65, 0.4)))
-	var blotch := _noise_tex(512, 0.024, _ramp(Color(tint[type] as Color, 0.0), clear, Color((tint[type] as Color), 0.5)), false, 2)
-	var grain := _noise_tex(256, 0.035, _ramp(Color(0, 0, 0, 0.12), clear, Color(1, 1, 0.9, 0.08)), true, 2)
-	var ground_node := Node2D.new()
-	ground_node.name = "Ground"
-	ground_node.texture_repeat = CanvasItem.TEXTURE_REPEAT_ENABLED
-	add_child(ground_node)
-	var patches: Array[Dictionary] = []
+	_noise = [
+		_noise_tex(512, 0.010, _ramp(Color(0.1, 0.07, 0.04, 0.55), clear, Color(1.0, 0.9, 0.65, 0.4))),
+		_noise_tex(512, 0.024, _ramp(Color(tint[type] as Color, 0.0), clear, Color((tint[type] as Color), 0.5)), false, 2),
+		_noise_tex(256, 0.035, _ramp(Color(0, 0, 0, 0.12), clear, Color(1, 1, 0.9, 0.08)), true, 2)]
 	for i in 46:
-		patches.append({"pos": Vector2(_rng.randf_range(-HALF, HALF), _rng.randf_range(-HALF, HALF)),
+		_patches.append({"pos": Vector2(_rng.randf_range(-HALF, HALF), _rng.randf_range(-HALF, HALF)),
 			"r": _rng.randf_range(4, 13) * PX, "col": ground.lightened(_rng.randf_range(-0.14, 0.1))})
-	ground_node.draw.connect(func():
-		var full := Rect2(-HALF, -HALF, HALF * 2.0, HALF * 2.0)
-		ground_node.draw_rect(Rect2(-HALF - 120, -HALF - 120, HALF * 2 + 240, HALF * 2 + 240), Color(0.06, 0.06, 0.05))
-		ground_node.draw_rect(full, ground)
-		var soft := soft_texture()
-		for p in patches:
-			var r: float = p.r
-			var c: Color = p.col
-			c.a = 0.55
-			ground_node.draw_texture_rect(soft, Rect2((p.pos as Vector2) - Vector2(r, r), Vector2(r, r) * 2.0), false, c)
-		ground_node.draw_texture_rect(big, full, false)
-		ground_node.draw_texture_rect(blotch, full, false)
-		ground_node.draw_texture_rect(grain, full, true)
-		# Darker rim toward the walls so the zone reads as an arena.
-		var e := 6.0 * PX
-		for k in 3:
-			var inset := e * (k + 1) / 3.0
-			ground_node.draw_rect(full.grow(-inset + e), Color(0, 0, 0, 0.05), false, e / 3.0))
 	_make_details()
-	for i in CHUNKS * CHUNKS:
-		var items: Array = _chunks[i]
-		if items.is_empty():
+	# Everything static (ground, details, props) is baked lazily into big tile textures: see TileLayer.
+	_tiles = TileLayer.new()
+	_tiles.name = "GroundTiles"
+	_tiles.paint = _paint_tile
+	_tiles.assets_ready = func() -> bool:
+		for t: NoiseTexture2D in _noise:
+			if t.get_image() == null:
+				return false
+		return true
+	add_child(_tiles)
+
+
+## One tile of the static layer: ground, then detail items, then props (walls, rocks), as before.
+func _paint_tile(n: CanvasItem, clip: Rect2) -> void:
+	var ground: Color = GROUNDS[type]
+	var full := Rect2(-HALF, -HALF, HALF * 2.0, HALF * 2.0)
+	n.draw_rect(Rect2(-HALF - 120, -HALF - 120, HALF * 2 + 240, HALF * 2 + 240), Color(0.06, 0.06, 0.05))
+	n.draw_rect(full, ground)
+	var soft := soft_texture()
+	for p in _patches:
+		var r: float = p.r
+		if not clip.intersects(Rect2((p.pos as Vector2) - Vector2(r, r), Vector2(r, r) * 2.0)):
 			continue
-		var cn := Node2D.new()
-		add_child(cn)
-		cn.draw.connect(_draw_chunk.bind(cn, items))
-	var props := Node2D.new()
-	props.name = "Props"
-	add_child(props)
-	props.draw.connect(_draw_props.bind(props))
-
-
-func _chunk_of(p: Vector2) -> int:
-	var cx := clampi(int((p.x + HALF) / (HALF * 2.0) * CHUNKS), 0, CHUNKS - 1)
-	var cy := clampi(int((p.y + HALF) / (HALF * 2.0) * CHUNKS), 0, CHUNKS - 1)
-	return cy * CHUNKS + cx
+		var c: Color = p.col
+		c.a = 0.55
+		n.draw_texture_rect(soft, Rect2((p.pos as Vector2) - Vector2(r, r), Vector2(r, r) * 2.0), false, c)
+	n.draw_texture_rect(_noise[0], full, false)
+	n.draw_texture_rect(_noise[1], full, false)
+	n.draw_texture_rect(_noise[2], full, true)
+	# Darker rim toward the walls so the zone reads as an arena.
+	var e := 6.0 * PX
+	for k in 3:
+		var inset := e * (k + 1) / 3.0
+		n.draw_rect(full.grow(-inset + e), Color(0, 0, 0, 0.05), false, e / 3.0)
+	var items: Array = _cells.get(TileLayer.cell_of(clip.get_center()), [])
+	if not items.is_empty():
+		_draw_chunk(n, items)
+	_draw_props(n, clip)
 
 
 func _in_wall(p: Vector2, margin: float) -> bool:
@@ -437,14 +439,49 @@ func _in_wall(p: Vector2, margin: float) -> bool:
 	return false
 
 
+## World bounds of what an item draws (they grow by K about their own point), for the tile buckets.
+func _item_bb(it: Dictionary) -> Rect2:
+	var p: Vector2 = it.p
+	match it.k:
+		"floor":
+			return (it.rect as Rect2).grow(8.0)
+		"pad":
+			return Rect2(p, Vector2.ZERO).grow(8.3 * PX * K + 16.0)
+		"dropzone":
+			return Rect2(p, Vector2.ZERO).grow(4.7 * PX * K + 12.0)
+		"goo":
+			return Rect2(p, Vector2.ZERO).grow(3.2 * PX * K + 16.0)
+		"claw":
+			return Rect2(p, Vector2.ZERO).grow(4.6 * PX * K + 16.0)
+		"moss":
+			return Rect2(p, Vector2.ZERO).grow((it.r as float) * K + 8.0)
+		"crack":
+			var pts: PackedVector2Array = it.pts
+			var bb := Rect2(pts[0], Vector2.ZERO)
+			for v in pts:
+				bb = bb.expand(v)
+			return Rect2(p + (bb.position - p) * K, bb.size * K).grow(((it.w as float) + 3.0) * K)
+		"tuft":
+			return Rect2(p, Vector2.ZERO).grow(((it.h as float) + 6.0) * K)
+		_:
+			return Rect2(p, Vector2.ZERO).grow(30.0 * K)
+
+
+## Items are filed into every tile cell their bounds touch.
 func _add_item(it: Dictionary) -> void:
-	(_chunks[_chunk_of(it.p)] as Array).append(it)
+	var bb := _item_bb(it)
+	var c0 := TileLayer.cell_of(bb.position)
+	var c1 := TileLayer.cell_of(bb.end)
+	for y in range(c0.y, c1.y + 1):
+		for x in range(c0.x, c1.x + 1):
+			var c := Vector2i(x, y)
+			if not _cells.has(c):
+				_cells[c] = []
+			(_cells[c] as Array).append(it)
 
 
 func _make_details() -> void:
-	_chunks.clear()
-	for i in CHUNKS * CHUNKS:
-		_chunks.append([])
+	_cells.clear()
 	var ground: Color = GROUNDS[type]
 	var grass_col: Color = GRASS[type]
 	var density: float = [0.5, 0.8, 1.5][type]
@@ -513,7 +550,7 @@ func _make_details() -> void:
 		_add_item({"k": "dropzone", "p": start_pos - position})
 
 
-func _draw_chunk(n: Node2D, items: Array) -> void:
+func _draw_chunk(n: CanvasItem, items: Array) -> void:
 	var ground: Color = GROUNDS[type]
 	var dark := ground.darkened(0.38)
 	var lite := ground.lightened(0.18)
@@ -590,7 +627,7 @@ func _draw_chunk(n: Node2D, items: Array) -> void:
 					n.draw_line(p + d * 2.8 * PX, p + d * 4.6 * PX, UiStyle.YELLOW.darkened(0.45), 5.0)
 
 
-func _draw_floor(n: Node2D, r: Rect2) -> void:
+func _draw_floor(n: CanvasItem, r: Rect2) -> void:
 	var base := CONCRETE.darkened(0.25)
 	n.draw_rect(r.grow(3.0), Color(0.07, 0.07, 0.07))
 	n.draw_rect(r, base)
@@ -617,7 +654,7 @@ func _draw_floor(n: Node2D, r: Rect2) -> void:
 	n.draw_rect(r, Color(1, 1, 1, 0.08), false, 2.0)
 
 
-func _draw_pad(n: Node2D, lp: Vector2) -> void:
+func _draw_pad(n: CanvasItem, lp: Vector2) -> void:
 	if Game.shadows_enabled: n.draw_circle(lp + Vector2(6, 8), 8.2 * PX, Color(0, 0, 0, 0.25))
 	n.draw_circle(lp, 8.0 * PX, CONCRETE.darkened(0.05))
 	n.draw_circle(lp, 7.2 * PX, CONCRETE.darkened(0.15))
@@ -635,11 +672,13 @@ func _draw_pad(n: Node2D, lp: Vector2) -> void:
 		n.draw_circle(lp + d * 6.2 * PX, 3.5, Color(0.1, 0.1, 0.1))
 
 
-func _draw_props(n: Node2D) -> void:
+func _draw_props(n: CanvasItem, clip: Rect2) -> void:
 	var sh := Vector2(7, 9)
 	var wall_col: Color = WALL.lerp(GROUNDS[type], 0.12)
 	# Rocks: shadow, outline, body, lit facet, top, cracks.
 	for r in rocks:
+		if not clip.intersects(Rect2((r.pos as Vector2), Vector2.ZERO).grow((r.r as float) * 1.5 + 6.0 * K)):
+			continue
 		var shade: float = r.shade
 		var poly: PackedVector2Array = r.poly
 		var center: Vector2 = r.pos
@@ -678,6 +717,8 @@ func _draw_props(n: Node2D) -> void:
 		for r in walls:
 			n.draw_rect(Rect2(r.position + sh, r.size), Color(0, 0, 0, 0.3))
 	for r in walls:
+		if not clip.intersects(r.grow(14.0 * K)):
+			continue
 		n.draw_rect(r.grow(2.0 * K), Color(0.08, 0.08, 0.08))
 		n.draw_rect(r, wall_col.darkened(0.3)) # side faces
 		var top := Rect2(r.position, r.size - Vector2(minf(6.0 * K, r.size.x * 0.4), minf(7.0 * K, r.size.y * 0.4)))
