@@ -18,7 +18,9 @@ const FADE_TIME := 4.0
 const FADE_STEPS := 3
 ## Decal cells: world px per cell, texels per px, and the extra texels around a cell.
 const CELL := 1024.0
-const DECAL_SCALE := 0.6
+const DECAL_SCALE := 0.5
+## Cell textures alive at once (memory bound); the cell untouched longest is dropped with its decals.
+const MAX_CELLS := 24
 const CELL_MARGIN := 8.0
 const CELL_JOBS := 2
 const REBUILD_COOLDOWN := 0.6
@@ -276,7 +278,10 @@ func _decal_bb(d: Dictionary) -> Rect2:
 
 func _get_cell(v: Vector2i) -> Dictionary:
 	if _cells.has(v):
+		_cells[v].stamp = Time.get_ticks_msec()
 		return _cells[v]
+	if _cells.size() >= MAX_CELLS:
+		_evict_cell()
 	var px := int(ceil((CELL + CELL_MARGIN * 2.0) * DECAL_SCALE))
 	var s := float(px) / (CELL + CELL_MARGIN * 2.0)
 	var origin := Vector2(v) * CELL - Vector2(CELL_MARGIN, CELL_MARGIN)
@@ -303,12 +308,34 @@ func _get_cell(v: Vector2i) -> Dictionary:
 	sprite.z_as_relative = false
 	add_child(sprite)
 	var cell := {"vp": vp, "sprite": sprite, "painter": painter, "items": [], "pending": [], "job": [], "rebuild": true,
-		"last": -10.0, "v": v}
+		"last": -10.0, "v": v, "stamp": Time.get_ticks_msec()}
 	painter.draw.connect(func() -> void:
 		for d in cell.job:
 			_draw_decal(painter, d))
 	_cells[v] = cell
 	return cell
+
+
+func _evict_cell() -> void:
+	var oldest := Vector2i.ZERO
+	var best := 1 << 62
+	for v in _cells:
+		if (_cells[v].stamp as int) < best:
+			best = _cells[v].stamp
+			oldest = v
+	var cell: Dictionary = _cells[oldest]
+	for d in (cell.items as Array).duplicate():
+		if _decals.has(d):
+			_decals.erase(d)
+			if d.k == "corpse":
+				_live_corpses -= 1
+			else:
+				_live -= 1
+		_fade.erase(d)
+		_unfile_decal(d)
+	_cells.erase(oldest)
+	(cell.sprite as Node).queue_free()
+	(cell.vp as Node).queue_free()
 
 
 func _file_decal(d: Dictionary) -> void:

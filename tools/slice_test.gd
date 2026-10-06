@@ -622,6 +622,95 @@ func _stratagem_input_tests() -> void:
 	await wait(1.1)
 	check("after ~2 s the call completes and the breach starts", caller2.state != caller2.State.CALL and m._breach_cd > 5.0, "cd %.1f state %d" % [m._breach_cd, caller2.state])
 
+	# --- K: batched rendering (rig layers, overlay, decals, particles, zone tiles, sentry) -----------
+	await fresh()
+	p.global_position = m.zones[0].start_pos
+	await wait(0.3)
+	var T3 = load("res://scripts/terminid.gd")
+	var RigC = load("res://scripts/art/rig.gd")
+	var OV = load("res://scripts/art/enemy_overlay.gd")
+	var FX = load("res://scripts/fx/fx.gd")
+	var ensure_fx = func() -> void: FX.get_fx(m)
+	ensure_fx.call()
+	await wait(0.2)
+	var pack3: Array = T3.spawn_pack(m.get_node("Actors"), p.global_position + Vector2(0, -400), 6, 777, func(_q): return true,
+		[T3.Kind.WARRIOR, T3.Kind.SCAVENGER, T3.Kind.HUNTER, T3.Kind.BILE_SPITTER, T3.Kind.SCAVENGER, T3.Kind.WARRIOR])
+	for b5 in pack3:
+		b5.set_physics_process(false)
+	await wait(0.3)
+	var layers = RigC.batches()
+	var slots := 0
+	for l in layers:
+		slots += l.used()
+	var drawn_parts := 0
+	for b5 in pack3:
+		drawn_parts += b5._rig._drawn.size()
+	check("rig parts are data: no child node per part", pack3[0]._rig.get_child_count() == 0 and pack3[0]._rig.parts.size() > 20)
+	check("all rigs share 3 MultiMesh layers (one instance slot per drawn part)", layers.size() == 3 and slots >= drawn_parts and drawn_parts > 100, "%d slots %d parts" % [slots, drawn_parts])
+	check("legs / body / head use separate layers", layers[0].used() > 0 and layers[1].used() > 0 and layers[2].used() > 0)
+	var victim = pack3[1]
+	var victim_parts: int = victim._rig._drawn.size()
+	victim.queue_free()
+	await wait(0.2)
+	var slots2 := 0
+	for l in layers:
+		slots2 += l.used()
+	check("freeing an enemy gives its instance slots back", slots - slots2 == victim_parts, "%d vs %d" % [slots - slots2, victim_parts])
+	# Shared overlay: a hit shows the HP bar through EnemyOverlay (no per-enemy overlay node), then it goes away.
+	var tgt = pack3[0]
+	tgt.take_hit({"damage": 1.0, "base_damage": 1.0, "armor_penetration": 5, "armor_damage": 0.0, "destruction_level": 0,
+		"stagger": 0.0, "dir": Vector2.UP, "meters": 0.0, "aim_point": null})
+	await wait(0.1)
+	check("a hit registers the enemy with the shared overlay", OV._set.has(tgt) and tgt.get_child_count() <= 3, "children %d" % tgt.get_child_count())
+	check("bug has no per-enemy overlay nodes (collision + rig only)", tgt.get_children().filter(func(c): return c is Node2D and not (c is CollisionShape2D) and c.get_script() == null).is_empty())
+	# Particles: GPU animated, expire without CPU work.
+	var f = FX.get_fx(m)
+	FX.explosion(m, p.global_position + Vector2(0, -300), 150.0)
+	await wait(0.1)
+	var live: int = FX.particle_count()
+	check("explosion spawns particles into the batch", live > 10, str(live))
+	await wait(3.0)
+	check("particles expire on their own", FX.particle_count() == 0, str(FX.particle_count()))
+	# Decals: capped, cells bounded, fading in steps, corpses and blood stay out of the node tree.
+	for i in 420:
+		FX.decal(m, "blood" if i % 3 else "pool", p.global_position + Vector2(randf_range(-300, 300), randf_range(-300, 300)) + Vector2((i % 7) * 40.0, 0.0), 3.0, Color(0.5, 0.6, 0.1), Vector2.RIGHT)
+	await wait(0.3)
+	check("decal count is capped (oldest fade)", FX.decal_count() <= FX.DECAL_CAP + 1, str(FX.decal_count()))
+	check("decal cells are bounded", f._cells.size() <= FX.MAX_CELLS and f._cells.size() >= 1, str(f._cells.size()))
+	await wait(FX.FADE_TIME + 1.5)
+	check("faded decals are removed", f._fade.size() == 0 or f._decals.size() <= FX.DECAL_CAP, "%d fading" % f._fade.size())
+	# Zone ground: baked tile layer instead of draw nodes; items filed per cell.
+	var z0 = m.zones[0]
+	check("zone has a tile layer and cell-bucketed detail items", z0.get_node_or_null("GroundTiles") != null and z0._cells.size() > 10)
+	check("zone has no per-chunk draw nodes", z0.get_children().filter(func(c): return c is Node2D and c.get_script() == null and not (c is StaticBody2D)).is_empty())
+	# Corpse reaping is queued, not a burst.
+	var EN = load("res://scripts/enemy_registry.gd")
+	var junk: Array = []
+	for i in 10:
+		var jn := Node2D.new()
+		m.add_child(jn)
+		junk.append(jn)
+		EN.add_corpse(jn)
+	await process_frame
+	await process_frame
+	var freed_now := 0
+	for jn in junk:
+		if not is_instance_valid(jn) or jn.is_queued_for_deletion():
+			freed_now += 1
+	check("queued corpses are freed at most 2 per frame (no burst)", freed_now <= 6 and freed_now >= 1, str(freed_now))
+	await wait(0.3)
+	# Sentry: static art on child nodes (no per-tick re-record), fires at an enemy it sees.
+	var sn = load("res://scripts/defense/sentry.gd").new()
+	sn.position = p.global_position + Vector2(0, -200)
+	_scene.add_child(sn)
+	var prey: Array = T3.spawn_pack(m.get_node("Actors"), sn.position + Vector2(0, -420), 1, 778, func(_q): return true, [T3.Kind.SCAVENGER])
+	prey[0].set_physics_process(false)
+	var ammo0: int = sn.ammo
+	await wait(1.5)
+	check("sentry fires at a visible enemy", sn.ammo < ammo0, "%d -> %d" % [ammo0, sn.ammo])
+	check("sentry art is on child nodes (barrel rotates, nothing re-recorded)", sn.get_child_count() >= 6 and not sn.has_method("_draw"))
+	sn.queue_free()
+
 
 func _touch(pressed: bool, pos: Vector2, index: int) -> InputEventScreenTouch:
 	var e := InputEventScreenTouch.new()

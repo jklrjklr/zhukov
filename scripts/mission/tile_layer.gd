@@ -13,10 +13,10 @@ extends Node2D
 const TILE := 1024.0
 const GRID_HALF := 4096.0
 const N := 8
-## Texels per layer px (matches a 1080p phone at the 0.5 camera zoom: 0.75 screen px per world px).
-const SCALE := 0.75
+## Texels per layer px (a 1080p phone at the 0.5 camera zoom shows 0.75 screen px per world px).
+const SCALE := 0.7
 const MARGIN := 8.0
-const PREFETCH := 700.0
+const PREFETCH := 560.0
 
 ## paint(canvas: CanvasItem, clip: Rect2) draws everything of the layer intersecting clip (layer-local px).
 var paint: Callable

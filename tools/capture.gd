@@ -14,6 +14,8 @@ var _keep_alive := false
 var _no_enemies := false
 ## Second argument `stress`: +40 alerted bugs in front of the player (draw / AI load test).
 var _stress := false
+## Argument `sentry`: an A/MG-43 sentry deployed beside the player (it fires for the whole scenario).
+var _sentry := false
 ## `vision=quad|rays|light`: vision mode for this run (not saved).
 ## `hide=hud|zones|actors|fx|light`: ablation for perf attribution (what costs how much).
 var _hide := ""
@@ -29,6 +31,7 @@ func _ready() -> void:
 		_prefix = args[0]
 	_no_enemies = "noenemies" in args
 	_stress = "stress" in args
+	_sentry = "sentry" in args
 	for a in args:
 		if a.begins_with("hide="):
 			_hide = a.substr(5)
@@ -161,6 +164,10 @@ func _run() -> void:
 			var a := -0.9 + 1.8 * i / 7.0
 			spawn([Terminid.Kind.SCAVENGER, Terminid.Kind.WARRIOR, Terminid.Kind.SCAVENGER, Terminid.Kind.HUNTER, Terminid.Kind.WARRIOR],
 				pp + Vector2.UP.rotated(a) * (9 + (i % 3) * 3) * P)
+	if _sentry:
+		var sn := Sentry.new()
+		sn.position = pp + Vector2(2.5 * P, -3.0 * P)
+		_p.get_parent().add_child(sn)
 	var ch := Charger.new()
 	ch.position = pp + Vector2(2 * P, -16 * P)
 	if not _no_enemies:
