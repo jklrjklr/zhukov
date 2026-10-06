@@ -6,10 +6,10 @@ extends Node2D
 ##   CELL x CELL px cells, each rendered INTO A TEXTURE (SubViewport, premultiplied) that new decals
 ##   are blitted into incrementally; fading / expired decals rebuild their cell (rate limited, fade in
 ##   FADE_STEPS steps). The cost on screen is one draw call per visible cell, not one per blob.
-## - Particles (dust, smoke, debris, sparks, flashes, shockwave rings): pooled dictionaries,
-##   hard cap PARTICLE_CAP, drawn through two ShapeBatch MultiMeshes (one draw call each): LOW (under
-##   the sight darkness: blood, dust, smoke) and HIGH (unshaded, glows through the dark: flashes,
-##   sparks, rings).
+## - Particles (dust, smoke, debris, sparks, flashes, shockwave rings): GPU-animated ParticleBatch
+##   MultiMeshes (one draw call each, no per-particle CPU work after the spawn), ring of PARTICLE_CAP
+##   slots: LOW (under the sight darkness: blood, dust, smoke) and HIGH (unshaded, glows through the
+##   dark: flashes, sparks, rings).
 ## - Screen shake (small, capped, respects Game.shake_enabled) and optional hit-stop.
 
 const DECAL_CAP := 300
@@ -39,16 +39,14 @@ enum P { DOT, SPARK, CHIP, RING, FLASH }
 static var _inst: Fx
 
 var _cells := {} # Vector2i -> {vp, sprite, painter, items: Array, pending: Array, job: Array, rebuild: bool, last: float, v: Vector2i}
-var _low: ShapeBatch
-var _high: ShapeBatch
+var _low: ParticleBatch
+var _high: ParticleBatch
 var _decals: Array[Dictionary] = [] # creation order, live ones only (fading ones move to _fade)
 var _fade: Array[Dictionary] = []
 var _live := 0
 var _live_corpses := 0
 var _recent_blood: Array = [] # [pos, msec] of the latest blood decals (merged when stacked)
 var _blit_mat: CanvasItemMaterial
-var _low_p: Array[Dictionary] = []
-var _high_p: Array[Dictionary] = []
 var _shake := 0.0
 var _last_muzzle := -1.0
 var _stop_active := false
@@ -226,18 +224,18 @@ static func corpse_count() -> int:
 
 
 static func particle_count() -> int:
-	return (_inst._low_p.size() + _inst._high_p.size()) if is_instance_valid(_inst) else 0
+	return (_inst._low.live_count() + _inst._high.live_count()) if is_instance_valid(_inst) else 0
 
 
 # --- Setup --------------------------------------------------------------------------
 
 func _init() -> void:
 	process_mode = Node.PROCESS_MODE_PAUSABLE
-	_low = ShapeBatch.new(PARTICLE_CAP, false)
+	_low = ParticleBatch.new(PARTICLE_CAP, false)
 	_low.z_index = 9
 	_low.z_as_relative = false
 	add_child(_low)
-	_high = ShapeBatch.new(PARTICLE_CAP, true)
+	_high = ParticleBatch.new(PARTICLE_CAP, true)
 	_high.z_index = 13
 	_high.z_as_relative = false
 	add_child(_high)
@@ -567,89 +565,24 @@ func _draw_decal(n: Node2D, d: Dictionary) -> void:
 
 # --- Particles ----------------------------------------------------------------------
 
-func _spawn(high: bool, d: Dictionary) -> void:
-	var arr: Array[Dictionary] = _high_p if high else _low_p
-	if _low_p.size() + _high_p.size() >= PARTICLE_CAP:
-		if high or arr.is_empty():
-			return
-		arr.remove_at(0) # keep the newest
-	d.t = 0.0
-	arr.append(d)
-
-
 func _dot(high: bool, pos: Vector2, vel: Vector2, life: float, s0: float, s1: float, col: Color, drag := 3.0, soft := false) -> void:
-	_spawn(high, {"k": P.DOT, "p": pos, "v": vel, "life": life, "s0": s0, "s1": s1, "c": col, "drag": drag, "soft": soft})
+	(_high if high else _low).dot(pos, vel, life, s0 * K, s1 * K, col, drag, soft)
 
 
 func _streak(pos: Vector2, vel: Vector2, life: float, length: float, width: float, col: Color) -> void:
-	_spawn(true, {"k": P.SPARK, "p": pos, "v": vel, "life": life, "s0": length, "s1": width, "c": col, "drag": 2.5})
+	_high.streak(pos, vel, life, length * K, width * K, col, 2.5)
 
 
 func _chip(high: bool, pos: Vector2, vel: Vector2, life: float, size: Vector2, col: Color) -> void:
-	_spawn(high, {"k": P.CHIP, "p": pos, "v": vel, "life": life, "s0": size.x, "s1": size.y, "c": col,
-		"drag": 4.0, "rot": randf() * TAU, "spin": randf_range(-12.0, 12.0)})
+	(_high if high else _low).chip(pos, vel, life, size * K, col, 4.0)
 
 
 func _ring(high: bool, pos: Vector2, r0: float, r1: float, life: float, width: float, col: Color) -> void:
-	_spawn(high, {"k": P.RING, "p": pos, "v": Vector2.ZERO, "life": life, "s0": r0, "s1": r1, "w": width, "c": col, "drag": 0.0})
+	(_high if high else _low).ring(pos, r0, r1, life, width * K, col)
 
 
 func _flash(pos: Vector2, r: float, life: float, col: Color) -> void:
-	_spawn(true, {"k": P.FLASH, "p": pos, "v": Vector2.ZERO, "life": life, "s0": r * 0.5, "s1": r, "c": col, "drag": 0.0})
-
-
-func _update_particles(arr: Array[Dictionary], delta: float) -> void:
-	var i := arr.size() - 1
-	while i >= 0:
-		var q: Dictionary = arr[i]
-		var t: float = q.t + delta
-		q.t = t
-		if t >= (q.life as float):
-			arr[i] = arr[arr.size() - 1]
-			arr.pop_back()
-		else:
-			var v: Vector2 = q.v
-			var drag: float = q.drag
-			if drag > 0.0:
-				v *= exp(-drag * delta)
-				q.v = v
-			q.p = (q.p as Vector2) + v * delta
-			if q.has("spin"):
-				q.rot = (q.rot as float) + (q.spin as float) * delta
-		i -= 1
-
-
-func _write_particles(b: ShapeBatch, arr: Array[Dictionary]) -> void:
-	b.begin()
-	for q in arr:
-		var k: float = (q.t as float) / (q.life as float)
-		var col: Color = q.c
-		var p: Vector2 = q.p
-		var s0: float = q.s0
-		var s1: float = q.s1
-		match q.k:
-			P.DOT:
-				col.a *= 1.0 - k
-				var rr := lerpf(s0, s1, k) * K
-				if q.get("soft", false):
-					b.soft(p, rr, col)
-				else:
-					b.disc(p, rr, col)
-			P.SPARK:
-				var v: Vector2 = q.v
-				col.a *= 1.0 - k
-				b.line(p, p - v.normalized() * s0 * K * (1.0 - k * 0.6), s1 * K, col)
-			P.CHIP:
-				col.a *= 1.0 - k * k
-				b.rect(p, Vector2(s0 * K, s1 * K), q.rot, col)
-			P.RING:
-				var e := 1.0 - pow(1.0 - k, 3.0)
-				col.a *= 1.0 - k
-				b.ring(p, lerpf(s0, s1, e), maxf((q.w as float) * K * (1.0 - k * 0.7), 1.0), col)
-			P.FLASH:
-				col.a *= 1.0 - k
-				b.flash(p, lerpf(s0, s1, sqrt(k)), col)
-	b.end()
+	_high.flash(pos, r * 0.5, r, life, col)
 
 
 # --- Effect recipes -----------------------------------------------------------------
@@ -795,10 +728,8 @@ func _hit_stop(seconds: float) -> void:
 
 
 func _process(delta: float) -> void:
-	_update_particles(_low_p, delta)
-	_update_particles(_high_p, delta)
-	_write_particles(_low, _low_p)
-	_write_particles(_high, _high_p)
+	_low.tick(delta)
+	_high.tick(delta)
 	_update_decals(delta)
 	Enemies.reap(2)
 	var cam := get_viewport().get_camera_2d()

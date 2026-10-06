@@ -30,6 +30,7 @@ func _init(tex: Texture2D, cap := 512) -> void:
 	_mm.use_custom_data = true
 	_mm.mesh = QuadMesh2D.corner()
 	_mm.instance_count = cap
+	_mm.custom_aabb = AABB(Vector3(-1.0e6, -1.0e6, -1.0), Vector3(2.0e6, 2.0e6, 2.0)) # never culled by a stale / identity bound
 	_mm.visible_instance_count = 0
 	multimesh = _mm
 	texture = tex
