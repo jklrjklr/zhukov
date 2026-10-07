@@ -37,22 +37,18 @@ func _ready() -> void:
 		add_child(b)
 		b.position = Vector2(80 + i * 95, 170)
 		b.setup("scav", shadow_layer, Vector2(4, 5), 2.0)
-		b.facing = i * PI / 2.0 + 0.3
-		b.update(0.0, Vector2.ZERO)
-		b.reset_feet()
-		b.update(0.0, Vector2.ZERO)
+		b.place(b.position, i * PI / 2.0 + 0.3)
+		b.update(0.0)
 		rigs.append(b)
 	for i in 3:
 		var b := Bug.new()
 		add_child(b)
 		b.position = Vector2(200 + i * 330, 420)
 		b.setup("chg", shadow_layer, Vector2(10, 12), 5.0)
-		b.facing = [0.0, PI * 0.5 + 0.3, PI][i]
+		b.place(b.position, [0.0, PI * 0.5 + 0.3, PI][i])
 		b.set_damage(i)
 		b.mand_open = 0.2 + 0.2 * i
-		b.update(0.0, Vector2.ZERO)
-		b.reset_feet()
-		b.update(0.0, Vector2.ZERO)
+		b.update(0.0)
 		rigs.append(b)
 	# props
 	var x := 520.0

@@ -9,15 +9,22 @@ const Bug = preload("res://scripts/art_test/bug_rig.gd")
 const Pl = preload("res://scripts/art_test/player_rig.gd")
 const Fx = preload("res://scripts/art_test/fx.gd")
 
-const FPS := 30.0
-const TOTAL_FRAMES := 444
+const TOTAL_T := 14.8            # seconds of scripted timeline (frame-rate independent)
+const HITSTOP := 2.0 / 30.0
 const ARENA := Vector2(1280, 720)
 const CAM_ZOOM := 1.2
 const CAM_CENTER := Vector2(530, 405)
+const FOLLOW_ZOOM := 1.45         # extra zoom for the charger gait close-up (--follow-charger)
 
 var frame := 0
 var t := 0.0
-var hitstop := 0
+var rt := 0.0                    # real (render) time, keeps running during hit-stop
+var hitstop := 0.0
+var follow_chg := false
+var follow_scav := false
+var cam_c := Vector2(530, 405)
+var dust_acc := 0.0
+var probe := false
 var shake := 0.0
 var world: Node2D
 var shadow_layer: Node2D
@@ -51,13 +58,14 @@ var p_collect := false
 
 # scavengers
 var scavs: Array = []
+const Rig = preload("res://scripts/art_test/bug_rig.gd")
 const SCAV_SPAWN := [
 	[1.20, Vector2(1340, 330), 0.0], [1.40, Vector2(1350, 480), 0.31], [1.55, Vector2(1340, 570), 0.57],
 	[1.80, Vector2(1360, 400), 0.83], [2.15, Vector2(1335, 250), 0.12], [2.65, Vector2(-70, 130), 0.44],
 ]
 
 # charger
-var chg: Node2D
+var chg: Bug
 var c_pos := Vector2(1400, 400)
 var c_face := PI
 var c_vel := Vector2.ZERO
@@ -66,14 +74,13 @@ var c_w := 0.0
 var c_dmg := 0
 var c_dead := false
 var c_dead_t := 0.0
-var c_kb := Vector2.ZERO
 var lane_dir := Vector2.LEFT
 var lane: Sprite2D
 var lane_a := 0.0
 var c_last_dust := 0.0
 var c_hits := 0
 var c_goo_pool_t := -1.0
-var c_pool_pos := Vector2.ZERO
+var c_pool_dir := Vector2.RIGHT
 var charge_t0 := 8.1
 var pool_sprite: Sprite2D
 
@@ -107,6 +114,14 @@ const T_TURN := 10.1
 func _ready() -> void:
 	Lib.init_lib()
 	rng.seed = 7
+	for a in OS.get_cmdline_user_args():
+		if a == "--follow-charger":
+			follow_chg = true
+		if a == "--follow-scav":
+			follow_chg = true
+			follow_scav = true
+		if a == "--probe":
+			probe = true
 	var vs := get_viewport_rect().size
 	var sc := vs.y / ARENA.y
 	world = Node2D.new()
@@ -225,34 +240,26 @@ func _build_actors() -> void:
 	for e in SCAV_SPAWN:
 		var b := Bug.new()
 		b.z_index = 5
+		b.glow_phase = e[2] * 9.0
 		actors.add_child(b)
 		b.setup("scav", shadow_layer, Vector2(5, 6), 2.0)
-		b.step_dist_f = 0.22
-		b.step_time = 0.075
-		b.gait_lock = false
-		b.visible = false
-		b.glow_phase = e[2] * 9.0
+		b.vmax = 520.0
 		var sp: Vector2 = e[1]
-		b.position = sp
-		b.facing = (Vector2(480, 440) - sp).angle()
-		b.reset_feet()
-		var d := {"rig": b, "pos": sp, "spawn": e[0], "hp": 2, "state": "run", "kb": Vector2.ZERO, "ph": e[2], "dead_t": 0.0,
-			"speed": 250.0 + e[2] * 90.0, "f": b.facing, "hit_dir": Vector2.RIGHT}
-		scavs.append(d)
-		b.shadow_off = Vector2(5, 6)
+		b.place(sp, (Vector2(480, 440) - sp).angle())
 		b.visible = false
+		b.landed.connect(_on_scav_landed)
+		var d := {"rig": b, "pos": sp, "spawn": e[0], "hp": 2, "state": "run", "dead_t": 0.0,
+			"speed": 340.0 + e[2] * 110.0, "hit_dir": Vector2.RIGHT, "ph": e[2], "pool": null}
+		scavs.append(d)
 		_set_shadows_visible(b, false)
 	chg = Bug.new()
 	chg.z_index = 10
 	actors.add_child(chg)
 	chg.setup("chg", shadow_layer, Vector2(12, 14), 5.0)
-	chg.step_dist_f = 0.36
-	chg.step_time = 0.3
-	chg.position = c_pos
-	chg.facing = c_face
-	chg.reset_feet()
+	chg.place(c_pos, c_face)
 	chg.visible = false
 	chg.stepped.connect(_on_chg_step)
+	chg.landed.connect(_on_chg_landed)
 	_set_shadows_visible(chg, false)
 	# telegraph lane
 	lane = Sprite2D.new()
@@ -316,33 +323,87 @@ func _build_overlay() -> void:
 
 
 # ------------------------------------------------------------------------------------------ main loop
-func _process(_d: float) -> void:
-	var dt := 1.0 / FPS
+func _process(delta: float) -> void:
+	if delta <= 0.0:
+		return
+	var dt := delta
 	var sdt := dt
-	if hitstop > 0:
-		hitstop -= 1
+	if hitstop > 0.0:
+		hitstop -= dt
 		sdt = 0.0
 	frame += 1
+	rt += dt
 	if sdt > 0.0:
 		t += sdt
 		_step(sdt)
 	_always(dt)
-	if frame >= TOTAL_FRAMES:
+	if probe and absf(fposmod(rt + 0.0001, 0.5)) < dt:
+		print("PROBE rt=%.2f t=%.3f chg=(%.1f,%.1f) f=%.3f v=%.1f s0=(%.1f,%.1f)" % [rt, t, chg.pos.x, chg.pos.y, chg.facing, chg.vel.length(), scavs[0]["rig"].pos.x, scavs[0]["rig"].pos.y])
+	if probe:
+		_probe_feet()
+	if rt >= TOTAL_T - 0.0001:
 		get_tree().quit()
 
 
+var _pf := {}
+var _slide := 0.0
+var _slide_n := 0
+var _steps := 0
+var _maxhead := 0.0
+var _prev_facing := 0.0
+var _max_dyaw := 0.0
+var _prev_vel := Vector2.ZERO
+var _max_da := 0.0
+
+
+func _probe_feet() -> void:
+	if rt > TOTAL_T - 0.05:
+		print("FEET slide_total=%.3f events=%d max_dyaw/frame=%.4f max_dv/frame=%.1f" % [_slide, _slide_n, _max_dyaw, _max_da])
+	if not chg.visible or c_dead:
+		return
+	for j in 6:
+		var f: Vector2 = chg.feet_w[j]
+		if _pf.has(j) and not chg.stepping[j] and not _pf[j][1]:
+			var d := f.distance_to(_pf[j][0])
+			if d > 0.01:
+				_slide += d
+				_slide_n += 1
+		_pf[j] = [f, chg.stepping[j]]
+	_max_dyaw = maxf(_max_dyaw, absf(wrapf(chg.facing - _prev_facing, -PI, PI)))
+	_prev_facing = chg.facing
+	_max_da = maxf(_max_da, (chg.vel - _prev_vel).length())
+	_prev_vel = chg.vel
+
+
+func _hash1(i: int, sd: float) -> float:
+	return fposmod(sin(float(i) * sd) * 43758.5453, 1.0) * 2.0 - 1.0
+
+
 func _always(dt: float) -> void:
-	# camera shake (deterministic hash noise), decays in real time even during hit-stop
-	var n1 := fposmod(sin(frame * 12.9898) * 43758.5453, 1.0) * 2.0 - 1.0
-	var n2 := fposmod(sin(frame * 78.233 + 1.7) * 43758.5453, 1.0) * 2.0 - 1.0
+	# camera shake (deterministic hash noise at 30 Hz), decays in real time even during hit-stop
+	var fi := int(rt * 30.0 + 0.001)
+	var n1 := _hash1(fi, 12.9898)
+	var n2 := _hash1(fi, 78.233)
 	var sc := world.scale.x
-	var base := get_viewport_rect().size * 0.5 - CAM_CENTER * sc
-	world.position = base + Vector2(n1, n2) * shake * sc
+	var vsz := get_viewport_rect().size
+	if follow_chg:
+		var tgt := CAM_CENTER if not chg.visible else chg.pos
+		if follow_scav:
+			tgt = scavs[0]["rig"].pos
+		if follow_scav:
+			tgt = scavs[0]["rig"].pos
+		cam_c = cam_c.lerp(tgt, 1.0 - exp(-dt * 3.5))
+		var z := vsz.y / ARENA.y * CAM_ZOOM * FOLLOW_ZOOM * (2.4 if follow_scav else 1.0)
+		world.scale = Vector2.ONE * z
+		world.position = vsz * 0.5 - cam_c * z + Vector2(n1, n2) * shake * z * 0.5
+	else:
+		var base := vsz * 0.5 - CAM_CENTER * sc
+		world.position = base + Vector2(n1, n2) * shake * sc
 	shake = maxf(0.0, shake - (shake * 9.0 + 4.0) * dt)
-	flash_a = maxf(0.0, flash_a - 0.16)
+	flash_a = maxf(0.0, flash_a - 4.8 * dt)
 	flash_rect.color.a = flash_a
-	var fa := clampf(1.0 - frame / 14.0, 0.0, 1.0)
-	var fo := clampf((frame - (TOTAL_FRAMES - 22)) / 20.0, 0.0, 1.0)
+	var fa := clampf(1.0 - rt / (14.0 / 30.0), 0.0, 1.0)
+	var fo := clampf((rt - (TOTAL_T - 22.0 / 30.0)) / (20.0 / 30.0), 0.0, 1.0)
 	fade_rect.color.a = maxf(fa, fo)
 	# shadows follow the rigs (also while frozen)
 	pl.sync_shadows()
@@ -513,34 +574,37 @@ func _fire_visuals(target: Vector2) -> void:
 
 
 func _shoot_scav(s: Dictionary) -> void:
-	var tp: Vector2 = s["pos"] + Vector2(rng.randf_range(-3, 3), rng.randf_range(-3, 3))
+	var rig: Bug = s["rig"]
+	var tp: Vector2 = rig.pos + Vector2(rng.randf_range(-3, 3), rng.randf_range(-3, 3))
 	_fire_visuals(tp)
 	var dir := (tp - p_pos).normalized()
 	s["hp"] -= 1
-	s["rig"].flash(1 if s["hp"] > 0 else 2)
-	s["kb"] += dir * 150.0
 	s["hit_dir"] = dir
-	s["rig"].kick = dir * 3.0
 	if s["hp"] <= 0:
 		_kill_scav(s, tp, dir)
 	else:
+		rig.hit(dir, 170.0, tp, 60.0, 0.5)
 		fx.goo_hit(tp, dir, 0.8)
 
 
 func _kill_scav(s: Dictionary, tp: Vector2, dir: Vector2) -> void:
 	s["state"] = "dying"
 	s["dead_t"] = 0.0
-	s["kb"] = dir * 430.0
 	fx.goo_hit(tp, dir, 1.3)
 	for i in 7:
 		var a := dir.angle() + rng.randf_range(-1.1, 1.1)
 		fx.add_p({"tex": "droplet", "pos": tp, "vel": Vector2.from_angle(a) * rng.randf_range(100, 380), "life": rng.randf_range(0.3, 0.6),
 			"s0": rng.randf_range(0.8, 1.6), "s1": 0.6, "a0": 1.0, "a1": 0.0, "hold": 0.6, "drag": 3.5})
-	# lasting goo pool under the corpse
-	fx.decal("goo%d" % rng.randi_range(0, 2), s["pos"] + dir * 14.0, rng.randf() * TAU, rng.randf_range(1.0, 1.4), 0.95, 0.25)
-	var rig: Node2D = s["rig"]
-	rig.dead = true
-	rig.mand_open = 0.9
+	# goo pool under the corpse: starts small and spreads while the body slides
+	var pool := Lib.flat("goo%d" % rng.randi_range(0, 2))
+	pool.rotation = rng.randf() * TAU
+	pool.modulate.a = 0.95
+	s["pool_k"] = rng.randf_range(1.0, 1.4)
+	pool.scale = Vector2.ONE * 0.1
+	fx.decal_layer.add_child(pool)
+	s["pool"] = pool
+	var rig: Bug = s["rig"]
+	rig.die(dir, 430.0, tp)
 	rig.z_index = -50
 
 
@@ -551,9 +615,8 @@ func _shoot_charger(post: bool) -> void:
 	var hp := c_pos - dir * 70.0 + perp * rng.randf_range(-20, 20)
 	hp = c_pos + Vector2.from_angle(c_face) * 72.0 + perp * rng.randf_range(-22, 22)
 	_fire_visuals(hp)
-	chg.flash(1)
-	chg.kick = dir * 3.0
 	if not post:
+		chg.hit(dir, 8.0, hp, 70.0, 0.4)
 		fx.armor_hit(hp, dir)
 		shake = maxf(shake, 1.5)
 		return
@@ -562,7 +625,7 @@ func _shoot_charger(post: bool) -> void:
 	if not last:
 		fx.goo_hit(hp, dir, 1.0 + 0.05 * idx)
 		fx.armor_hit(hp + dir * 6.0, dir) if idx <= 1 else null
-		c_kb += dir * 22.0
+		chg.hit(dir, 24.0, hp, 110.0, 0.55)
 		shake = maxf(shake, 2.6)
 		if idx == 3:
 			c_dmg = 2
@@ -583,9 +646,8 @@ func _plate_burst(pos: Vector2, dir: Vector2, n: int) -> void:
 func _kill_charger(hp: Vector2, dir: Vector2) -> void:
 	c_dead = true
 	c_dead_t = t
-	hitstop = 2
+	hitstop = HITSTOP
 	shake = 12.0
-	c_kb = dir * 520.0
 	fx.goo_hit(hp, dir, 2.0)
 	fx.goo_hit(hp + dir.rotated(0.6) * 10.0, dir, 1.6)
 	for i in 22:
@@ -593,14 +655,13 @@ func _kill_charger(hp: Vector2, dir: Vector2) -> void:
 		fx.add_p({"tex": "droplet", "pos": hp, "vel": Vector2.from_angle(a) * rng.randf_range(160, 640), "life": rng.randf_range(0.35, 0.8),
 			"s0": rng.randf_range(1.0, 2.4), "s1": 0.7, "a0": 1.0, "a1": 0.0, "hold": 0.6, "drag": 3.0})
 	_plate_burst(hp, dir, 6)
-	chg.dead = true
-	chg.mand_open = 1.0
+	chg.die(dir, 520.0, hp)
 	chg.z_index = -50
-	c_pool_pos = c_pos + dir * 60.0
+	c_pool_dir = dir
 	c_goo_pool_t = t
 	pool_sprite = Lib.flat("goo_big")
 	pool_sprite.scale = Vector2.ONE * 0.05
-	pool_sprite.position = c_pool_pos
+	pool_sprite.position = c_pos + dir * 30.0
 	pool_sprite.rotation = 0.6
 	fx.decal_layer.add_child(pool_sprite)
 	pickup_state = 0
@@ -608,63 +669,60 @@ func _kill_charger(hp: Vector2, dir: Vector2) -> void:
 
 
 # ------------------------------------------------------------------------------------------ scavengers
+func _on_scav_landed(pos: Vector2) -> void:
+	fx.dust_puff(pos, 0.5, Vector2.ZERO, 0.35)
+
+
 func _scav(s: Dictionary, dt: float) -> void:
-	var rig: Node2D = s["rig"]
+	var rig: Bug = s["rig"]
 	if t < s["spawn"]:
 		return
 	rig.visible = true
 	_set_shadows_visible(rig, true)
-	var pos: Vector2 = s["pos"]
-	var kb: Vector2 = s["kb"]
-	var v := Vector2.ZERO
+	var ph: float = s["ph"]
 	if s["state"] == "run":
-		var to := (p_pos - pos)
+		var to: Vector2 = p_pos - rig.pos
 		var dist := to.length()
-		var dir := to.normalized()
-		var ph: float = s["ph"]
-		var burst := fposmod(t * 3.1 + ph * 2.7, 1.0) < 0.6
-		var sp: float = s["speed"] * (1.55 if burst else 0.22)
-		var zig := sin(t * 8.5 + ph * 17.0) * 0.6
-		v = (dir + dir.rotated(PI / 2.0) * zig).normalized() * sp
-		if dist < 60.0:
-			v = Vector2.ZERO
-		var tf: float = v.angle() if v.length() > 1.0 else s["f"]
-		# twitch: quantised yaw jitter (12 Hz) on top of snappy turning
-		var tw := sin(floor(t * 12.0) * 12.9 + ph * 40.0) * 0.32
-		s["f"] = lerp_angle(s["f"], tf, 1.0 - exp(-dt * 30.0))
-		rig.facing = s["f"] + tw * (1.0 if burst else 1.8)
-		rig.head_rel = sin(floor(t * 14.0) * 7.7 + ph * 9.0) * 0.28
-		rig.mand_open = 0.28 + 0.3 * absf(sin(t * 22.0 + ph * 5.0))
-		rig.step_time = 0.07
-		pos += (v + kb) * dt
+		# light and quick but continuous: smooth speed variation, smooth weaving, no bursts
+		var wob := 0.5 + 0.5 * Rig.sn(t * 1.6, ph * 20.0)
+		var spd: float = s["speed"] * (0.78 + 0.5 * wob + 0.12 * Rig.sn(t * 4.3, ph * 9.0))
+		var weave := 0.45 * Rig.sn(t * 1.25, ph * 13.0)
+		rig.goal_dir = to.normalized().rotated(weave)
+		rig.goal_speed = spd * smoothstep(40.0, 150.0, dist)
+		rig.look_pos = p_pos
+		rig.has_look = true
+		rig.mand_open = 0.3 + 0.1 * (0.5 + 0.5 * Rig.sn(t * 2.2, ph * 5.0))
+		rig.gait_mul = 1.0
 	else:
 		s["dead_t"] += dt
-		var dtm: float = s["dead_t"]
-		rig.crumple = minf(1.0, dtm / 0.2)
-		rig.facing += (s["hit_dir"].angle() - rig.facing) * 0.0
-		rig.head_rel = lerpf(rig.head_rel, 0.5, 0.2)
-		pos += kb * dt
-		var tone := lerpf(1.0, 0.58, clampf(dtm / 0.5, 0.0, 1.0))
-		rig.modulate = Color(tone, tone * 0.96, tone * 0.94, 1.0)
-		rig.abd_rot = 0.35 * clampf(dtm / 0.2, 0.0, 1.0)
-	s["kb"] = kb * exp(-9.0 * dt)
-	s["pos"] = pos
-	rig.position = pos
-	rig.update(dt, v)
+		var pool: Sprite2D = s["pool"]
+		if pool != null:
+			var u := clampf(s["dead_t"] / 0.9, 0.0, 1.0)
+			pool.scale = Vector2.ONE * lerpf(0.1, 0.9 * s["pool_k"], 1.0 - pow(1.0 - u, 3.0))
+			pool.position = rig.pos + s["hit_dir"] * 6.0 * (1.0 - u)
+	rig.update(dt)
+	s["pos"] = rig.pos
 
 
 # ------------------------------------------------------------------------------------------ charger
 func _on_chg_step(pos: Vector2, _heavy: bool) -> void:
 	if c_dead:
 		return
-	shake = maxf(shake, 1.6)
-	fx.dust_puff(pos, 1.1, Vector2.ZERO, 0.5)
-	fx.add_p({"tex": "pock", "pos": pos, "s0": 1.6, "s1": 1.8, "a0": 0.55, "a1": 0.55, "life": 0.01, "persist": true, "layer": fx.decal_layer,
+	var sp := chg.vel.length() / 900.0
+	shake = maxf(shake, 0.5 + 1.6 * sp)
+	fx.dust_puff(pos, 0.8 + 0.5 * sp, Vector2.ZERO, 0.38 + 0.25 * sp)
+	fx.add_p({"tex": "pock", "pos": pos, "s0": 1.5, "s1": 1.7, "a0": 0.45, "a1": 0.45, "life": 0.01, "persist": true, "layer": fx.decal_layer,
 		"rot": rng.randf() * TAU, "tint": Color(0.7, 0.7, 0.72)})
 
 
+func _on_chg_landed(pos: Vector2) -> void:
+	for i in 4:
+		fx.dust_puff(pos + Vector2.from_angle(i * 1.6) * 40.0, 1.6, Vector2.from_angle(i * 1.6) * 90.0, 0.55)
+	shake = maxf(shake, 4.0)
+
+
 func _angle_to_player() -> float:
-	return (p_pos - c_pos).angle()
+	return (p_pos - chg.pos).angle()
 
 
 func _charger(dt: float) -> void:
@@ -673,148 +731,119 @@ func _charger(dt: float) -> void:
 		return
 	chg.visible = true
 	_set_shadows_visible(chg, true)
-	var vel := Vector2.ZERO
-	var heading := Vector2.from_angle(c_face)
 	chg.shadow_off = Vector2(12, 14)
 	if c_dead:
-		var dtm := t - c_dead_t
-		c_pos += c_kb * dt
-		c_kb *= exp(-5.5 * dt)
-		chg.crumple = clampf(dtm / 0.55, 0.0, 1.0)
-		chg.head_rel = lerpf(chg.head_rel, 0.35, 1.0 - exp(-dt * 6.0))
-		chg.head_sx = lerpf(chg.head_sx, 0.72, 1.0 - exp(-dt * 6.0))
-		chg.thorax_off = lerpf(chg.thorax_off, -4.0, 1.0 - exp(-dt * 5.0))
-		chg.abd_rot = lerpf(chg.abd_rot, 0.22, 1.0 - exp(-dt * 4.0))
-		var tone := lerpf(1.0, 0.6, clampf((dtm - 0.2) / 0.9, 0.0, 1.0))
-		chg.modulate = Color(tone, tone * 0.95, tone * 0.93, 1.0)
-		chg.breathe = 0.0
 		if pool_sprite != null:
-			var u := clampf((t - c_goo_pool_t) / 0.9, 0.0, 1.0)
-			var e := 1.0 - pow(1.0 - u, 3.0)
-			pool_sprite.scale = Vector2.ONE * lerpf(0.05, 0.62, e)
-		chg.position = c_pos
-		chg.update(dt, c_kb)
+			var u := clampf((t - c_goo_pool_t) / 1.3, 0.0, 1.0)
+			pool_sprite.scale = Vector2.ONE * lerpf(0.05, 1.05, 1.0 - pow(1.0 - u, 3.0))
+			pool_sprite.position = chg.pos + c_pool_dir * 26.0 * (1.0 - 0.5 * u)
+		chg.update(dt)
+		c_pos = chg.pos
+		c_face = chg.facing
 		return
+	var to := p_pos - chg.pos
+	chg.has_look = true
+	chg.look_pos = p_pos
+	# defaults (heavy walk)
+	chg.acc = 260.0
+	chg.dec = 600.0
+	chg.grip = 4.5
+	chg.gait_mul = 1.0
+	chg.crouch = 0.0
+	chg.tremble = 0.0
+	chg.breathe = 0.012
+	chg.breathe_rate = 1.5
+	chg.turn_mul = 1.0
 	if t < T_WINDUP:
-		# slow heavy approach: head low-ish bob, lagging turn
-		var want := _angle_to_player()
-		c_w = lerpf(c_w, clampf(wrapf(want - c_face, -PI, PI) * 1.5, -0.7, 0.7), 1.0 - exp(-dt * 3.0))
-		c_face += c_w * dt
-		heading = Vector2.from_angle(c_face)
-		vel = heading * 150.0
-		c_pos += vel * dt
-		chg.step_time = 0.34
-		chg.head_rel = lerpf(chg.head_rel, sin(t * 2.4) * 0.07 + c_w * 0.5, 1.0 - exp(-dt * 5.0))
-		chg.mand_open = 0.2 + 0.08 * sin(t * 3.0)
-		chg.breathe = 0.015
+		# slow heavy approach: velocity-aligned heading, wide turns, body sway from the gait
+		chg.goal_dir = to.normalized()
+		chg.goal_speed = 150.0
+		chg.mand_open = 0.2 + 0.05 * Rig.sn(t * 1.3, 2.0)
 	elif t < T_CHARGE:
 		var u := (t - T_WINDUP) / (T_CHARGE - T_WINDUP)
-		if t >= T_WINDUP + 0.1 and lane_dir == Vector2.LEFT:
-			pass
 		if (t - T_WINDUP) < 0.12:
-			var want := _angle_to_player()
-			c_face = lerp_angle(c_face, want, 1.0 - exp(-dt * 7.0))
-			lane_dir = Vector2.from_angle(want)
-		else:
-			c_face = lerp_angle(c_face, lane_dir.angle(), 1.0 - exp(-dt * 12.0))
-		# wind-up: short, exaggerated crouch with head down and mandibles flared
-		var ck := clampf((t - T_WINDUP) / 0.22, 0.0, 1.0)
-		var ke := ck * ck * (3.0 - 2.0 * ck)
-		chg.thorax_off = lerpf(0.0, -16.0, ke)
-		chg.head_sx = lerpf(1.0, 0.78, ke)
-		chg.head_rel = lerpf(chg.head_rel, 0.0, 0.3)
-		chg.mand_open = lerpf(0.2, 0.78, ke)
-		chg.crumple = 0.0
+			lane_dir = Vector2.from_angle(_angle_to_player())
+		# wind-up: weight shifts back, head lowers, rear legs brace, mandibles flare
+		chg.goal_dir = lane_dir
+		chg.goal_speed = 0.0
+		chg.dec = 900.0
+		chg.has_look = false
+		chg.crouch = 1.0
+		chg.mand_open = 0.62
 		var trem := clampf((u - 0.45) / 0.55, 0.0, 1.0)
-		chg.kick = Vector2(sin(t * 90.0), cos(t * 77.0)) * 1.8 * trem
-		chg.abd_rot = sin(t * 60.0) * 0.06 * trem
+		chg.tremble = trem
 		shake = maxf(shake, 1.2 * trem)
 		lane_a = clampf((t - (T_WINDUP + 0.05)) / 0.08, 0.0, 1.0)
 		if u > 0.75:
 			lane_a *= 0.65 + 0.35 * (1.0 if int(t * 30.0) % 2 == 0 else 0.0)
-		heading = Vector2.from_angle(c_face)
-		chg.step_time = 0.2
 	elif t < T_BRAKE:
-		var u := (t - T_CHARGE) / 0.07
-		var spd := 820.0 * clampf(u, 0.0, 1.0)
-		vel = lane_dir * spd
-		c_pos += vel * dt
-		chg.step_time = 0.075
-		chg.step_dist_f = 0.2
-		chg.thorax_off = lerpf(chg.thorax_off, 6.0, 1.0 - exp(-dt * 25.0))
-		chg.head_sx = lerpf(chg.head_sx, 0.84, 1.0 - exp(-dt * 20.0))
-		chg.mand_open = lerpf(chg.mand_open, 0.5, 1.0 - exp(-dt * 20.0))
-		chg.kick = Vector2.ZERO
-		shake = maxf(shake, 3.4)
-		lane_a = lerpf(lane_a, 0.0, 0.5) if t > T_CHARGE + 0.08 else lane_a
-		if t - c_last_dust > 0.035:
-			c_last_dust = t
-			for sgn in [-1.0, 1.0]:
-				fx.dust_puff(c_pos - lane_dir * 70.0 + lane_dir.rotated(PI / 2.0) * sgn * 40.0, 1.6, -lane_dir * 90.0 + lane_dir.rotated(PI / 2.0) * sgn * 60.0, 0.6)
-		kick_debris(c_pos, 120.0, 520.0)
-		# charge shreds anything near the lane (visual only)
+		chg.goal_dir = lane_dir
+		chg.goal_speed = 840.0
+		chg.acc = 2800.0
+		chg.has_look = false
+		chg.gait_mul = 1.15
+		chg.mand_open = 0.5
+		chg.crouch = 0.0
+		lane_a *= exp(-dt * 20.0) if t > T_CHARGE + 0.08 else 1.0
+		_charge_dust(dt, 1.0)
+		kick_debris(chg.pos, 120.0, 520.0)
 	elif t < T_RECOVER:
-		var u := (t - T_BRAKE) / (T_RECOVER - T_BRAKE)
-		var spd := 820.0 * pow(1.0 - u, 2.0)
-		vel = lane_dir * spd
-		c_pos += vel * dt
-		chg.step_time = 0.1
-		chg.step_dist_f = 0.2
-		if t - c_last_dust > 0.04:
-			c_last_dust = t
-			fx.dust_puff(c_pos + lane_dir * 40.0 + Vector2(rng.randf_range(-40, 40), rng.randf_range(-40, 40)), 1.8, lane_dir * 120.0, 0.6)
-		shake = maxf(shake, 2.0 * (1.0 - u))
+		# overshoot: long skid, little lateral grip, legs scrabbling for traction
+		chg.goal_dir = lane_dir
+		chg.goal_speed = 0.0
+		chg.dec = 1500.0
+		chg.grip = 0.9
+		chg.gait_mul = 1.5
+		chg.has_look = false
+		chg.mand_open = 0.45
 		lane_a = 0.0
-		chg.head_sx = lerpf(chg.head_sx, 0.9, 1.0 - exp(-dt * 8.0))
-		chg.thorax_off = lerpf(chg.thorax_off, 0.0, 1.0 - exp(-dt * 6.0))
-		kick_debris(c_pos, 100.0, 300.0)
+		_charge_dust(dt, 0.7)
+		shake = maxf(shake, 2.0 * clampf(chg.vel.length() / 800.0, 0.0, 1.0))
+		kick_debris(chg.pos, 100.0, 300.0)
 	elif t < T_TURN:
-		# held recovery: planted, heaving, head hanging low; no movement
-		chg.step_dist_f = 0.36
-		chg.step_time = 0.34
-		chg.breathe = 0.035
-		chg.head_rel = lerpf(chg.head_rel, 0.1, 1.0 - exp(-dt * 6.0))
-		chg.head_sx = lerpf(chg.head_sx, 0.88, 1.0 - exp(-dt * 6.0))
-		chg.mand_open = 0.4 + 0.12 * sin(t * 12.0)
+		# recovery: planted, heaving, head hanging low
+		chg.goal_dir = Vector2.ZERO
+		chg.goal_speed = 0.0
+		chg.dec = 1500.0
+		chg.grip = 1.5
+		chg.breathe = 0.04
+		chg.breathe_rate = 2.4
+		chg.crouch = 0.4
+		chg.has_look = false
+		chg.mand_open = 0.4 + 0.1 * Rig.sn(t * 4.0, 1.0)
 		lane_a = 0.0
+		if t < T_RECOVER + 0.2:
+			_charge_dust(dt, 0.4)
 	else:
-		# slow lagging turn: head leads, body follows with limited angular speed; feet step in place
-		chg.step_dist_f = 0.3
-		chg.step_time = 0.3
-		var want := _angle_to_player()
-		var diff := wrapf(want - c_face, -PI, PI)
-		var tgt_w := clampf(diff * 1.6, -1.25, 1.25)
-		c_w = move_toward(c_w, tgt_w, 2.6 * dt)
-		c_face += c_w * dt
-		var head_target := clampf(wrapf(want - c_face, -PI, PI), -0.7, 0.7)
-		chg.head_rel = lerpf(chg.head_rel, head_target, 1.0 - exp(-dt * 7.0))
-		chg.head_sx = lerpf(chg.head_sx, 1.0, 1.0 - exp(-dt * 4.0))
-		chg.mand_open = lerpf(chg.mand_open, 0.3, 1.0 - exp(-dt * 4.0))
+		# slow multi-step pivot toward the player, then a heavy walk
+		var diff := wrapf(_angle_to_player() - chg.facing, -PI, PI)
+		chg.goal_dir = to.normalized()
+		chg.goal_speed = 40.0 if absf(diff) < 0.6 else 0.0
 		chg.breathe = 0.02
-		var adv := 36.0 if absf(diff) < 0.5 else 0.0
-		vel = Vector2.from_angle(c_face) * adv
-		c_pos += vel * dt
-	# stagger knockback from hits
-	c_pos += c_kb * dt
-	c_kb *= exp(-8.0 * dt)
-	# abdomen sway while walking
-	if t < T_WINDUP:
-		chg.abd_rot = sin(t * 3.0) * 0.07
-	elif t > T_RECOVER:
-		chg.abd_rot = lerpf(chg.abd_rot, 0.0, 0.1)
-	chg.position = c_pos
-	chg.facing = c_face
+		chg.mand_open = 0.3
 	if lane_a > 0.01:
 		lane.visible = true
-		var ln := 760.0
-		var origin := c_pos + lane_dir * 40.0
-		lane.position = origin
+		lane.position = chg.pos + lane_dir * 40.0
 		lane.rotation = lane_dir.angle()
-		lane.region_rect = Rect2(0, 0, ln * 2.0, 192)
+		lane.region_rect = Rect2(0, 0, 760.0 * 2.0, 192)
 		lane.modulate = Color(1, 1, 1, lane_a)
 	else:
 		lane.visible = false
-	chg.update(dt, vel)
+	chg.update(dt)
+	c_pos = chg.pos
+	c_face = chg.facing
+
+
+func _charge_dust(dt: float, amount: float) -> void:
+	dust_acc += dt
+	var heading := Vector2.from_angle(chg.facing)
+	while dust_acc > 0.04:
+		dust_acc -= 0.04
+		if chg.vel.length() < 120.0:
+			continue
+		var vd := chg.vel.normalized()
+		for sgn in [-1.0, 1.0]:
+			fx.dust_puff(chg.pos - vd * 70.0 + heading.rotated(PI / 2.0) * sgn * 40.0, 1.6 * amount + 0.4, -vd * 90.0 + heading.rotated(PI / 2.0) * sgn * 60.0, 0.6 * amount)
 
 
 # ------------------------------------------------------------------------------------------ grenade
@@ -866,21 +895,18 @@ func throw_from_time() -> float:
 
 func _explode(pos: Vector2) -> void:
 	exploded = true
-	hitstop = 2
+	hitstop = HITSTOP
 	shake = 20.0
 	flash_a = 0.24
 	fx.explosion(pos)
 	kick_debris(pos, 300.0, 780.0)
-	# hits the Charger: flash, knockback away from the blast, armour breaks open
-	var away := (c_pos - pos).normalized()
+	# hits the Charger: additive flinch (push + head jerk), brighten on the hit part, armour breaks open
+	var away := (chg.pos - pos).normalized()
 	if away.length() < 0.1:
-		away = -Vector2.from_angle(c_face)
-	c_kb += away * 300.0
-	chg.flash(3)
+		away = -Vector2.from_angle(chg.facing)
+	chg.hit(away, 300.0, chg.pos + Vector2.from_angle(chg.facing) * 40.0, 190.0, 0.7)
 	c_dmg = 1
 	chg.set_damage(1)
-	chg.head_rel = 0.5
-	chg.kick = away * 10.0
 	_plate_burst(c_pos + Vector2.from_angle(c_face) * 40.0, away, 12)
 	for i in 14:
 		var a := rng.randf() * TAU

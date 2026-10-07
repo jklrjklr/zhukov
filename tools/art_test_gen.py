@@ -112,6 +112,20 @@ class Part:
             d.line(pp, fill=255, width=max(1, int(w * S)), joint="curve")
         self._apply(self._mask(fn), col, lift, False)
 
+    def bump(self, cx, cy, rx, ry, total=0.3, n=5, rot=0.0):
+        """Adds a domed height (concentric ellipses, additive) so big bodies shade as volumes (3 tones)."""
+        for i in range(n):
+            f = 1.0 - i / n
+            pts = []
+            for a in range(28):
+                th = a / 28 * 2 * math.pi
+                x, y = rx * f * math.cos(th), ry * f * math.sin(th)
+                pts.append((cx + x * math.cos(rot) - y * math.sin(rot), cy + x * math.sin(rot) + y * math.cos(rot)))
+            m = self._mask(lambda d, q=self.P(pts): d.polygon(q, fill=255))
+            add = Image.new("L", (self.W, self.H), 0)
+            add.paste(int(255 * total / n), (0, 0), m)
+            self.hgt = ImageChops.add(self.hgt, add)
+
     def glow(self, x, y, r, col):
         self.glows.append([round(x, 2), round(y, 2), round(r, 2), list(col)])
 
@@ -228,6 +242,9 @@ def bug_parts(prefix, k, heavy, dmg=0, only=None):
             p.poly([(x * k, y * k) for x, y in ch], FLESH, 0.24)
             p.poly([(x * k, y * k) for x, y in [(-3.6, 2.8), (-5.6, 3.6), (-5.2, 5.2), (-3.8, 4.6)]], (210, 96, 24), 0.2, emissive=True)
             p.poly_line([(5 * k, -6 * k), (3 * k, -3.6 * k), (4 * k, -1.6 * k)], 0.5 * thick, INK, 0.1)
+        if heavy:
+            p.bump(0, 0, 9.5 * k, 9.5 * k * wk, 0.42, 6)
+            p.bump(-1 * k, 0, 6 * k, 7 * k * wk, 0.22, 4)
         p.save()
 
     # ------------------------------------------------ head (pivot at neck)
@@ -278,20 +295,56 @@ def bug_parts(prefix, k, heavy, dmg=0, only=None):
             p.poly(sc([(15, 2.2), (12, 1.0), (10.2, 3.4), (12.4, 5.4)], hk), FLESH, 0.24)
             p.poly(sc([(14, 2.6), (12.2, 1.8), (11.4, 3.4), (12.6, 4.4)], hk), (220, 100, 24), 0.2, emissive=True)
             p.poly_line(sc([(4, 6.4), (6, 4.4), (5, 2.4), (7.5, 0.8)], hk), 0.6 * thick, INK, 0.1)
+        if heavy:
+            p.bump(7.5 * hk, 0, 8 * hk, 7.5 * hk, 0.34, 5)
         p.save()
 
-    # ------------------------------------------------ mandible (left; flip for right)
+    # ------------------------------------------------ mandible: curved tapering pincer/tusk (drawn for the +y side,
+    # curving inward toward the midline; the rig mirrors it for the other side)
     if want("mand"):
         mk = k * (1.25 if heavy else 1.35)
-        mw = 1.0 if not heavy else 1.35
-        outer = [(0, -1.4 * mw), (4, -3.4 * mw), (9, -4.0 * mw), (13.5, -2.4 * mw), (17.5, 1.4)]
-        inner = [(14.2, -0.1), (10.5, -1.5 * mw), (6, -1.2), (0, 1.4 * mw)]
-        p = Part(f"{prefix}_mand", -1 * mk, -6.5 * mk, 19 * mk, 4 * mk, ow=ow)
-        p.poly(sc(outer + inner, mk), (206, 168, 70) if not heavy else (176, 136, 52), 0.5)
-        # teeth
-        for (x, y) in [(6.5, -1.0), (9.5, -0.9), (12.2, 0.2)]:
-            p.poly(sc([(x - 0.8, y), (x + 0.6, y + 2.2 * mw), (x + 1.2, y)], mk), (236, 214, 150), 0.8)
-        p.line((1 * mk, -0.2 * mk), (5 * mk, -2.2 * mk), 0.5 * thick, JOINT, 0.3)
+        Lm = 15.5 if heavy else 14.0
+        w0 = 3.0 if heavy else 2.2
+        C = 0.34 * Lm if heavy else 0.30 * Lm
+        def cl(sv):
+            return (Lm * sv, -C * sv ** 2.2)
+        def wd(sv):
+            return w0 * (1.0 - sv) ** 0.85 + 0.12
+        ns = 14
+        up, lo = [], []
+        for i in range(ns + 1):
+            sv = i / ns
+            x, y = cl(sv)
+            up.append((x, y - wd(sv)))
+            lo.append((x, y + wd(sv)))
+        outline_pts = up + lo[::-1]
+        p = Part(f"{prefix}_mand", -2.5 * mk, -(C + w0 + 2) * mk, (Lm + 2) * mk, (w0 + 2.5) * mk, ow=ow)
+        body = (206, 168, 70) if not heavy else (206, 178, 108)
+        p.poly(sc(outline_pts, mk), body, 0.46)
+        # raised ridge along the spine of the tusk
+        ridge = [(Lm * sv, cl(sv)[1] - wd(sv) * 0.25) for sv in [i / ns for i in range(0, ns - 2)]]
+        ridge += [(Lm * sv, cl(sv)[1] + wd(sv) * 0.2) for sv in [i / ns for i in range(ns - 3, -1, -1)]]
+        p.poly(sc(ridge, mk), (232, 206, 130) if heavy else (226, 192, 96), 0.78)
+        # two small serrations on the inner edge (insect pincer, not a crab claw)
+        for sv in (0.42, 0.62):
+            x, y = cl(sv)
+            y2 = y - wd(sv)
+            p.poly(sc([(x - 1.2, y2 + 0.2), (x + 0.5, y2 - 1.9), (x + 1.5, y2 + 0.2)], mk), (240, 222, 164), 0.85)
+        p.line((0.6 * mk, 0), (4.0 * mk, -0.4 * mk), 0.5 * thick, JOINT, 0.3)
+        if heavy:
+            p.bump(Lm * 0.3 * mk, -C * 0.09 * mk, 4.5 * mk, w0 * 0.6 * mk, 0.25, 4)
+        p.save()
+
+    # ------------------------------------------------ antenna (pivot at base, whips toward +x)
+    if want("ant"):
+        La = (13.5 if not heavy else 20.0) * k
+        ta = (0.55 if not heavy else 0.8) * thick
+        pts = [(La * f, -0.10 * La * math.sin(f * 2.4) - 0.04 * La * f * f) for f in [i / 8 for i in range(9)]]
+        p = Part(f"{prefix}_ant", -ta * 2, -0.2 * La - ta * 2, La + ta * 2, 0.1 * La + ta * 2, ow=0.8, pad=1.2)
+        for i in range(8):
+            wv = ta * (1.0 - 0.72 * i / 8)
+            p.line(pts[i], pts[i + 1], wv * 2, (118, 88, 40), 0.5)
+        p.ellipse(0, 0, ta * 1.3, ta * 1.3, JOINT, 0.3)
         p.save()
 
     # ------------------------------------------------ abdomen (pivot at front; extends -x)
@@ -325,6 +378,10 @@ def bug_parts(prefix, k, heavy, dmg=0, only=None):
                 r = (0.95 if i == 0 else 0.75) * thick
                 p.ellipse(((x0 + x1) / 2 - 0.2) * ak, (1.8 if i % 2 == 0 else -1.8) * ak * 0.9, r, r, PUST, emissive=True)
                 p.glow(((x0 + x1) / 2 - 0.2) * ak, (1.8 if i % 2 == 0 else -1.8) * ak * 0.9, 2.4 * r + 0.6, PUST)
+        if heavy:
+            for i in range(n):
+                xm = -(i + 0.5) * step * ak
+                p.bump(xm, 0, step * 0.62 * ak, (ws[i] + ws[i + 1]) / 2 * ak * 1.25, 0.34, 4)
         # stinger
         xe = -L
         st = [(xe + 0.5, -ws[n] * 1.4), (xe - 7.0, 0), (xe + 0.5, ws[n] * 1.4)]
@@ -335,7 +392,7 @@ def bug_parts(prefix, k, heavy, dmg=0, only=None):
     # ------------------------------------------------ legs
     if want("femur"):
         L1 = (10.0 if not heavy else 11.0) * k
-        t = (1.15 if not heavy else 1.5) * thick
+        t = (1.15 if not heavy else 3.0) * thick
         p = Part(f"{prefix}_femur", -t * 1.2, -t * 1.7, L1 + t * 1.2, t * 1.7, ow=0.9)
         fe = [(0, -t), (L1 * 0.35, -t * 1.35), (L1, -t * 0.7), (L1, t * 0.7), (L1 * 0.35, t * 1.35), (0, t)]
         p.poly(fe, LEG, 0.5)
@@ -345,9 +402,10 @@ def bug_parts(prefix, k, heavy, dmg=0, only=None):
         p.save()
     if want("tibia"):
         L2 = (14.0 if not heavy else 15.0) * k
-        t = (1.0 if not heavy else 1.3) * thick
+        t = (1.0 if not heavy else 2.4) * thick
         p = Part(f"{prefix}_tibia", -t * 1.2, -t * 2.6, L2 + t * 1.2, t * 2.6, ow=0.9)
-        ti = [(0, -t * 0.8), (L2 * 0.55, -t * 0.55), (L2, 0), (L2 * 0.55, t * 0.55), (0, t * 0.8)]
+        tip = 0.0 if not heavy else 0.32
+        ti = [(0, -t * 0.8), (L2 * 0.55, -t * 0.6), (L2, -t * tip), (L2, t * tip), (L2 * 0.55, t * 0.6), (0, t * 0.8)]
         p.poly(ti, LEG, 0.5)
         for (x, s) in [(0.35, 1), (0.62, -1)]:
             p.poly([(L2 * x, s * t * 0.5), (L2 * (x - 0.1), s * t * 2.2), (L2 * (x + 0.07), s * t * 0.5)], (200, 168, 96), 0.7)
@@ -359,6 +417,7 @@ def bug_parts(prefix, k, heavy, dmg=0, only=None):
         "L1": (10.0 if not heavy else 11.0) * k, "L2": (14.0 if not heavy else 15.0) * k,
         "hips": [[5 * k, 7.8 * k * wk], [-0.5 * k, 8.6 * k * wk], [-6 * k, 7.4 * k * wk]],
         "neck": [8.6 * k, 0], "abd": [-8.4 * k, 0],
+        "ant": [(10.5 if not heavy else 12.5) * k, 2.2 * k],
         "mand": [[ (11.5 if heavy else 9.5) * k, -3.2 * k * (1.1 if heavy else 1)]],
         "mand_len": 17.5 * k * (1.25 if heavy else 1.35),
         "eye_head": [[ (12.2 if heavy else 9.6) * k, 3.0 * k]],
