@@ -14,11 +14,16 @@ const SKINS := ["survivorMaleB", "survivorFemaleA", "zombieA", "zombieC"]
 ## Kenney's characters are chibi: from above the head hides the body. Scaling the head bone
 ## gives human proportions (OTXO-like silhouettes: shoulders, arms, legs readable).
 const HEAD_SCALE := 0.6
-## Clips from the FBX files: anim file -> {clip name in the file, frames over one loop}.
+## Clips from the FBX files: name -> {fbx file, clip name in it, frames over one loop,
+## hold: arms overridden with the two-handed weapon hold (Poses.hold), armed skins only}.
 const ANIMS := {
-	"idle": {"clip": "Root|Idle", "frames": 8},
-	"run": {"clip": "Root|Run", "frames": 8},
+	"idle": {"file": "idle", "clip": "Root|Idle", "frames": 8},
+	"run": {"file": "run", "clip": "Root|Run", "frames": 8},
+	"idle_aim": {"file": "idle", "clip": "Root|Idle", "frames": 8, "hold": true},
+	"run_aim": {"file": "run", "clip": "Root|Run", "frames": 8, "hold": true},
 }
+## Skins that carry weapons (get the *_aim clips and the dive).
+const ARMED := ["survivorMaleB", "survivorFemaleA"]
 ## Procedural clips (tools/poses.gd), not looping: frames sampled at t = i / (frames - 1).
 ## Lying flat the body is ~5 units long, so they get bigger frames. Pivot: the point the
 ## body turns around ("chest" keeps the dive centred, "hips" for falls).
@@ -36,6 +41,10 @@ var _vp: SubViewport
 var _cam: Camera3D
 var _holder: Node3D
 var _pivot: Node3D
+var _model: Node3D
+var _skel: Skeleton3D
+## Weapon anchors of the frames baked by the last _bake(): [grip x, grip y, gun angle].
+var _anchors: Array = []
 
 
 func _initialize() -> void:
@@ -43,15 +52,17 @@ func _initialize() -> void:
 	_build_stage()
 	var model: Node3D = (load(MODEL) as PackedScene).instantiate()
 	_pivot.add_child(model)
+	_model = model
 	var player := AnimationPlayer.new()
 	model.add_child(player)
 	player.root_node = NodePath("..")
 	var lib := AnimationLibrary.new()
 	for anim_name in ANIMS:
-		lib.add_animation(anim_name, _load_clip(anim_name, ANIMS[anim_name].clip))
+		lib.add_animation(anim_name, _load_clip(ANIMS[anim_name].file, ANIMS[anim_name].clip))
 	player.add_animation_library("", lib)
 	player.callback_mode_process = AnimationMixer.ANIMATION_CALLBACK_MODE_PROCESS_MANUAL
 	var skel := model.find_child("Skeleton3D") as Skeleton3D
+	_skel = skel
 	var mesh := _find_mesh(model)
 	# The dive pitches the body around the chest, so the flat body (hands ahead, feet behind)
 	# stays centred on the same point as the standing one.
@@ -69,16 +80,27 @@ func _initialize() -> void:
 		mat.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS
 		mesh.material_override = mat
 		DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path(OUT_DIR + skin))
+		var armed: bool = skin in ARMED
 		for anim_name in ANIMS:
-			var n: int = ANIMS[anim_name].frames
+			var spec: Dictionary = ANIMS[anim_name]
+			var hold: bool = spec.get("hold", false)
+			if hold and not armed:
+				continue
+			var n: int = spec.frames
 			var anim := lib.get_animation(anim_name)
 			player.play(anim_name)
 			var sheet := await _bake(n, CharSprite.FRAME, func(i: int) -> void:
 				player.seek(anim.length * i / n, true)
-				_fix_head(skel))
+				_fix_head(skel)
+				if hold:
+					_pose_keys(skel, model, [Poses.key(0.0, Vector3.ZERO, Poses.hold())], 0.0))
 			_save(sheet, skin, anim_name, preview_rows)
+			if hold:
+				_save_anchors(skin, anim_name)
 		player.play("idle")
-		var clips := {"dive": [DIVE, Poses.dive()]}
+		var clips := {}
+		if armed:
+			clips["dive"] = [DIVE, Poses.dive()]
 		for d in DEATHS:
 			clips[d] = [DEATH, Poses.death(DEATHS[d][0], DEATHS[d][1])]
 		for clip in clips:
@@ -93,6 +115,8 @@ func _initialize() -> void:
 			_pivot.transform = Transform3D.IDENTITY
 			model.position = Vector3.ZERO
 			_save(sheet, skin, clip, preview_rows)
+			if clip == "dive":
+				_save_anchors(skin, clip)
 	var args := OS.get_cmdline_user_args()
 	if args.size() > 0:
 		_save_preview(preview_rows, args[0])
@@ -104,8 +128,16 @@ func _bake(n: int, size: int, pose: Callable) -> Image:
 	_vp.size = Vector2i(size, size)
 	_cam.size = size / CharSprite.PX_PER_UNIT
 	var sheet := Image.create(size * n, size, false, Image.FORMAT_RGBA8)
+	_anchors.clear()
 	for i in n:
 		pose.call(i)
+		var grip := _screen_px(_skel.find_bone("RightHand"), size)
+		var fore := _screen_px(_skel.find_bone("LeftHand"), size)
+		var c := Vector2(size, size) / 2.0
+		# The gun runs straight ahead (the hold keeps it level, sprites face up), centred
+		# between the hands, its grip level with the right hand.
+		var at := Vector2((grip.x + fore.x) / 2.0, grip.y)
+		_anchors.append([snappedf(at.x - c.x, 0.1), snappedf(at.y - c.y, 0.1), snappedf(-PI / 2.0, 0.001)])
 		await process_frame
 		await RenderingServer.frame_post_draw
 		var img := _vp.get_texture().get_image()
@@ -120,6 +152,20 @@ func _save(sheet: Image, skin: String, anim_name: String, preview_rows: Array[Im
 	sheet.save_png(ProjectSettings.globalize_path(path))
 	preview_rows.append(sheet)
 	print("baked ", path, " frames=", sheet.get_width() / sheet.get_height())
+
+
+## Bone position in the frame (pixels from the top-left), from the current pose.
+func _screen_px(bone: int, size: int) -> Vector2:
+	var m := _to_model(_skel, _model) * _skel.get_bone_global_pose(bone).origin
+	var w := _holder.transform * _pivot.transform * _model.transform * m
+	return Vector2(w.x - _cam.position.x, w.z - _cam.position.z) * CharSprite.PX_PER_UNIT + Vector2(size, size) / 2.0
+
+
+## Weapon anchors per frame (grip offset from the frame centre in px, gun angle in rad,
+## screen space, sprite facing up), for drawing any weapon in the hands in game.
+func _save_anchors(skin: String, clip: String) -> void:
+	var f := FileAccess.open(ProjectSettings.globalize_path(OUT_DIR + "%s/%s.json" % [skin, clip]), FileAccess.WRITE)
+	f.store_string(JSON.stringify({"frames": _anchors}))
 
 
 func _fix_head(skel: Skeleton3D) -> void:

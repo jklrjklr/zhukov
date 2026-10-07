@@ -22,6 +22,13 @@ var phase := 0.0
 var lift := 0.0
 ## Mirror left/right (free variety for dives and deaths).
 var flip := false
+## Carries a weapon: plays the *_aim clips and draws the gun in the hands (per-frame anchors
+## art/sprites/<skin>/<clip>.json from the bake: grip offset px, gun angle).
+var armed := false
+## Gun art in sprite pixels (placeholder rifle): length ahead of the grip, behind it, width.
+const GUN_FRONT := 22
+const GUN_BACK := 6
+const GUN_W := 3
 ## Death variants by fall direction (baked by tools/bake_sprites.gd).
 const DEATHS := {
 	"back": ["death_back0", "death_back1", "death_back2"],
@@ -32,18 +39,21 @@ var _once_t := -1.0
 var _once_dur := 1.0
 
 var _sheets := {}
+var _anchors := {}
 
 
 func _ready() -> void:
 	texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
 	set_process(false)
-	for a in ["idle", "run"]:
+	for a in ["idle", "run", "idle_aim", "run_aim"] if armed else ["idle", "run"]:
 		_sheet(a)
 
 
 func _sheet(a: String) -> Texture2D:
 	if not _sheets.has(a):
 		_sheets[a] = load("res://art/sprites/%s/%s.png" % [skin, a])
+		var jp := "res://art/sprites/%s/%s.json" % [skin, a]
+		_anchors[a] = (load(jp) as JSON).data.frames if ResourceLoader.exists(jp) else []
 	return _sheets[a]
 
 
@@ -95,7 +105,7 @@ func show_clip(a: String, p: float) -> void:
 
 ## Picks the clip from the owner's speed and advances it (call once per tick).
 func advance(delta: float, speed: float) -> void:
-	var a := "run" if speed > MOVE_THRESHOLD else "idle"
+	var a := ("run" if speed > MOVE_THRESHOLD else "idle") + ("_aim" if armed else "")
 	if a != anim:
 		anim = a
 		phase = 0.0
@@ -118,4 +128,22 @@ func _draw() -> void:
 	draw_circle(Vector2.ZERO, 1.0, Color(Pal.SHADOW, Pal.SHADOW.a * (1.0 - lift * 0.4)))
 	s *= 1.0 + lift * 0.18
 	draw_set_transform(Vector2.ZERO, 0.0, Vector2(-s if flip else s, s))
+	if armed:
+		_draw_gun(i)
 	draw_texture_rect_region(tex, Rect2(-f / 2.0, -f / 2.0, f, f), Rect2(i * f, 0, f, f))
+
+
+## Gun under the arms (hands and head cover its middle), at the frame's anchor.
+func _draw_gun(i: int) -> void:
+	var frames: Array = _anchors.get(anim, [])
+	if i >= frames.size():
+		return
+	var a: Array = frames[i]
+	var at := Vector2(a[0], a[1]).round()
+	# Anchors point the gun straight ahead (-Y), so it stays on the pixel grid.
+	var body := Rect2(at.x - 1, at.y - GUN_FRONT, GUN_W, GUN_FRONT + GUN_BACK)
+	draw_rect(body.grow(1), Pal.INK)
+	draw_rect(body, Pal.GUN)
+	draw_rect(Rect2(at.x - 1, at.y - GUN_FRONT, 1, GUN_FRONT + GUN_BACK), Pal.GUN_LIGHT)
+	draw_rect(Rect2(at.x - 2, at.y - 9, 1, 4), Pal.INK) # magazine
+	draw_rect(Rect2(at.x, at.y - GUN_FRONT - 3, 1, 3), Pal.INK) # muzzle

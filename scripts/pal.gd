@@ -32,5 +32,8 @@ const ARMOR := Color("56658a")
 const ARMOR_LIGHT := Color("8597bd")
 const BOOT := Color("2d2430")
 
+const GUN := Color("3a3a44")
+const GUN_LIGHT := Color("6a6a78")
+
 const STAMINA := Color("6ec6e8")
 const STAMINA_LOW := Color("f08a3c")

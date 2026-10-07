@@ -33,32 +33,65 @@ static func key(t: float, rot: Vector3, limbs: Dictionary) -> Dictionary:
 	return {"t": t, "rot": rot, "limbs": limbs}
 
 
-## HD2-style dive: crouch and push off with the gun held forward, flat flight with one knee
-## kicked up, chest-first landing with elbows out, short slide, then a separate get-up
-## (push up on the hands, one knee under the body, kneel, stand), not the take-off reversed.
+## Two-handed weapon hold (rifle): right hand on the grip in front of the right chest, left
+## hand forward on the foregrip, gun along +Z. `pitch` is the body's forward pitch (deg):
+## the hold is counter-rotated so the gun stays level (points where he goes) even when the
+## body is flat, the way HD2 keeps the weapon up through a dive.
+const HOLD := {
+	"RArm": Vector3(-0.2, -0.75, 0.6), "RFore": Vector3(0.5, 0.1, 0.86),
+	"LArm": Vector3(0.1, -0.5, 0.85), "LFore": Vector3(-0.5, 0.05, 0.86),
+}
+
+
+static func hold(pitch := 0.0, over := {}) -> Dictionary:
+	var b := Basis(Vector3.RIGHT, -deg_to_rad(pitch))
+	var d := {}
+	for k in HOLD:
+		d[k] = b * (HOLD[k] as Vector3)
+	d.merge(over, true)
+	return d
+
+
+## Legs-only limb set merged into a hold.
+static func legs(thigh: Vector3, shin: Vector3, over := {}) -> Dictionary:
+	var m := Vector3(-1, 1, 1)
+	var d := {"LThigh": thigh, "LShin": shin, "RThigh": thigh * m, "RShin": shin * m}
+	d.merge(over, true)
+	return d
+
+
+static func _join(a: Dictionary, b: Dictionary) -> Dictionary:
+	var d := a.duplicate()
+	d.merge(b, true)
+	return d
+
+
+## HD2-style dive with the weapon held throughout (gun kept level): crouch and push off,
+## flat flight with one knee kicked up, chest-first landing, short slide, then a separate
+## get-up (left hand pushes off the ground, knee under the body, kneel, stand), not the
+## take-off reversed.
 static func dive() -> Array:
-	var gun_arm := Vector3(0.25, -0.2, 1.0)
-	var gun_fore := Vector3(-0.15, 0.1, 1.0)
 	return [
-		key(0.0, Vector3.ZERO, {}),
-		key(0.08, Vector3(20, 0, 0), sym(gun_arm, gun_fore, Vector3(0.15, -0.7, 0.6), Vector3(0.1, -0.9, -0.45))),
-		key(0.2, Vector3(62, 0, 0), sym(Vector3(0.25, 0.7, 0.6), Vector3(-0.12, 0.85, 0.45), Vector3(0.12, -1, -0.1), Vector3(0.1, -0.95, -0.2),
-			{"RThigh": Vector3(-0.1, -0.8, 0.5), "RShin": Vector3(-0.1, -0.9, -0.4)})),
-		key(0.34, Vector3(84, 0, 0), sym(Vector3(0.22, 1.0, 0.15), Vector3(-0.12, 1.0, 0.05), Vector3(0.15, -1, -0.05), Vector3(0.1, -0.55, -0.85),
-			{"RThigh": Vector3(-0.08, -1, 0.05), "RShin": Vector3(-0.08, -1, -0.15)})),
-		key(0.46, Vector3(90, 0, 0), sym(Vector3(0.24, 1.0, 0.15), Vector3(-0.12, 1.0, 0.1), Vector3(0.15, -1, -0.05), Vector3(0.1, -0.7, -0.7),
-			{"RShin": Vector3(-0.1, -0.85, -0.5)})),
-		key(0.55, Vector3(96, 0, 0), sym(Vector3(0.6, 0.6, 0.5), Vector3(-0.15, 0.85, 0.5), Vector3(0.18, -1, 0.0), Vector3(0.12, -0.95, -0.3))),
-		key(0.66, Vector3(91, 0, 0), sym(Vector3(0.55, 0.65, 0.5), Vector3(-0.1, 0.9, 0.4), Vector3(0.2, -1, 0.05), Vector3(0.15, -1, 0.0))),
-		key(0.76, Vector3(72, 0, 0), sym(Vector3(0.45, 0.1, 0.9), Vector3(0.05, -0.1, 1.0), Vector3(-0.15, -1, -0.05), Vector3(-0.1, -1, 0.0),
-			{"LThigh": Vector3(0.18, -0.35, 0.9), "LShin": Vector3(0.05, -1, -0.15)})),
-		key(0.87, Vector3(28, 0, 0), sym(gun_arm, gun_fore, Vector3(-0.15, -0.85, -0.45), Vector3(-0.05, -0.3, -1),
-			{"LThigh": Vector3(0.15, -0.15, 1.0), "LShin": Vector3(0.05, -1, -0.1)})),
-		key(1.0, Vector3.ZERO, {}),
+		key(0.0, Vector3.ZERO, hold(0)),
+		key(0.08, Vector3(20, 0, 0), _join(hold(20), legs(Vector3(0.15, -0.7, 0.6), Vector3(0.1, -0.9, -0.45)))),
+		key(0.2, Vector3(62, 0, 0), _join(hold(62), legs(Vector3(0.12, -1, -0.1), Vector3(0.1, -0.95, -0.2),
+			{"RThigh": Vector3(-0.1, -0.8, 0.5), "RShin": Vector3(-0.1, -0.9, -0.4)}))),
+		key(0.34, Vector3(84, 0, 0), _join(hold(84), legs(Vector3(0.15, -1, -0.05), Vector3(0.1, -0.55, -0.85),
+			{"RThigh": Vector3(-0.08, -1, 0.05), "RShin": Vector3(-0.08, -1, -0.15)}))),
+		key(0.46, Vector3(90, 0, 0), _join(hold(90), legs(Vector3(0.15, -1, -0.05), Vector3(0.1, -0.7, -0.7),
+			{"RShin": Vector3(-0.1, -0.85, -0.5)}))),
+		key(0.55, Vector3(96, 0, 0), _join(hold(96), legs(Vector3(0.18, -1, 0.0), Vector3(0.12, -0.95, -0.3)))),
+		key(0.66, Vector3(91, 0, 0), _join(hold(91), legs(Vector3(0.2, -1, 0.05), Vector3(0.15, -1, 0.0)))),
+		key(0.76, Vector3(72, 0, 0), _join(hold(72, {"LArm": Vector3(0.45, 0.1, 0.9), "LFore": Vector3(0.05, -0.1, 1.0)}),
+			legs(Vector3(-0.15, -1, -0.05), Vector3(-0.1, -1, 0.0),
+			{"LThigh": Vector3(0.18, -0.35, 0.9), "LShin": Vector3(0.05, -1, -0.15)}))),
+		key(0.87, Vector3(28, 0, 0), _join(hold(28), legs(Vector3(-0.15, -0.85, -0.45), Vector3(-0.05, -0.3, -1),
+			{"LThigh": Vector3(0.15, -0.15, 1.0), "LShin": Vector3(0.05, -1, -0.1)}))),
+		key(1.0, Vector3.ZERO, hold(0)),
 	]
 
 
-## Death fall around the feet. kind: "back", "fwd", "left", "right", "crumple"; seed varies
+## Death fall (the weapon is dropped, arms go limp). kind: "back", "fwd", "left", "right", "crumple"; seed varies
 ## the limb splay so variants of one kind differ. Timeline: hit flinch, accelerating fall,
 ## impact with limbs flung past their rest, settle limp.
 static func death(kind: String, seed_: int) -> Array:

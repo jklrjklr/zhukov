@@ -60,6 +60,7 @@ var _ov: Node2D
 
 func _ready() -> void:
 	add_to_group("player")
+	sprite.armed = true
 	# The body is drawn VISUAL_SCALE bigger (the whole node, so the collision circle too); the
 	# camera rig cancels it so the camera maths stays in world pixels.
 	scale = Vector2.ONE * Vis.VISUAL_SCALE
@@ -176,7 +177,7 @@ func _update_dive(delta: float) -> void:
 		sprite.rotation = 0.0
 		sprite.lift = 0.0
 		sprite.flip = false
-		sprite.anim = "idle"
+		sprite.anim = "idle_aim"
 	_ov.queue_redraw()
 
 

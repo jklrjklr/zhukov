@@ -37,11 +37,17 @@ skill-based player control. Mobile first (budget Android), desktop for testing.
 - In game `CharSprite` draws the sheet (1 texel = 1 buffer pixel), picks idle / run from
   speed and advances the run cycle by distance travelled (no foot sliding).
 - Clips the pack lacks are posed procedurally from keyed bone directions (`tools/poses.gd`):
-  - **dive** (HD2-style, 16 frames, 128 px): crouch + push-off with the gun forward, flat
-    flight with one knee kicked up, chest-first landing with elbows out, slide, then a
-    separate get-up (push up, knee under, kneel, stand). Mirrored at random in game.
+  - **weapon hold** (`Poses.hold(pitch)`): two-handed rifle hold, counter-rotated by the
+    body pitch so the gun stays level. Every pose of an armed character must keep it:
+    `idle_aim` / `run_aim` (FBX legs + hold arms) and the dive use it; deaths drop the gun.
+  - **dive** (HD2-style, 16 frames, 128 px): crouch + push-off, flat flight with one knee
+    kicked up, chest-first landing, slide, separate get-up (left hand pushes off, knee
+    under, kneel, stand); gun held level throughout. Mirrored at random in game.
   - **deaths** (10 frames, 160 px, ragdoll-like): back x3, face-down x3, left / right side,
     crumple x2; random elbow / knee bends, spine twist, lolling head, impact overshoot.
     `CharSprite.play_death(push)` picks by hit direction and mirrors at random.
+- Weapons are not baked into the sprites: armed clips export per-frame anchors
+  (`<clip>.json`: grip offset px, gun angle) and `CharSprite` draws the weapon there, under
+  the arms. Any weapon art fits every armed pose without re-baking.
 - New characters / clips: add the FBX (same rig) and list the skin / clip in the tool.
   Shooting / hit / death clips will need a source with those animations (same rig).

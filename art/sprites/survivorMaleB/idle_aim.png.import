@@ -2,16 +2,16 @@
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://0ruh4y4ylo35"
-path="res://.godot/imported/dive.png-22879b6d8c97623b7e204d6900f18e9a.ctex"
+uid="uid://dtj7yixvc37bw"
+path="res://.godot/imported/idle_aim.png-ea8a2d907673e1d96cfe9291b2833f65.ctex"
 metadata={
 "vram_texture": false
 }
 
 [deps]
 
-source_file="res://art/sprites/zombieC/dive.png"
-dest_files=["res://.godot/imported/dive.png-22879b6d8c97623b7e204d6900f18e9a.ctex"]
+source_file="res://art/sprites/survivorMaleB/idle_aim.png"
+dest_files=["res://.godot/imported/idle_aim.png-ea8a2d907673e1d96cfe9291b2833f65.ctex"]
 
 [params]
 
