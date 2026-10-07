@@ -29,17 +29,17 @@ var armed := false
 const GUN_FRONT := 22
 const GUN_BACK := 8
 const GUN_W := 3
-## Death variants by fall direction (baked by tools/bake_sprites.gd).
-const DEATHS := {
-	"back": ["death_back0", "death_back1", "death_back2"],
-	"fwd": ["death_fwd0", "death_fwd1", "death_fwd2"],
-	"crumple": ["death_crumple0", "death_crumple1"],
-}
+## Ragdoll deaths baked per push direction (8, 45 deg apart, 0 = pushed back / screen-down,
+## clockwise) x variants: death_d<dir>_<variant>.
+const DEATH_DIRS := 8
+const DEATH_VARIANTS := 3
 var _once_t := -1.0
 var _once_dur := 1.0
 
 var _sheets := {}
 var _anchors := {}
+## Cropped sheets: clip -> {frame (full frame size), frames_n, rect [x, y, w, h]}.
+var _crops := {}
 
 
 func _ready() -> void:
@@ -53,7 +53,10 @@ func _sheet(a: String) -> Texture2D:
 	if not _sheets.has(a):
 		_sheets[a] = load("res://art/sprites/%s/%s.png" % [skin, a])
 		var jp := "res://art/sprites/%s/%s.json" % [skin, a]
-		_anchors[a] = (load(jp) as JSON).data.frames if ResourceLoader.exists(jp) else []
+		var meta: Dictionary = (load(jp) as JSON).data if ResourceLoader.exists(jp) else {}
+		_anchors[a] = meta.get("frames", [])
+		if meta.has("rect"):
+			_crops[a] = meta
 	return _sheets[a]
 
 
@@ -67,22 +70,12 @@ func play_once(a: String, duration: float) -> void:
 	set_process(true)
 
 
-## Picks a death clip for a body pushed along `push` (sprite space: -Y = the way it faces):
-## pushed back -> falls on the back, forward -> on the face, sideways -> on that side,
-## sometimes it just crumples. Back / face / crumple variants are mirrored at random.
+## Plays a ragdoll death for a body pushed along `push` (sprite space: -Y = the way it faces):
+## the nearest of the 8 baked directions, a random variant.
 func play_death(push: Vector2, duration := 0.75) -> void:
-	var d := push.normalized()
-	var clip: String
-	if randf() < 0.2:
-		clip = DEATHS.crumple.pick_random()
-	elif absf(d.x) > 0.75:
-		clip = "death_left" if d.x > 0.0 else "death_right"
-	elif d.y > 0.0:
-		clip = DEATHS.back.pick_random()
-	else:
-		clip = DEATHS.fwd.pick_random()
-	flip = not clip.begins_with("death_left") and not clip.begins_with("death_right") and randf() < 0.5
-	play_once(clip, duration)
+	var k := posmod(roundi(rad_to_deg(atan2(push.x, push.y)) / (360.0 / DEATH_DIRS)), DEATH_DIRS)
+	flip = false
+	play_once("death_d%d_%d" % [k, randi() % DEATH_VARIANTS], duration)
 
 
 func _process(delta: float) -> void:
@@ -119,6 +112,15 @@ func _draw() -> void:
 		return
 	var f := tex.get_height()
 	var n := tex.get_width() / f
+	var src_w := f
+	var dst := Rect2(-f / 2.0, -f / 2.0, f, f)
+	if _crops.has(anim):
+		var c: Dictionary = _crops[anim]
+		var full: float = c.frame
+		var r: Array = c.rect
+		n = int(c.frames_n)
+		src_w = int(r[2])
+		dst = Rect2(r[0] - full / 2.0, r[1] - full / 2.0, r[2], r[3])
 	var i := clampi(int(fposmod(phase, 1.0) * n), 0, n - 1)
 	# Undo the parent's scale so one texel = one buffer pixel (1 / CAM_ZOOM world px).
 	var s := 1.0 / Vis.CAM_ZOOM / global_scale.x
@@ -132,7 +134,7 @@ func _draw() -> void:
 	draw_set_transform(Vector2.ZERO, 0.0, Vector2(-s if flip else s, s))
 	if armed:
 		_draw_gun(i)
-	draw_texture_rect_region(tex, Rect2(-f / 2.0, -f / 2.0, f, f), Rect2(i * f, 0, f, f))
+	draw_texture_rect_region(tex, dst, Rect2(i * src_w, 0, src_w, dst.size.y))
 
 
 ## Gun under the arms (hands and head cover its middle), at the frame's anchor.

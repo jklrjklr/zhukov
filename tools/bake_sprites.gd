@@ -36,17 +36,13 @@ const ARMED := ["survivorMaleB", "survivorFemaleA"]
 const DIVE := {"frames": 16, "size": 128, "pivot": "chest"}
 ## Deaths are physics ragdolls (tools/ragdoll.gd): the body starts from its stance, takes a
 ## hit impulse and falls limp; frames sampled over DEATH_TIME seconds of simulation.
-const DEATH := {"frames": 12, "size": 192}
-const DEATH_TIME := 1.6
-## Death clip name -> [kind, seed]: kind = which way the hit pushes (back / fwd / left /
-## right = toward the character's right side, as CharSprite.play_death expects / crumple);
-## the seed varies force, lift and spin.
-const DEATHS := {
-	"death_back0": ["back", 11], "death_back1": ["back", 23], "death_back2": ["back", 97],
-	"death_fwd0": ["fwd", 31], "death_fwd1": ["fwd", 47], "death_fwd2": ["fwd", 89],
-	"death_left": ["left", 53], "death_right": ["right", 61],
-	"death_crumple0": ["crumple", 79], "death_crumple1": ["crumple", 83],
-}
+## DEATH_DIRS push directions (sprite space, 0 = pushed back / screen-down, clockwise in 45 deg
+## steps) x DEATH_VARIANTS seeds: death_d<dir>_<variant>. Sheets are cropped to the area the
+## fall uses (offset in the clip's .json) to keep memory down on phones.
+const DEATH := {"frames": 10, "size": 192}
+const DEATH_TIME := 1.5
+const DEATH_DIRS := 8
+const DEATH_VARIANTS := 3
 
 var _vp: SubViewport
 var _cam: Camera3D
@@ -146,15 +142,17 @@ func _bake_model(path: String, skins: Array, preview_rows: Array[Image]) -> void
 			_save(sheet, skin, clip, preview_rows)
 			if clip == "dive":
 				_save_anchors(skin, clip)
-		for d in DEATHS:
-			var sheet := await _bake_ragdoll(player, skel, model, armed, DEATHS[d][0], DEATHS[d][1])
-			_save(sheet, skin, d, preview_rows)
+		for k in DEATH_DIRS:
+			for v in DEATH_VARIANTS:
+				var clip := "death_d%d_%d" % [k, v]
+				var sheet := await _bake_ragdoll(player, skel, model, armed, k, 1000 + k * 17 + v * 131)
+				_save_cropped(sheet, DEATH.size, skin, clip, preview_rows)
 	_model.queue_free()
 	await process_frame
 
 
-## Ragdoll death from the standing pose (gun hold if armed), pushed by `kind`.
-func _bake_ragdoll(player: AnimationPlayer, skel: Skeleton3D, model: Node3D, armed: bool, kind: String, seed_: int) -> Image:
+## Ragdoll death from the standing pose (gun hold if armed), pushed toward direction `dir`.
+func _bake_ragdoll(player: AnimationPlayer, skel: Skeleton3D, model: Node3D, armed: bool, dir: int, seed_: int) -> Image:
 	var rng := RandomNumberGenerator.new()
 	rng.seed = seed_
 	player.play("idle_aim" if armed else "idle")
@@ -168,23 +166,11 @@ func _bake_ragdoll(player: AnimationPlayer, skel: Skeleton3D, model: Node3D, arm
 		floor_y = minf(floor_y, _bone_pos(skel, model, b).y)
 	var rag := BakeRagdoll.new()
 	rag.build(skel, _holder, floor_y - 0.08)
-	# Push in the model's own frame (+Z ahead, +X its left), then to world.
-	var speed := rng.randf_range(5.0, 9.0)
-	var push_m: Vector3
-	match kind:
-		"back":
-			push_m = Vector3(rng.randf_range(-0.3, 0.3), rng.randf_range(0.2, 0.6), -1.0)
-		"fwd":
-			push_m = Vector3(rng.randf_range(-0.3, 0.3), rng.randf_range(0.1, 0.4), 1.0)
-		"left":
-			push_m = Vector3(-1.0, rng.randf_range(0.2, 0.5), rng.randf_range(-0.3, 0.3))
-		"right":
-			push_m = Vector3(1.0, rng.randf_range(0.2, 0.5), rng.randf_range(-0.3, 0.3))
-		_:
-			# Crumple: barely nudged, the limp legs give way under the body's own weight.
-			push_m = Vector3(rng.randf_range(-0.4, 0.4), 0.0, rng.randf_range(0.3, 1.0))
-			speed = rng.randf_range(0.8, 1.6)
-	var push := _holder.basis * (push_m.normalized() * speed)
+	# Push in sprite / screen space (screen x = world X, screen y = world Z): direction `dir`
+	# times 45 deg clockwise from screen-down, jittered; force, lift and spin from the seed.
+	var ang := deg_to_rad(dir * 45.0 + rng.randf_range(-12.0, 12.0))
+	var speed := rng.randf_range(4.5, 9.0)
+	var push := Vector3(sin(ang), rng.randf_range(0.1, 0.5), cos(ang)).normalized() * speed
 	var spin := Vector3(rng.randf_range(-3, 3), rng.randf_range(-4, 4), rng.randf_range(-3, 3))
 	var steps := int(DEATH_TIME * Engine.physics_ticks_per_second / (DEATH.frames - 1))
 	var sheet := await _bake(DEATH.frames, DEATH.size, func(i: int) -> void:
@@ -223,6 +209,25 @@ func _bake(n: int, size: int, pose: Callable) -> Image:
 		_outline(img)
 		sheet.blit_rect(img, Rect2i(0, 0, size, size), Vector2i(i * size, 0))
 	return sheet
+
+
+## Saves a sheet cropped to the union of its frames' used areas; the crop rect (in frame
+## pixels) goes to <clip>.json as "rect" so the game draws it at the right offset.
+func _save_cropped(sheet: Image, size: int, skin: String, clip: String, preview_rows: Array[Image]) -> void:
+	var n := sheet.get_width() / size
+	var u := Rect2i()
+	for i in n:
+		var r := sheet.get_region(Rect2i(i * size, 0, size, size)).get_used_rect()
+		if r.size != Vector2i.ZERO:
+			u = r if u.size == Vector2i.ZERO else u.merge(r)
+	var out := Image.create(u.size.x * n, u.size.y, false, Image.FORMAT_RGBA8)
+	for i in n:
+		out.blit_rect(sheet, Rect2i(i * size + u.position.x, u.position.y, u.size.x, u.size.y), Vector2i(i * u.size.x, 0))
+	out.save_png(ProjectSettings.globalize_path(OUT_DIR + "%s/%s.png" % [skin, clip]))
+	var f := FileAccess.open(ProjectSettings.globalize_path(OUT_DIR + "%s/%s.json" % [skin, clip]), FileAccess.WRITE)
+	f.store_string(JSON.stringify({"frame": size, "frames_n": n, "rect": [u.position.x, u.position.y, u.size.x, u.size.y]}))
+	preview_rows.append(sheet)
+	print("baked ", clip, " frames=", n, " crop=", u.size)
 
 
 func _save(sheet: Image, skin: String, anim_name: String, preview_rows: Array[Image]) -> void:

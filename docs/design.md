@@ -46,8 +46,8 @@ skill-based player control. Mobile first (budget Android), desktop for testing.
   - Run: `xvfb-run -a godot --path . --rendering-driver opengl3 --script res://tools/bake_sprites.gd -- <preview dir>`
 - In game `CharSprite` draws the sheet (1 texel = 1 buffer pixel), picks idle / run from
   speed and advances the run cycle by distance travelled (no foot sliding).
-- Realistic motion is coming from Mixamo mocap (list: `docs/mixamo_clips.md`), retargeted
-  to the rig in Blender; the keyed clips below are stand-ins until then.
+- Realistic motion: CMU Graphics Lab mocap (BVH), retargeted to the rig in Blender (Mixamo
+  list kept in `docs/mixamo_clips.md` for later); keyed clips are stand-ins until replaced.
 - Clips the pack lacks are posed procedurally from keyed bone directions (`tools/poses.gd`):
   - **weapon hold** (`Poses.hold(pitch)`): shouldered rifle solved with 2-bone IK (stock in
     the right shoulder pocket, gun beside the right cheek, right hand on the grip with the
@@ -58,9 +58,10 @@ skill-based player control. Mobile first (budget Android), desktop for testing.
     kicked up, chest-first landing, slide, separate get-up (left hand pushes off, knee
     under, kneel, stand); gun held level throughout. Mirrored at random in game.
   - **deaths** (physics ragdoll, `tools/ragdoll.gd`, Jolt at 240 Hz): the body starts from
-    its stance (gun hold), takes a hit impulse (back / face / either side, or a crumple
-    nudge; seed varies force, lift, spin) and falls limp; 12 frames over 1.6 s, 192 px.
-    `CharSprite.play_death(push)` picks by hit direction and mirrors at random.
+    its stance (gun hold), takes a hit impulse and falls limp; 8 push directions (45 deg) x 3
+    seeded variants (force, lift, spin) = `death_d<dir>_<v>`, 10 frames over 1.5 s. Sheets
+    are cropped to the area the fall uses (rect in the clip's .json).
+    `CharSprite.play_death(push)` picks the nearest direction and a random variant.
 - Weapons are not baked into the sprites: armed clips export per-frame anchors
   (`<clip>.json`: grip offset px, gun angle) and `CharSprite` draws the weapon there, under
   the arms. Any weapon art fits every armed pose without re-baking.
