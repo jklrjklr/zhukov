@@ -15,10 +15,11 @@ func _initialize() -> void:
 	var main: Node = (load("res://scenes/main.tscn") as PackedScene).instantiate()
 	root.add_child(main)
 	await process_frame
-	var p: CharacterBody2D = main.get_node("Player")
-	var cam: Camera2D = p.get_node("CameraRig/Camera2D")
-	check("camera current", cam.is_current())
-	check("camera base zoom", absf(cam.zoom.x - Vis.CAM_ZOOM) < 0.01, str(cam.zoom))
+	var p: CharacterBody2D = main.get_node("PixelView/SubViewport/Player")
+	var cam: PlayerCamera = p.get_node("CameraRig/ViewCamera")
+	var pv: PixelView = main.get_node("PixelView")
+	check("low-res buffer height", pv.buffer_size().y == Vis.PIXEL_HEIGHT, str(pv.buffer_size()))
+	check("camera base zoom", absf(cam.zoom - Vis.CAM_ZOOM) < 0.01, str(cam.zoom))
 	p.move_input = Vector2(0, -1)
 	for i in 60:
 		await physics_frame
@@ -28,7 +29,12 @@ func _initialize() -> void:
 	for i in 60:
 		await physics_frame
 	check("body follows look angle", absf(wrapf(p.rotation - PI / 2.0, -PI, PI)) < 0.01, str(p.rotation))
-	check("camera rig aligned", absf(cam.get_global_transform().get_rotation() - PI / 2.0) < 0.01)
+	check("camera rig aligned", absf(cam.global_rotation - PI / 2.0) < 0.01)
+	await process_frame
+	var vxf: Transform2D = pv.get_child(0).canvas_transform
+	check("buffer transform snapped to whole pixels", vxf.origin == vxf.origin.round(), str(vxf.origin))
+	var on_screen: Vector2 = vxf * p.global_position
+	check("player in lower half of buffer", on_screen.y > pv.get_child(0).size.y * 0.5, str(on_screen))
 	var start := p.global_position
 	p.move_input = Vector2(0, -1)
 	for i in 30:

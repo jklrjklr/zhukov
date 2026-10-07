@@ -50,11 +50,11 @@ func _blob(rng: RandomNumberGenerator, radius: float) -> PackedVector2Array:
 func _draw() -> void:
 	var h := HALF_SIZE
 	draw_rect(Rect2(-h, -h, 2 * h, 2 * h), Color(0.2, 0.24, 0.18))
-	var line := Color(1, 1, 1, 0.06)
+	var line := Color(1, 1, 1, 0.05) # width -1: always one buffer pixel
 	var x := -h
 	while x <= h:
-		draw_line(Vector2(x, -h), Vector2(x, h), line, 2.0)
-		draw_line(Vector2(-h, x), Vector2(h, x), line, 2.0)
+		draw_line(Vector2(x, -h), Vector2(x, h), line, -1.0)
+		draw_line(Vector2(-h, x), Vector2(h, x), line, -1.0)
 		x += GRID
 	draw_circle(Vector2.ZERO, 12.0, Color(1, 1, 1, 0.2))
 	for poly in _rocks:

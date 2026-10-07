@@ -1,29 +1,33 @@
 class_name PlayerCamera
-extends Camera2D
+extends Node2D
 ## Child of the player's CameraRig (which the player counter-rotates to look_angle).
-## Sits ahead of the player so more is visible in the look direction; eases toward
-## `target_offset` / `target_zoom` (relative to the base) and adds decaying shake.
+## Not a Camera2D: PixelView reads this node's global transform and `zoom` to build the
+## low-res buffer's canvas transform itself (so it can snap to whole pixels and hand the
+## sub-pixel remainder to the upscale). Sits ahead of the player so more is visible in the
+## look direction; eases toward `target_offset` / `target_zoom` and adds decaying shake.
 
 ## px ahead of the player (screen-up) at rest.
-@export var look_ahead := 280.0
+@export var look_ahead := 175.0
 ## Higher = snappier offset / zoom changes.
 @export var ease_rate := 8.0
 
 ## Extra offset (rig frame, px) and zoom multiplier other systems can set.
 var target_offset := Vector2.ZERO
 var target_zoom := 1.0
+## Buffer pixels per world px (read by PixelView).
+var zoom := Vis.CAM_ZOOM
 var _offset := Vector2.ZERO
 var _zoom := 1.0
 var _shake := 0.0
 
 
 func _ready() -> void:
-	ignore_rotation = false
+	add_to_group("view_camera")
 	_offset = Vector2(0, -look_ahead)
 	_apply(Vector2.ZERO)
 
 
-## Kick the view by `amount` px (decays quickly).
+## Kick the view by `amount` world px (decays quickly).
 func shake(amount: float) -> void:
 	_shake = maxf(_shake, amount)
 
@@ -39,4 +43,4 @@ func _process(delta: float) -> void:
 
 func _apply(jitter: Vector2) -> void:
 	position = _offset + jitter
-	zoom = Vector2.ONE * Vis.CAM_ZOOM * _zoom
+	zoom = Vis.CAM_ZOOM * _zoom

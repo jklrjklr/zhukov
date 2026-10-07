@@ -50,7 +50,7 @@ var _walk_amount := 0.0 # 0 idle .. 1 full stride, eased
 
 @onready var _head: Node2D = $Head
 @onready var _rig: Node2D = $CameraRig
-@onready var camera: PlayerCamera = $CameraRig/Camera2D
+@onready var camera: PlayerCamera = $CameraRig/ViewCamera
 
 
 func _ready() -> void:
