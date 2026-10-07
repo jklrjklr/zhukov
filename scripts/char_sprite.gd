@@ -20,14 +20,70 @@ var anim := "idle"
 var phase := 0.0
 ## 0..1 airborne height (dive): the body is drawn bigger and the shadow drifts away.
 var lift := 0.0
+## Mirror left/right (free variety for dives and deaths).
+var flip := false
+## Death variants by fall direction (baked by tools/bake_sprites.gd).
+const DEATHS := {
+	"back": ["death_back0", "death_back1", "death_back2"],
+	"fwd": ["death_fwd0", "death_fwd1", "death_fwd2"],
+	"crumple": ["death_crumple0", "death_crumple1"],
+}
+var _once_t := -1.0
+var _once_dur := 1.0
 
 var _sheets := {}
 
 
 func _ready() -> void:
 	texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
-	for a in ["idle", "run", "dive"]:
+	set_process(false)
+	for a in ["idle", "run"]:
+		_sheet(a)
+
+
+func _sheet(a: String) -> Texture2D:
+	if not _sheets.has(a):
 		_sheets[a] = load("res://art/sprites/%s/%s.png" % [skin, a])
+	return _sheets[a]
+
+
+## Plays a non-looping clip once over `duration` s, then holds its last frame.
+func play_once(a: String, duration: float) -> void:
+	_sheet(a)
+	anim = a
+	phase = 0.0
+	_once_t = 0.0
+	_once_dur = duration
+	set_process(true)
+
+
+## Picks a death clip for a body pushed along `push` (sprite space: -Y = the way it faces):
+## pushed back -> falls on the back, forward -> on the face, sideways -> on that side,
+## sometimes it just crumples. Back / face / crumple variants are mirrored at random.
+func play_death(push: Vector2, duration := 0.75) -> void:
+	var d := push.normalized()
+	var clip: String
+	if randf() < 0.2:
+		clip = DEATHS.crumple.pick_random()
+	elif absf(d.x) > 0.75:
+		clip = "death_left" if d.x > 0.0 else "death_right"
+	elif d.y > 0.0:
+		clip = DEATHS.back.pick_random()
+	else:
+		clip = DEATHS.fwd.pick_random()
+	flip = not clip.begins_with("death_left") and not clip.begins_with("death_right") and randf() < 0.5
+	play_once(clip, duration)
+
+
+func _process(delta: float) -> void:
+	if _once_t < 0.0:
+		set_process(false)
+		return
+	_once_t += delta
+	phase = minf(_once_t / _once_dur, 0.999)
+	if _once_t >= _once_dur:
+		_once_t = -1.0
+	queue_redraw()
 
 
 ## Shows a non-looping clip (dive) at phase 0..1 (clamped).
@@ -48,7 +104,7 @@ func advance(delta: float, speed: float) -> void:
 
 
 func _draw() -> void:
-	var tex: Texture2D = _sheets.get(anim)
+	var tex: Texture2D = _sheet(anim)
 	if tex == null:
 		return
 	var f := tex.get_height()
@@ -61,5 +117,5 @@ func _draw() -> void:
 	draw_set_transform(sh.rotated(-global_rotation) / global_scale.x, 0.0, Vector2(13, 11) * (1.0 - lift * 0.25) / global_scale.x)
 	draw_circle(Vector2.ZERO, 1.0, Color(Pal.SHADOW, Pal.SHADOW.a * (1.0 - lift * 0.4)))
 	s *= 1.0 + lift * 0.18
-	draw_set_transform(Vector2.ZERO, 0.0, Vector2(s, s))
+	draw_set_transform(Vector2.ZERO, 0.0, Vector2(-s if flip else s, s))
 	draw_texture_rect_region(tex, Rect2(-f / 2.0, -f / 2.0, f, f), Rect2(i * f, 0, f, f))

@@ -36,7 +36,12 @@ skill-based player control. Mobile first (budget Android), desktop for testing.
   - Run: `xvfb-run -a godot --path . --rendering-driver opengl3 --script res://tools/bake_sprites.gd -- <preview dir>`
 - In game `CharSprite` draws the sheet (1 texel = 1 buffer pixel), picks idle / run from
   speed and advances the run cycle by distance travelled (no foot sliding).
-- The dive has no source clip: the tool poses it (body pitched forward around the chest,
-  arms swung ahead, legs straightened; keys in `DIVE_KEYS`) into a 12-frame, 128 px sheet.
+- Clips the pack lacks are posed procedurally from keyed bone directions (`tools/poses.gd`):
+  - **dive** (HD2-style, 16 frames, 128 px): crouch + push-off with the gun forward, flat
+    flight with one knee kicked up, chest-first landing with elbows out, slide, then a
+    separate get-up (push up, knee under, kneel, stand). Mirrored at random in game.
+  - **deaths** (10 frames, 160 px, ragdoll-like): back x3, face-down x3, left / right side,
+    crumple x2; random elbow / knee bends, spine twist, lolling head, impact overshoot.
+    `CharSprite.play_death(push)` picks by hit direction and mirrors at random.
 - New characters / clips: add the FBX (same rig) and list the skin / clip in the tool.
   Shooting / hit / death clips will need a source with those animations (same rig).

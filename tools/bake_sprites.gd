@@ -19,20 +19,18 @@ const ANIMS := {
 	"idle": {"clip": "Root|Idle", "frames": 8},
 	"run": {"clip": "Root|Run", "frames": 8},
 }
-## Procedural dive (dodge), not looping: frames sampled at t = i / (frames - 1). Lying flat
-## the body is ~5 units long, so it gets a bigger frame.
-const DIVE_FRAMES := 12
-const DIVE_SIZE := 128
-## Dive keys: [t, pitch forward (deg), arms 0 = down .. 1 = stretched ahead, legs 0 = idle .. 1 = straight back]
-const DIVE_KEYS := [
-	[0.00, 0.0, 0.0, 0.0],
-	[0.15, 45.0, 0.8, 1.0], # take-off
-	[0.30, 80.0, 1.0, 1.0], # airborne
-	[0.55, 86.0, 1.0, 1.0],
-	[0.70, 90.0, 0.9, 1.0], # landed, sliding prone
-	[0.85, 50.0, 0.3, 0.5], # getting up
-	[1.00, 0.0, 0.0, 0.0],
-]
+## Procedural clips (tools/poses.gd), not looping: frames sampled at t = i / (frames - 1).
+## Lying flat the body is ~5 units long, so they get bigger frames. Pivot: the point the
+## body turns around ("chest" keeps the dive centred, "hips" for falls).
+const DIVE := {"frames": 16, "size": 128, "pivot": "chest"}
+const DEATH := {"frames": 10, "size": 160, "pivot": "hips"}
+## Death clip name -> [kind, seed]. Variants of one kind differ by seed.
+const DEATHS := {
+	"death_back0": ["back", 11], "death_back1": ["back", 23], "death_back2": ["back", 97],
+	"death_fwd0": ["fwd", 31], "death_fwd1": ["fwd", 47], "death_fwd2": ["fwd", 89],
+	"death_left": ["left", 53], "death_right": ["right", 61],
+	"death_crumple0": ["crumple", 79], "death_crumple1": ["crumple", 83],
+}
 
 var _vp: SubViewport
 var _cam: Camera3D
@@ -59,9 +57,10 @@ func _initialize() -> void:
 	# stays centred on the same point as the standing one.
 	player.play("idle")
 	player.seek(0.0, true)
-	var chest_y := (_to_model(skel, model) * skel.get_bone_global_pose(skel.find_bone("UpperChest"))).origin.y
-	_pivot.position.y = chest_y
-	model.position.y = -chest_y
+	var pivots := {
+		"chest": (_to_model(skel, model) * skel.get_bone_global_pose(skel.find_bone("UpperChest"))).origin.y,
+		"hips": (_to_model(skel, model) * skel.get_bone_global_pose(skel.find_bone("Hips"))).origin.y,
+	}
 	await _center_on_body(player, skel)
 	var preview_rows: Array[Image] = []
 	for skin in SKINS:
@@ -79,12 +78,21 @@ func _initialize() -> void:
 				_fix_head(skel))
 			_save(sheet, skin, anim_name, preview_rows)
 		player.play("idle")
-		var dive := await _bake(DIVE_FRAMES, DIVE_SIZE, func(i: int) -> void:
-			player.seek(0.0, true)
-			_fix_head(skel)
-			_pose_dive(skel, model, float(i) / (DIVE_FRAMES - 1)))
-		_pivot.rotation = Vector3.ZERO
-		_save(dive, skin, "dive", preview_rows)
+		var clips := {"dive": [DIVE, Poses.dive()]}
+		for d in DEATHS:
+			clips[d] = [DEATH, Poses.death(DEATHS[d][0], DEATHS[d][1])]
+		for clip in clips:
+			var spec: Dictionary = clips[clip][0]
+			var keys: Array = clips[clip][1]
+			_pivot.position.y = pivots[spec.pivot]
+			model.position.y = -pivots[spec.pivot]
+			var sheet := await _bake(spec.frames, spec.size, func(i: int) -> void:
+				player.seek(0.0, true)
+				_fix_head(skel)
+				_pose_keys(skel, model, keys, float(i) / (spec.frames - 1)))
+			_pivot.transform = Transform3D.IDENTITY
+			model.position = Vector3.ZERO
+			_save(sheet, skin, clip, preview_rows)
 	var args := OS.get_cmdline_user_args()
 	if args.size() > 0:
 		_save_preview(preview_rows, args[0])
@@ -118,38 +126,28 @@ func _fix_head(skel: Skeleton3D) -> void:
 	skel.set_bone_pose_scale(skel.find_bone("Head"), Vector3.ONE * HEAD_SCALE)
 
 
-## Dive pose at t (0..1) on top of the idle pose: body pitched forward around the hips,
-## arms swung up past the head (= stretched ahead when flat), legs straightened back.
-func _pose_dive(skel: Skeleton3D, model: Node3D, t: float) -> void:
-	var k := _dive_key(t)
-	_pivot.rotation = Vector3(deg_to_rad(k[0]), 0.0, 0.0)
-	# Directions in the model's own space: it faces +Z, up is +Y, its left is +X.
-	for side in [1.0, -1.0]:
-		var pre := "Left" if side > 0.0 else "Right"
-		if k[1] > 0.0:
-			var down := Vector3(side * 0.2, -1.0, 0.1).normalized()
-			var up := Vector3(side * 0.28, 1.0, 0.25).normalized()
-			var arm := down.slerp(up, k[1])
-			_aim_bone(skel, model, pre + "Arm", pre + "ForeArm", arm)
-			_aim_bone(skel, model, pre + "ForeArm", pre + "Hand", arm)
-		if k[2] > 0.0:
-			var leg := Vector3(side * 0.12, -1.0, -0.15).normalized()
-			var cur := _bone_dir(skel, model, pre + "UpLeg", pre + "Leg")
-			var d := cur.slerp(leg, k[2])
-			_aim_bone(skel, model, pre + "UpLeg", pre + "Leg", d)
-			_aim_bone(skel, model, pre + "Leg", pre + "Foot", d)
-
-
-## Interpolated [pitch, arms, legs] from DIVE_KEYS.
-func _dive_key(t: float) -> Array:
-	for i in range(1, DIVE_KEYS.size()):
-		var b: Array = DIVE_KEYS[i]
-		if t <= b[0]:
-			var a: Array = DIVE_KEYS[i - 1]
-			var f := inverse_lerp(a[0], b[0], t)
-			return [lerpf(a[1], b[1], f), lerpf(a[2], b[2], f), lerpf(a[3], b[3], f)]
-	var last: Array = DIVE_KEYS[-1]
-	return [last[1], last[2], last[3]]
+## Keyed pose at t (0..1) on top of the idle pose: whole-body rotation around the pivot,
+## limbs aimed along interpolated directions (see tools/poses.gd).
+func _pose_keys(skel: Skeleton3D, model: Node3D, keys: Array, t: float) -> void:
+	var ka: Dictionary = keys[0]
+	var kb: Dictionary = keys[-1]
+	for i in range(1, keys.size()):
+		if t <= keys[i].t:
+			ka = keys[i - 1]
+			kb = keys[i]
+			break
+	var f := smoothstep(0.0, 1.0, inverse_lerp(ka.t, kb.t, t)) if kb.t > ka.t else 1.0
+	var rot := (ka.rot as Vector3).lerp(kb.rot, f) * (PI / 180.0)
+	_pivot.basis = Basis.from_euler(rot)
+	for limb in Poses.ORDER:
+		if not (ka.limbs.has(limb) or kb.limbs.has(limb)):
+			continue
+		var bones: Array = Poses.LIMBS[limb]
+		var cur := _bone_dir(skel, model, bones[0], bones[1])
+		var da: Vector3 = (ka.limbs.get(limb, cur) as Vector3).normalized()
+		var db: Vector3 = (kb.limbs.get(limb, cur) as Vector3).normalized()
+		# Body frame: +X is the character's left; the model's own +X is its left too.
+		_aim_bone(skel, model, bones[0], bones[1], da.slerp(db, f))
 
 
 ## Skeleton space -> model space, from the local transforms (global transforms of nodes in

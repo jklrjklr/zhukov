@@ -56,5 +56,11 @@ func _initialize() -> void:
 	check("dive ends", not p.is_diving())
 	check("dive covers ~3.2-4 m", moved > 3.0 * 60.0 and moved < 4.5 * 60.0, str(moved))
 	p.move_input = Vector2.ZERO
+	var z := Zombie.new()
+	z.position = p.global_position + Vector2(200, 0)
+	main.get_node("PixelView/SubViewport/World").add_child(z)
+	await physics_frame
+	p.debug_kill_nearby()
+	check("debug kill leaves a corpse", z.dead and z.collision_layer == 0 and z._sprite.anim.begins_with("death"), z._sprite.anim)
 	print("FAILURES: %d" % _fails)
 	quit(1 if _fails > 0 else 0)

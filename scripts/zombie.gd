@@ -8,12 +8,14 @@ extends CharacterBody2D
 @export var sight := 520.0 # px
 @export var turn_speed := 3.0 # rad/s
 
+var dead := false
 var _sprite: CharSprite
 var _wander := Vector2.ZERO
 var _wander_t := 0.0
 
 
 func _ready() -> void:
+	add_to_group("enemies")
 	scale = Vector2.ONE * Vis.VISUAL_SCALE
 	collision_layer = 2
 	collision_mask = 3
@@ -28,6 +30,20 @@ func _ready() -> void:
 	_sprite.skin = skin
 	add_child(_sprite)
 	_sprite.phase = randf()
+
+
+## Killed by a hit travelling along `push` (world): falls that way and stays as a corpse
+## (no collision, drawn under the living).
+func die(push: Vector2) -> void:
+	if dead:
+		return
+	dead = true
+	set_physics_process(false)
+	collision_layer = 0
+	collision_mask = 0
+	z_index = 4
+	remove_from_group("enemies")
+	_sprite.play_death(push.rotated(-rotation), randf_range(0.6, 0.85))
 
 
 func _physics_process(delta: float) -> void:

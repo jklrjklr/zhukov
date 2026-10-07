@@ -34,6 +34,10 @@ func _initialize() -> void:
 	await _frames(18)
 	_shot("dive_prone")
 	p.move_input = Vector2.ZERO
+	await _frames(40)
+	p.debug_kill_nearby()
+	await _frames(70)
+	_shot("deaths")
 	quit()
 
 

@@ -81,6 +81,7 @@ func dive() -> void:
 	_dive_dir = input.rotated(look_angle).normalized() if input.length() > 0.2 else Vector2.UP.rotated(rotation)
 	_dive_t = 0.0
 	sprinting = false
+	sprite.flip = randf() < 0.5 # mirrored dives: which knee kicks up varies
 
 
 func is_diving() -> bool:
@@ -96,6 +97,16 @@ func _unhandled_key_input(event: InputEvent) -> void:
 	var k := event as InputEventKey
 	if k.pressed and not k.echo and (k.physical_keycode == KEY_SPACE or k.physical_keycode == KEY_C):
 		dive()
+	elif k.pressed and not k.echo and k.physical_keycode == KEY_K:
+		debug_kill_nearby()
+
+
+## Debug (no weapons yet): kills enemies within 10 m as if shot from here.
+func debug_kill_nearby() -> void:
+	for e in get_tree().get_nodes_in_group("enemies"):
+		var z := e as Node2D
+		if z.global_position.distance_to(global_position) < 600.0:
+			z.die(z.global_position - global_position)
 
 
 func _physics_process(delta: float) -> void:
@@ -164,6 +175,7 @@ func _update_dive(delta: float) -> void:
 		_dive_t = -1.0
 		sprite.rotation = 0.0
 		sprite.lift = 0.0
+		sprite.flip = false
 		sprite.anim = "idle"
 	_ov.queue_redraw()
 
