@@ -45,6 +45,11 @@ var _once_dur := 1.0
 
 var _sheets := {}
 var _anchors := {}
+## Key-pose timing: clip -> phase (0..1) at which each frame starts (frames hold until the next).
+var _starts := {}
+## Per-instance phase offset and pace so a crowd doesn't move in lockstep.
+var phase_offset := 0.0
+var pace := 1.0
 ## Cropped sheets: clip -> {frame (full frame size), frames_n, rect [x, y, w, h]}.
 var _crops := {}
 
@@ -62,6 +67,7 @@ func _sheet(a: String) -> Texture2D:
 		var jp := "res://art/sprites/%s/%s.json" % [skin, a]
 		var meta: Dictionary = (load(jp) as JSON).data if ResourceLoader.exists(jp) else {}
 		_anchors[a] = meta.get("frames", [])
+		_starts[a] = meta.get("starts", [])
 		if meta.has("rect"):
 			_crops[a] = meta
 	return _sheets[a]
@@ -128,7 +134,7 @@ func advance(delta: float, vel: Vector2) -> void:
 	if a in CYCLE_PX:
 		phase = fposmod(phase + speed * delta / CYCLE_PX[a], 1.0)
 	else:
-		phase = fposmod(phase + delta / IDLE_LOOP, 1.0)
+		phase = fposmod(phase + delta * pace / IDLE_LOOP, 1.0)
 	queue_redraw()
 
 
@@ -147,7 +153,7 @@ func _draw() -> void:
 		n = int(c.frames_n)
 		src_w = int(r[2])
 		dst = Rect2(r[0] - full / 2.0, r[1] - full / 2.0, r[2], r[3])
-	var i := clampi(int(fposmod(phase, 1.0) * n), 0, n - 1)
+	var i := _frame_at(anim, n)
 	# Undo the parent's scale so one texel = one buffer pixel (1 / CAM_ZOOM world px).
 	var s := 1.0 / Vis.CAM_ZOOM / global_scale.x
 	# Drop shadow, offset in world space (light from the top-left of the world).
@@ -161,6 +167,22 @@ func _draw() -> void:
 	if armed:
 		_draw_gun(i)
 	draw_texture_rect_region(tex, dst, Rect2(i * src_w, 0, src_w, dst.size.y))
+
+
+## Frame shown at the current phase: the last key pose that started at or before it (key
+## timing from the bake), or evenly spaced frames for sheets without starts. Looping clips
+## use the per-instance offset.
+func _frame_at(a: String, n: int) -> int:
+	var looping := not (a.begins_with("death") or a == "dive")
+	var p := fposmod(phase + (phase_offset if looping else 0.0), 1.0) if looping else clampf(phase, 0.0, 0.999)
+	var st: Array = _starts.get(a, [])
+	if st.size() != n:
+		return clampi(int(p * n), 0, n - 1)
+	var i := n - 1 if looping else 0
+	for j in n:
+		if p >= float(st[j]):
+			i = j
+	return i
 
 
 ## Gun under the arms (hands and head cover its middle), at the frame's anchor.

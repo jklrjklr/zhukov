@@ -29,7 +29,9 @@ func _ready() -> void:
 	_sprite = CharSprite.new()
 	_sprite.skin = skin
 	add_child(_sprite)
-	_sprite.phase = randf()
+	_sprite.phase_offset = randf()
+	_sprite.pace = randf_range(0.85, 1.15)
+	speed *= randf_range(0.85, 1.15)
 
 
 ## Killed by a hit travelling along `push` (world): falls that way and stays as a corpse

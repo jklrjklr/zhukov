@@ -58,6 +58,17 @@ skill-based player control. Mobile first (budget Android), desktop for testing.
   strafe left / right from the direction relative to facing and plays each by distance
   travelled (per-clip stride, `CYCLE_PX`), so feet don't slide. The dive plays the 24-frame
   mocap sheet (leap, landing, slide, get-up) over `dive_time` 1.6 s.
+- **Pixel-art rendering rules** (bake):
+  - Timing is pose-to-pose, not per time: each clip is rendered densely (32 samples per
+    loop, 48 for the dive, 30 for a ragdoll fall) and only key poses are kept, each held
+    until the next (frame phase starts in the clip's .json). Loops keep the pose extremes
+    (where the visible joints slow down) plus fills for long gaps; one-shots (dive, deaths)
+    keep poses at equal amounts of visible change, so fast moves skip and still stretches
+    become one held pose. Keys: idle 5, walk/run/back 8, strafe 6, dive 13, death 8.
+  - Flat before pixelizing: cel shading (`tools/char_bake.gdshader`: light from above in 3
+    flat bands, no gradients), rendered at 2x and reduced by majority vote per pixel, then
+    the 1 px ink outline.
+  - Crowds: each character has its own phase offset and pace, so none move in lockstep.
 - Preview tools: `tools/clip_preview.gd` (side-view filmstrips of the model's clips),
   `tools/sheet_preview.gd` (baked top-down sheets with gun anchors).
 - Procedural layers (`tools/poses.gd`, keyed bone directions / IK) on top of the mocap:

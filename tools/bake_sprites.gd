@@ -22,18 +22,26 @@ const HEAD_SCALE := 1.0
 ## sprite clip -> {clip in the model, frames over one loop, hold: arms on the weapon (IK,
 ## armed skins only; otherwise unarmed skins only)}.
 const ANIMS := {
-	"idle": {"clip": "Idle", "frames": 16},
-	"walk": {"clip": "ZombieWalk", "frames": 16},
-	"idle_aim": {"clip": "Idle", "frames": 16, "hold": true},
-	"walk_aim": {"clip": "Walk", "frames": 12, "hold": true},
-	"run_aim": {"clip": "Run", "frames": 12, "hold": true},
-	"back_aim": {"clip": "WalkBack", "frames": 12, "hold": true},
-	"left_aim": {"clip": "WalkLeft", "frames": 12, "hold": true},
-	"right_aim": {"clip": "WalkRight", "frames": 12, "hold": true},
+	"idle": {"clip": "Idle", "keys": 5},
+	"walk": {"clip": "ZombieWalk", "keys": 8},
+	"idle_aim": {"clip": "Idle", "keys": 5, "hold": true},
+	"walk_aim": {"clip": "Walk", "keys": 8, "hold": true},
+	"run_aim": {"clip": "Run", "keys": 8, "hold": true},
+	"back_aim": {"clip": "WalkBack", "keys": 8, "hold": true},
+	"left_aim": {"clip": "WalkLeft", "keys": 6, "hold": true},
+	"right_aim": {"clip": "WalkRight", "keys": 6, "hold": true},
 }
+## Pixel-art timing (Dead Cells style): every clip is rendered densely (DENSE samples), then
+## only key poses are kept - the extremes where the body slows down, plus fills for long gaps
+## - each held until the next one (phase starts in the clip's .json). Motion snaps between
+## poses with skipped in-betweens instead of evenly spaced time samples.
+const DENSE := 32
+## Rendered at SUPERSAMPLE x and reduced by majority vote per pixel (clean flat clusters).
+const SUPERSAMPLE := 2
 ## Dive (armed skins): mocap leap + belly landing, then the get-up, gun held level by IK.
-const DIVE_CLIPS := [["DiveFall", 12], ["DiveUp", 12]]
+const DIVE_CLIPS := [["DiveFall", 24], ["DiveUp", 24]]
 const DIVE_SIZE := 192
+const DIVE_KEYS := 13
 ## Skins wearing the outfit painted into the body meshes (black suit, white shirt, tie).
 const OUTFIT := ["survivorMaleB", "survivorFemaleA"]
 ## Skins that carry weapons (get the *_aim clips and the dive).
@@ -43,7 +51,7 @@ const ARMED := ["survivorMaleB", "survivorFemaleA"]
 ## DEATH_DIRS push directions (sprite space, 0 = pushed back / screen-down, clockwise in 45 deg
 ## steps) x DEATH_VARIANTS seeds: death_d<dir>_<variant>. Sheets are cropped to the area the
 ## fall uses (offset in the clip's .json) to keep memory down on phones.
-const DEATH := {"frames": 10, "size": 192}
+const DEATH := {"frames": 30, "size": 192, "keys": 8}
 const DEATH_TIME := 1.5
 const DEATH_DIRS := 8
 const DEATH_VARIANTS := 3
@@ -56,6 +64,8 @@ var _model: Node3D
 var _skel: Skeleton3D
 ## Weapon anchors of the frames baked by the last _bake(): [grip x, grip y, gun angle].
 var _anchors: Array = []
+## Phase (0..1) at which each kept frame of the last _bake() starts.
+var _starts: Array = []
 ## Stock point of the current pose's weapon hold (model space), INF when not holding.
 var _hold_pocket := Vector3.INF
 
@@ -111,19 +121,16 @@ func _bake_model(path: String, skins: Array, preview_rows: Array[Image]) -> void
 			var hold: bool = spec.get("hold", false)
 			if hold != armed:
 				continue
-			var n: int = spec.frames
 			var anim := lib.get_animation(anim_name)
 			player.play(anim_name)
-			var sheet := await _bake(n, CharSprite.FRAME, func(i: int) -> void:
-				player.seek(anim.length * i / n, true)
+			var sheet := await _bake(DENSE, CharSprite.FRAME, func(i: int) -> void:
+				player.seek(anim.length * i / DENSE, true)
 				_fix_head(skel)
 				if hold:
 					_pose_keys(skel, model, [Poses.key(0.0, Vector3.ZERO, Poses.hold())], 0.0)
 				else:
-					_hold_pocket = Vector3.INF)
-			_save(sheet, skin, anim_name, preview_rows)
-			if hold:
-				_save_anchors(skin, anim_name)
+					_hold_pocket = Vector3.INF, spec.keys, true)
+			_save(sheet, skin, anim_name, preview_rows, _anchors if hold else [])
 		if armed:
 			var segs: Array = []
 			for dc in DIVE_CLIPS:
@@ -134,7 +141,7 @@ func _bake_model(path: String, skins: Array, preview_rows: Array[Image]) -> void
 				player.play(clip)
 				player.seek(lib.get_animation(clip).length * segs[i][1], true)
 				_fix_head(skel)
-				_pose_keys(skel, model, [Poses.key(0.0, Vector3.ZERO, Poses.hold())], 0.0))
+				_pose_keys(skel, model, [Poses.key(0.0, Vector3.ZERO, Poses.hold())], 0.0), DIVE_KEYS, false)
 			_save_cropped(sheet, DIVE_SIZE, skin, "dive", preview_rows, _anchors)
 		for k in DEATH_DIRS:
 			for v in DEATH_VARIANTS:
@@ -166,24 +173,37 @@ func _bake_ragdoll(player: AnimationPlayer, skel: Skeleton3D, model: Node3D, arm
 	var speed := rng.randf_range(4.5, 9.0)
 	var push := Vector3(sin(ang), rng.randf_range(0.1, 0.5), cos(ang)).normalized() * speed
 	var spin := Vector3(rng.randf_range(-3, 3), rng.randf_range(-4, 4), rng.randf_range(-3, 3))
-	var steps := int(DEATH_TIME * Engine.physics_ticks_per_second / (DEATH.frames - 1))
+	var steps := maxi(1, int(DEATH_TIME * Engine.physics_ticks_per_second / (DEATH.frames - 1)))
 	var sheet := await _bake(DEATH.frames, DEATH.size, func(i: int) -> void:
 		if i == 1:
 			rag.start(push, spin)
 		if i >= 1:
 			for k in steps:
-				await physics_frame)
+				await physics_frame, DEATH.keys, false, func(size: int) -> PackedVector2Array:
+			# Simulated bodies (the skeleton query returns the animated pose during the ragdoll).
+			var js := PackedVector2Array()
+			for b in ["Hips", "Head", "LeftForeArm", "RightForeArm", "LeftLeg", "RightLeg"]:
+				var pb: PhysicalBone3D = rag.bodies.get(b)
+				if pb:
+					var w := pb.global_position
+					js.append(Vector2(w.x - _cam.position.x, w.z - _cam.position.z) * CharSprite.PX_PER_UNIT + Vector2(size, size) / 2.0)
+			return js)
 	rag.stop()
 	await process_frame
 	return sheet
 
 
-## Renders n frames of size px; pose(i) sets up frame i.
-func _bake(n: int, size: int, pose: Callable) -> Image:
-	_vp.size = Vector2i(size, size)
+## Renders n dense frames of size px (pose(i) sets up frame i, may await), each at
+## SUPERSAMPLE x and reduced by majority vote, then keeps `keys` key poses (0 = all): the
+## frames where the visible joints move least (pose extremes) plus fills for long gaps. Sets
+## _anchors / _starts for the kept frames and returns their sheet.
+func _bake(n: int, size: int, pose: Callable, keys := 0, loop := true, joints_fn := Callable()) -> Image:
+	var big := size * SUPERSAMPLE
+	_vp.size = Vector2i(big, big)
 	_cam.size = size / CharSprite.PX_PER_UNIT
-	var sheet := Image.create(size * n, size, false, Image.FORMAT_RGBA8)
-	_anchors.clear()
+	var frames: Array[Image] = []
+	var anchors: Array = []
+	var joints: Array = []
 	for i in n:
 		await pose.call(i)
 		var grip := _screen_px(_skel.find_bone("RightHand"), size)
@@ -195,14 +215,139 @@ func _bake(n: int, size: int, pose: Callable) -> Image:
 		# The gun runs straight ahead (the hold keeps it level, sprites face up), centred
 		# between the hands, its grip level with the right hand.
 		var at := Vector2(line_x, grip.y)
-		_anchors.append([snappedf(at.x - c.x, 0.1), snappedf(at.y - c.y, 0.1), snappedf(-PI / 2.0, 0.001)])
+		anchors.append([snappedf(at.x - c.x, 0.1), snappedf(at.y - c.y, 0.1), snappedf(-PI / 2.0, 0.001)])
+		var js := PackedVector2Array()
+		if joints_fn.is_valid():
+			js = joints_fn.call(size)
+		else:
+			for b in ["Hips", "Head", "LeftHand", "RightHand", "LeftFoot", "RightFoot"]:
+				js.append(_screen_px(_skel.find_bone(b), size))
+		joints.append(js)
 		await process_frame
 		await RenderingServer.frame_post_draw
 		var img := _vp.get_texture().get_image()
 		img.convert(Image.FORMAT_RGBA8)
+		img = _majority_down(img, SUPERSAMPLE)
 		_outline(img)
-		sheet.blit_rect(img, Rect2i(0, 0, size, size), Vector2i(i * size, 0))
+		frames.append(img)
+	var kept: Array = range(n) if keys <= 0 or keys >= n else _pick_keys(joints, keys, loop)
+	var sheet := Image.create(size * kept.size(), size, false, Image.FORMAT_RGBA8)
+	_anchors.clear()
+	_starts.clear()
+	for j in kept.size():
+		sheet.blit_rect(frames[kept[j]], Rect2i(0, 0, size, size), Vector2i(j * size, 0))
+		_anchors.append(anchors[kept[j]])
+		_starts.append(snappedf(float(kept[j]) / n, 0.0001))
 	return sheet
+
+
+## Key poses: local minima of joint speed (screen space, i.e. what reads from above), the
+## stillest first, at least 2 dense frames apart; then the longest gaps are split until there
+## are `k`. Non-looping clips always keep the first and last frame.
+func _pick_keys(joints: Array, k: int, loop: bool) -> Array:
+	var n := joints.size()
+	var speed: Array[float] = []
+	for i in n:
+		var p := (i - 1 + n) % n if loop else maxi(i - 1, 0)
+		var sp := 0.0
+		for j in joints[i].size():
+			var d: float = joints[i][j].distance_to(joints[p][j])
+			if not is_nan(d):
+				sp += minf(d, 24.0)  # a glitchy joint jump must not swamp the curve
+		speed.append(sp)
+	if not loop:
+		# One-shot clips: keys at equal amounts of visible pose change (arc length of the
+		# joints' screen paths). Fast stretches skip in time, slow / settled ones collapse to
+		# a single held pose.
+		var cum: Array[float] = [0.0]
+		for i in range(1, n):
+			cum.append(cum[i - 1] + speed[i])
+		var total: float = cum[n - 1]
+		var keys_: Array = []
+		for j in k:
+			var target := total * j / (k - 1)
+			var i := 0
+			while i < n - 1 and cum[i] < target - 1e-4:
+				i += 1
+			if keys_.is_empty() or i > keys_[-1]:
+				keys_.append(i)
+		if keys_[-1] != n - 1:
+			keys_.append(n - 1)
+		if OS.is_stdout_verbose():
+			print("speeds ", speed, " keys ", keys_)
+		return keys_
+	var dist := func(a: int, b: int) -> int:
+		var d := absi(a - b)
+		return mini(d, n - d) if loop else d
+	# A body lying still is one pose: in a run of near-motionless frames only the first one
+	# can be a key (so keys go to the motion, not the settled tail).
+	var top: float = speed.max()
+	var still := func(i: int) -> bool: return speed[i] < top * 0.12
+	var mins: Array = []
+	for i in n:
+		var a := speed[(i - 1 + n) % n] if loop or i > 0 else INF
+		var b := speed[(i + 1) % n] if loop or i < n - 1 else INF
+		if speed[i] <= a and speed[i] <= b:
+			if still.call(i) and i > 0 and still.call(i - 1):
+				continue
+			mins.append(i)
+	mins.sort_custom(func(x: int, y: int) -> bool: return speed[x] < speed[y])
+	var chosen: Array = [] if loop else [0, n - 1]
+	for m in mins:
+		if chosen.size() >= k:
+			break
+		if chosen.all(func(c: int) -> bool: return dist.call(m, c) >= 2):
+			chosen.append(m)
+	# Fill the longest gaps, but not inside a still stretch.
+	while chosen.size() < k:
+		chosen.sort()
+		var best := -1
+		var gap := 1
+		for j in chosen.size():
+			var a: int = chosen[j]
+			var b: int = chosen[(j + 1) % chosen.size()] if (loop or j + 1 < chosen.size()) else a
+			var g := (b - a + n) % n if loop else b - a
+			if loop and chosen.size() == 1:
+				g = n
+			if g > gap and not (still.call((a + g / 2) % n) and still.call(a)):
+				gap = g
+				best = j
+		if best < 0:
+			break
+		chosen.append((int(chosen[best]) + gap / 2) % n)
+	chosen.sort()
+	return chosen
+
+
+## Downscale by f: each output pixel is opaque if most of its f x f block is, and takes the
+## block's most common opaque colour (flat clusters, no averaged in-between colours).
+func _majority_down(img: Image, f: int) -> Image:
+	if f <= 1:
+		return img
+	var w := img.get_width() / f
+	var h := img.get_height() / f
+	var out := Image.create(w, h, false, Image.FORMAT_RGBA8)
+	for y in h:
+		for x in w:
+			var counts := {}
+			var opaque := 0
+			for dy in f:
+				for dx in f:
+					var c := img.get_pixel(x * f + dx, y * f + dy)
+					if c.a >= 0.5:
+						opaque += 1
+						var key := c.to_rgba32()
+						counts[key] = counts.get(key, 0) + 1
+			if opaque * 2 < f * f:
+				continue
+			var best := 0
+			var bc := 0
+			for key in counts:
+				if counts[key] > bc:
+					bc = counts[key]
+					best = key
+			out.set_pixel(x, y, Color.hex(best))
+	return out
 
 
 ## Saves a sheet cropped to the union of its frames' used areas; the crop rect (in frame
@@ -219,7 +364,7 @@ func _save_cropped(sheet: Image, size: int, skin: String, clip: String, preview_
 		out.blit_rect(sheet, Rect2i(i * size + u.position.x, u.position.y, u.size.x, u.size.y), Vector2i(i * u.size.x, 0))
 	out.save_png(ProjectSettings.globalize_path(OUT_DIR + "%s/%s.png" % [skin, clip]))
 	var f := FileAccess.open(ProjectSettings.globalize_path(OUT_DIR + "%s/%s.json" % [skin, clip]), FileAccess.WRITE)
-	var meta := {"frame": size, "frames_n": n, "rect": [u.position.x, u.position.y, u.size.x, u.size.y]}
+	var meta := {"frame": size, "frames_n": n, "rect": [u.position.x, u.position.y, u.size.x, u.size.y], "starts": _starts}
 	if not anchors.is_empty():
 		meta["frames"] = anchors
 	f.store_string(JSON.stringify(meta))
@@ -227,9 +372,16 @@ func _save_cropped(sheet: Image, size: int, skin: String, clip: String, preview_
 	print("baked ", clip, " frames=", n, " crop=", u.size)
 
 
-func _save(sheet: Image, skin: String, anim_name: String, preview_rows: Array[Image]) -> void:
+## Saves a sheet plus <clip>.json: frame phase starts and (armed) weapon anchors per frame
+## (grip offset from the frame centre in px, gun angle in rad, sprite facing up).
+func _save(sheet: Image, skin: String, anim_name: String, preview_rows: Array[Image], anchors := []) -> void:
 	var path := OUT_DIR + "%s/%s.png" % [skin, anim_name]
 	sheet.save_png(ProjectSettings.globalize_path(path))
+	var meta := {"starts": _starts}
+	if not anchors.is_empty():
+		meta["frames"] = anchors
+	var f := FileAccess.open(ProjectSettings.globalize_path(OUT_DIR + "%s/%s.json" % [skin, anim_name]), FileAccess.WRITE)
+	f.store_string(JSON.stringify(meta))
 	preview_rows.append(sheet)
 	print("baked ", path, " frames=", sheet.get_width() / sheet.get_height())
 
@@ -242,13 +394,6 @@ func _screen_px(bone: int, size: int) -> Vector2:
 func _model_to_screen(m: Vector3, size: int) -> Vector2:
 	var w := _holder.transform * _pivot.transform * _model.transform * m
 	return Vector2(w.x - _cam.position.x, w.z - _cam.position.z) * CharSprite.PX_PER_UNIT + Vector2(size, size) / 2.0
-
-
-## Weapon anchors per frame (grip offset from the frame centre in px, gun angle in rad,
-## screen space, sprite facing up), for drawing any weapon in the hands in game.
-func _save_anchors(skin: String, clip: String) -> void:
-	var f := FileAccess.open(ProjectSettings.globalize_path(OUT_DIR + "%s/%s.json" % [skin, clip]), FileAccess.WRITE)
-	f.store_string(JSON.stringify({"frames": _anchors}))
 
 
 func _fix_head(skel: Skeleton3D) -> void:
