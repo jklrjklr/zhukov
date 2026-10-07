@@ -14,6 +14,11 @@ Target: steady 60 fps (30 fps fallback) on budget phones (Mali-G52 / Adreno 610 
   Square pixels, no shimmer at non-integer scale or while the camera rotates.
 - Camera transform snapped to whole buffer pixels; the remainder shifts the upscaled quad
   (`PixelView`), so scrolling is smooth without pixel wobble.
+- Lighting and grade live in the same upscale pass: a stepped, dithered lantern around the
+  player (computed per buffer pixel), cool ambient, vignette, contrast/saturation. No
+  Light2D, no extra render target.
+- Static props are split into 600 px chunk canvas items (culled whole when off-screen);
+  ground detail is baked into one 256 px dithered texture drawn as a single tiled rect.
 - UI is NOT in the buffer: it draws at native resolution on the root viewport.
 - Tunables: `Vis.PIXEL_HEIGHT` (chunkiness and fill cost), `Vis.CAM_ZOOM` (how much world
   fits; at 0.4 one buffer pixel = 2.5 world px).

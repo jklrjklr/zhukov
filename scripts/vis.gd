@@ -9,6 +9,6 @@ const VISUAL_SCALE := 1.6
 ## aspect), then upscaled to the screen: the pixel look, and ~9x fewer fragments than
 ## native 1080p on phones.
 const PIXEL_HEIGHT := 360
-## Base camera zoom: buffer pixels per world px (0.4 = 1 pixel covers 2.5 world px,
-## so the view is 900 world px = 15 m tall).
-const CAM_ZOOM := 0.4
+## Base camera zoom: buffer pixels per world px (0.5 = 1 pixel covers 2 world px,
+## so the view is 720 world px = 12 m tall).
+const CAM_ZOOM := 0.5

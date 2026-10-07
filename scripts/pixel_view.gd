@@ -19,6 +19,8 @@ var _vp: SubViewport
 var _scale := 1.0
 var _frac := Vector2.ZERO
 var _cam: Node2D
+var _player: Node2D
+var _mat: ShaderMaterial
 
 
 func _ready() -> void:
@@ -34,9 +36,9 @@ func _ready() -> void:
 	_vp.handle_input_locally = false
 	_vp.gui_disable_input = true
 	_vp.physics_object_picking = false
-	var mat := ShaderMaterial.new()
-	mat.shader = preload("res://shaders/pixel_upscale.gdshader")
-	material = mat
+	_mat = ShaderMaterial.new()
+	_mat.shader = preload("res://shaders/pixel_upscale.gdshader")
+	material = _mat
 	resized.connect(_resize)
 	_resize()
 
@@ -65,6 +67,11 @@ func _process(_delta: float) -> void:
 		_frac = xf.origin - snapped
 		xf.origin = snapped
 		_vp.canvas_transform = xf
+		# Lantern follows the player (buffer pixels, same space the shader works in).
+		if _player == null or not is_instance_valid(_player):
+			_player = get_tree().get_first_node_in_group("player") as Node2D
+		if _player:
+			_mat.set_shader_parameter("light_px", xf * _player.global_position)
 	queue_redraw()
 
 

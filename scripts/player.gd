@@ -31,12 +31,7 @@ var _edge_t := 0.0
 ## Length 0..1, (0, -1) = forward.
 var move_input := Vector2.ZERO
 
-## Body look: floating head, torso, hands and feet (no arms/legs), top-down.
-const SKIN := Color(0.96, 0.78, 0.6)
-const BODY := Color(0.55, 0.6, 0.65)
-const HAIR := Color(0.3, 0.25, 0.2)
-const BOOT := Color(0.22, 0.2, 0.18)
-const OUTLINE := Color(0.08, 0.08, 0.08)
+## Body look (top-down): floating head, torso with cloak, hands and feet; colours from Pal.
 ## Full step cycles (left+right foot) per second at full speed.
 const STEP_CYCLES_PER_SEC := 1.5
 ## Speed multipliers by direction (relative to facing).
@@ -147,34 +142,59 @@ func _draw() -> void:
 	var swing := sin(_walk_phase) * _walk_amount
 	var bob := absf(cos(_walk_phase)) * _walk_amount
 
-	# Feet (alternate forward/back while walking)
-	_shape_ellipse(Vector2(-9, -6 - swing * 9), Vector2(4.5, 6.5), BOOT)
-	_shape_ellipse(Vector2(9, -6 + swing * 9), Vector2(4.5, 6.5), BOOT)
+	# Drop shadow, offset in world space (light from the top-left of the world).
+	draw_set_transform(Vector2(5, 6).rotated(-global_rotation), 0.0, Vector2(1.25, 1.0))
+	draw_circle(Vector2.ZERO, 15.0, Pal.SHADOW)
+	draw_set_transform(Vector2.ZERO)
 
-	# Torso (sways slightly opposite to feet)
+	# Feet (alternate forward/back while walking)
+	_shape_ellipse(Vector2(-8, -5 - swing * 8), Vector2(4, 5.5), Pal.BOOT)
+	_shape_ellipse(Vector2(8, -5 + swing * 8), Vector2(4, 5.5), Pal.BOOT)
+
+	# Cloak trailing behind, flaring with speed, then the torso (sways opposite to the feet).
 	draw_set_transform(Vector2.ZERO, -swing * 0.12)
-	_shape_ellipse(Vector2(0, 1), Vector2(16, 10), BODY)
+	var flare := 3.0 + _walk_amount * 4.0 + (3.0 if sprinting else 0.0)
+	var cloak := PackedVector2Array([Vector2(-14, 0), Vector2(14, 0), Vector2(12 + swing * 2, 12 + flare),
+		Vector2(0, 14 + flare - swing * 2), Vector2(-12 + swing * 2, 12 + flare)])
+	_shape_poly(cloak, Pal.CLOAK)
+	draw_colored_polygon(PackedVector2Array([Vector2(-2, 2), Vector2(2, 2), Vector2(swing * 2, 12 + flare)]), Pal.CLOAK_DARK)
+	_shape_ellipse(Vector2(0, 0), Vector2(14, 8), Pal.ARMOR)
+	_shape_ellipse(Vector2(-3, -2), Vector2(7, 3.5), Pal.ARMOR_LIGHT)
 	for sx in [-1.0, 1.0]:
-		_shape_circle(self, Vector2(sx * 14.0, 0.5), 5.0, BODY.darkened(0.15))
+		_shape_circle(self, Vector2(sx * 13.0, 0.5), 4.5, Pal.ARMOR)
+		draw_circle(Vector2(sx * 13.0 - 1.0, -1.0), 2.0, Pal.ARMOR_LIGHT)
 	draw_set_transform(Vector2.ZERO)
 
 	# Hands, swinging opposite to the feet
-	_shape_circle(self, Vector2(-15, -8 + swing * 6 + bob), 4.0, SKIN)
-	_shape_circle(self, Vector2(15, -8 - swing * 6 + bob), 4.0, SKIN)
+	_shape_circle(self, Vector2(-14, -8 + swing * 6 + bob), 3.5, Pal.SKIN)
+	_shape_circle(self, Vector2(14, -8 - swing * 6 + bob), 3.5, Pal.SKIN)
 
 
 func _draw_head() -> void:
-	_shape_circle(_head, Vector2.ZERO, 7.0, HAIR)
-	_head.draw_circle(Vector2(0, -3), 4.0, SKIN)
+	_shape_circle(_head, Vector2.ZERO, 7.0, Pal.HAIR)
+	_head.draw_circle(Vector2(0, -3.5), 4.0, Pal.SKIN)
+	_head.draw_circle(Vector2(-2.5, 2), 2.0, Pal.HAIR.lightened(0.15))
 
 
 func _shape_circle(ci: CanvasItem, c: Vector2, r: float, col: Color) -> void:
-	ci.draw_circle(c, r + 1.5, OUTLINE)
+	ci.draw_circle(c, r + 1.5, Pal.INK)
 	ci.draw_circle(c, r, col)
 
 
+func _shape_poly(pts: PackedVector2Array, col: Color) -> void:
+	var c := Vector2.ZERO
+	for p in pts:
+		c += p
+	c /= pts.size()
+	var grown := PackedVector2Array()
+	for p in pts:
+		grown.append(p + (p - c).normalized() * 1.5)
+	draw_colored_polygon(grown, Pal.INK)
+	draw_colored_polygon(pts, col)
+
+
 func _shape_ellipse(c: Vector2, radii: Vector2, col: Color) -> void:
-	draw_colored_polygon(_ellipse_points(c, radii + Vector2(1.5, 1.5)), OUTLINE)
+	draw_colored_polygon(_ellipse_points(c, radii + Vector2(1.5, 1.5)), Pal.INK)
 	draw_colored_polygon(_ellipse_points(c, radii), col)
 
 
@@ -190,6 +210,6 @@ func _ellipse_points(c: Vector2, radii: Vector2) -> PackedVector2Array:
 func _draw_overlay() -> void:
 	if stamina >= 0.995:
 		return
-	var col := Color(0.4, 0.8, 1.0, 0.85) if stamina > 0.25 else Color(1.0, 0.55, 0.2, 0.9)
-	_ov.draw_arc(Vector2.ZERO, 26.0, PI * 0.15, PI * 0.85, 12, Color(0, 0, 0, 0.35), 4.0)
-	_ov.draw_arc(Vector2.ZERO, 26.0, PI * 0.15, PI * 0.15 + PI * 0.7 * stamina, 12, col, 3.0)
+	var col := Pal.STAMINA if stamina > 0.25 else Pal.STAMINA_LOW
+	_ov.draw_arc(Vector2.ZERO, 26.0, PI * 0.15, PI * 0.85, 12, Color(0, 0, 0, 0.35), 2.5)
+	_ov.draw_arc(Vector2.ZERO, 26.0, PI * 0.15, PI * 0.15 + PI * 0.7 * stamina, 12, col, 1.5)

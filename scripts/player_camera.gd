@@ -7,7 +7,7 @@ extends Node2D
 ## look direction; eases toward `target_offset` / `target_zoom` and adds decaying shake.
 
 ## px ahead of the player (screen-up) at rest.
-@export var look_ahead := 175.0
+@export var look_ahead := 140.0
 ## Higher = snappier offset / zoom changes.
 @export var ease_rate := 8.0
 
