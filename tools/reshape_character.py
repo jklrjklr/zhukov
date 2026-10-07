@@ -30,7 +30,7 @@ BODIES = {
 ## Proportion reference: stylised anime / VRoid body, ~6 heads: legs about half the height,
 ## short torso, narrow shoulders, thin neck and limbs, small feet.
 SCALES = {
-    "Head": (0.7, 0.7, 0.7),
+    "Head": (0.56, 0.72, 0.64),  # narrower and shallower than Kenney's wide box head
     "Neck": (0.78, 0.9, 0.78),
     "UpperChest": (1.1, 1.0, 1.0),
     "Chest": (1.02, 1.0, 0.98),
@@ -133,6 +133,111 @@ bpy.ops.object.shade_smooth()
 m = mesh.modifiers.new("Armature", "ARMATURE")
 m.object = arm
 
+# Outfit: formal suit painted per face into a colour attribute (alpha = how much the outfit
+# replaces the skin texture; 0 on head / neck / hands so face and hair stay). The bake shader
+# mixes it over the texture (zombie skins switch it off).
+SUIT = (0.06, 0.06, 0.07, 1.0)
+LAPEL = (0.19, 0.19, 0.22, 1.0)
+TROUSERS = (0.05, 0.05, 0.06, 1.0)
+SHIRT = (0.92, 0.92, 0.9, 1.0)
+TIE = (0.03, 0.03, 0.035, 1.0)
+SHOES = (0.025, 0.025, 0.03, 1.0)
+KEEP = (1.0, 1.0, 1.0, 0.0)
+JACKET = {"Hips", "Spine", "Chest", "UpperChest", "LeftShoulder", "RightShoulder",
+          "LeftArm", "RightArm", "LeftForeArm", "RightForeArm"}
+LEGS = {"LeftUpLeg", "RightUpLeg", "LeftLeg", "RightLeg"}
+FEET = {"LeftFoot", "RightFoot", "LeftToes", "RightToes"}
+neck_z = bone_z("Neck", 0.0) + 0.05
+# Faceless: head faces in front, below the hairline, get the plain skin colour (alpha 0.5 =
+# "skin" marker; the bake shader samples the skin tone from the texture at the neck, so every
+# skin keeps its own tone). Hair, ears and the back of the head keep the texture.
+FACE = (1.0, 1.0, 1.0, 0.5)
+head_zs = [(mw @ v.co).z for v in mesh.data.vertices
+           if any(names.get(g.group) == "Head" and g.weight > 0.5 for g in v.groups)]
+hairline = min(head_zs) + 0.66 * (max(head_zs) - min(head_zs))
+v_bottom = bone_z("Chest", 0.3)
+hands = {s_: arm.matrix_world @ arm.data.bones[s_ + "Hand"].head_local for s_ in ("Left", "Right")}
+names = {g.index: g.name for g in mesh.vertex_groups}
+
+
+def outfit(poly):
+    weights = {}
+    for vi in poly.vertices:
+        for g in mesh.data.vertices[vi].groups:
+            n = names.get(g.group)
+            if n:
+                weights[n] = weights.get(n, 0.0) + g.weight
+    if not weights:
+        return KEEP
+    top = max(weights, key=weights.get)
+    c = mw @ poly.center
+    nrm = (mw.to_3x3() @ poly.normal).normalized()
+    if top == "Head":
+        return FACE if nrm.y < -0.15 and c.z < hairline else KEEP
+    if top in FEET:
+        return SHOES
+    if top in LEGS:
+        return SUIT
+    if top in JACKET or top == "Neck":
+        # Shirt collar: a white ring around the neck (what reads from straight above).
+        neck = arm.matrix_world @ arm.data.bones["Neck"].head_local
+        if c.z > neck_z - 0.1 and (c.xy - neck.xy).length < 0.3:
+            return SHIRT
+        if top == "Neck":
+            return KEEP
+        if "ForeArm" in top:
+            hand = hands["Left" if top.startswith("Left") else "Right"]
+            if (c - hand).length < 0.12:
+                return SHIRT  # cuff
+        if nrm.y < -0.25 and v_bottom < c.z < neck_z:
+            k = (c.z - v_bottom) / (neck_z - v_bottom)
+            if abs(c.x) < 0.035 + 0.02 * k:
+                return TIE
+            if abs(c.x) < 0.05 + 0.2 * k:
+                return SHIRT
+            if abs(c.x) < 0.1 + 0.24 * k:
+                return LAPEL
+        return SUIT
+    return KEEP
+
+
+# Crease shading: per-vertex concavity (neighbours rising above the surface = a fold),
+# smoothed, darkens the cloth in armpits, elbows, crotch, under the collar.
+me = mesh.data
+nbrs = [[] for _ in me.vertices]
+for e in me.edges:
+    a_, b_ = e.vertices
+    nbrs[a_].append(b_)
+    nbrs[b_].append(a_)
+cav = []
+for v in me.vertices:
+    if not nbrs[v.index]:
+        cav.append(0.0)
+        continue
+    d = sum(v.normal.dot((me.vertices[n].co - v.co).normalized()) for n in nbrs[v.index]) / len(nbrs[v.index])
+    cav.append(max(0.0, d))
+for _ in range(3):
+    cav = [(cav[i] + sum(cav[n] for n in nbrs[i])) / (1 + len(nbrs[i])) for i in range(len(cav))]
+CREASE = 2.2
+
+attr = me.color_attributes.new("outfit", "BYTE_COLOR", "CORNER")
+for poly in me.polygons:
+    col = outfit(poly)
+    for li in poly.loop_indices:
+        vi = me.loops[li].vertex_index
+        shade = max(0.45, 1.0 - cav[vi] * CREASE) if col[3] > 0 else 1.0
+        attr.data[li].color = (col[0] * shade, col[1] * shade, col[2] * shade, col[3])
+mesh.data.color_attributes.active_color = attr
+# Where the skin tone is in the texture: average UV over the neck faces.
+uvl = me.uv_layers.active.data
+neck_uv = [uvl[li].uv for poly in me.polygons for li in poly.loop_indices
+           if outfit(poly) is KEEP and any(names.get(g.group) == "Neck" for g in me.vertices[me.loops[li].vertex_index].groups)]
+if neck_uv:
+    u = sum(x[0] for x in neck_uv) / len(neck_uv)
+    v_ = sum(x[1] for x in neck_uv) / len(neck_uv)
+    print("RESHAPE skin uv (gltf, v flipped) %.4f %.4f" % (u, 1.0 - v_))
+mesh.data.color_attributes.render_color_index = mesh.data.color_attributes.active_color_index
+
 # Clips: import each animation FBX, take its action, drop its armature / meshes.
 keep = {arm.name, mesh.name}
 actions = []
@@ -168,5 +273,6 @@ print("RESHAPE height %.2f head %.2f -> %.2f heads, legs %.0f%% of height, verts
       % (h, hh, h / hh, 100 * crotch / h, len(mesh.data.vertices)))
 
 bpy.ops.export_scene.gltf(filepath=OUT, export_format="GLB", export_animations=True,
-                          export_animation_mode="NLA_TRACKS", export_skins=True, export_yup=True)
+                          export_animation_mode="NLA_TRACKS", export_skins=True, export_yup=True,
+                          export_colors=True)
 print("RESHAPE wrote", OUT)

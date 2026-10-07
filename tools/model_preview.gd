@@ -26,13 +26,15 @@ func _initialize():
 			vp.add_child(sun)
 			var cam := Camera3D.new()
 			cam.projection = Camera3D.PROJECTION_ORTHOGONAL
-			cam.size = 4.4
-			cam.position = Vector3(0, 2.4, 10)
+			cam.size = 3.6
+			cam.position = Vector3(0, 2.3, 10)
 			vp.add_child(cam)
 			var m: Node3D = load(models[mi]).instantiate()
 			vp.add_child(m)
-			var mat := StandardMaterial3D.new()
-			mat.albedo_texture = load("res://art/3d/survivors/Skins/%s.png" % skin)
+			var mat := ShaderMaterial.new()
+			mat.shader = load("res://tools/char_bake.gdshader")
+			mat.set_shader_parameter("skin_tex", load("res://art/3d/survivors/Skins/%s.png" % skin))
+			mat.set_shader_parameter("outfit", 0.0 if mi == 0 else 1.0)
 			var mesh := m.find_children("*", "MeshInstance3D")[0] as MeshInstance3D
 			mesh.material_override = mat
 			await process_frame

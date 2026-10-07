@@ -26,6 +26,8 @@ const ANIMS := {
 	"idle_aim": {"clip": "Idle", "frames": 8, "hold": true},
 	"run_aim": {"clip": "Run", "frames": 8, "hold": true},
 }
+## Skins wearing the outfit painted into the body meshes (black suit, white shirt, tie).
+const OUTFIT := ["survivorMaleB", "survivorFemaleA"]
 ## Skins that carry weapons (get the *_aim clips and the dive).
 const ARMED := ["survivorMaleB", "survivorFemaleA"]
 ## Procedural clips (tools/poses.gd), not looping: frames sampled at t = i / (frames - 1).
@@ -94,9 +96,10 @@ func _bake_model(path: String, skins: Array, preview_rows: Array[Image]) -> void
 	}
 	await _center_on_body(player, skel)
 	for skin in skins:
-		var mat := StandardMaterial3D.new()
-		mat.albedo_texture = load(SKIN_DIR + skin + ".png")
-		mat.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS
+		var mat := ShaderMaterial.new()
+		mat.shader = preload("res://tools/char_bake.gdshader")
+		mat.set_shader_parameter("skin_tex", load(SKIN_DIR + skin + ".png"))
+		mat.set_shader_parameter("outfit", 1.0 if skin in OUTFIT else 0.0)
 		mesh.material_override = mat
 		DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path(OUT_DIR + skin))
 		var armed: bool = skin in ARMED

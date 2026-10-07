@@ -35,6 +35,10 @@ skill-based player control. Mobile first (budget Android), desktop for testing.
   -> `characterHuman.glb` / `characterHumanF.glb`:
   `blender -b --python tools/reshape_character.py -- <in.fbx> <out.glb> male|female`.
   `tools/model_preview.gd` renders front T-poses (original vs reshaped) to check.
+- Look: narrowed head; faceless (front of the head below the hairline takes the skin tone);
+  survivors wear a black formal suit (white shirt, collar, cuffs, black tie, lighter lapels)
+  painted per face into the mesh colours with crease shading; `tools/char_bake.gdshader`
+  mixes it over the skin texture with fabric grain, a soft sheen and rim. Zombies keep rags.
 - `tools/bake_sprites.gd` renders each skin x clip straight down with an orthographic camera
   into `art/sprites/<skin>/<clip>.png` (one row of 64 px frames, facing up):
   - light from straight above + ambient (sprites rotate in game, so no side light baked),
