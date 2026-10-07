@@ -19,6 +19,9 @@ const GROUND_TEX_SIZE := 256
 ## Light comes from the top-left of the world; shadows fall bottom-right.
 const SHADOW_OFFSET := Vector2(7, 9)
 
+## Placeholder enemies around the spawn.
+const ZOMBIES := 10
+
 const BAYER4 := [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5]
 
 var _ground: ImageTexture
@@ -72,6 +75,12 @@ func _ready() -> void:
 		var lists: Dictionary = _chunks[key]
 		c.draw.connect(_draw_chunk.bind(c, lists))
 		add_child(c)
+	for i in ZOMBIES:
+		var z := Zombie.new()
+		z.skin = "zombieA" if i % 2 == 0 else "zombieC"
+		z.position = Vector2.from_angle(TAU * i / ZOMBIES + 0.3) * rng.randf_range(380.0, 700.0)
+		z.rotation = rng.randf() * TAU
+		add_child(z)
 	var h := HALF_SIZE
 	for r in [Rect2(-h, -h - 50, 2 * h, 50), Rect2(-h, h, 2 * h, 50), Rect2(-h - 50, -h, 50, 2 * h), Rect2(h, -h, 50, 2 * h)]:
 		_add_wall(Vector2.ZERO, PackedVector2Array([r.position, Vector2(r.end.x, r.position.y), r.end, Vector2(r.position.x, r.end.y)]))
