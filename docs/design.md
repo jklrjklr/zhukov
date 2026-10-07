@@ -88,3 +88,40 @@ skill-based player control. Mobile first (budget Android), desktop for testing.
 - After a bake run `godot --headless --import` so the game picks up the new PNGs.
 - New characters / clips: add the FBX (same rig) and list the skin / clip in the tool.
   Shooting / hit / death clips will need a source with those animations (same rig).
+
+## Art and motion rules
+
+Goal: stylish but heavy — things look like they weigh something and hurt, and the screen stays
+readable on a phone.
+
+- **Style:** everything (characters, enemies, props, ground, effects) is 3D models pre-rendered
+  top-down into pixel-art sprites per the pipeline above. All art is made beforehand as image files,
+  never generated on the phone during play; one atlas per group so draws batch.
+- **Outline:** 1 px ink outline on actors and pickups only; ground, walls and rocks have none.
+- **Readability:** every enemy type recognisable as a black silhouette at phone size. Value order:
+  ground darkest, props mid, enemies mid-light, player and pickups lightest, danger brightest.
+  The world is desaturated; saturated colour only where it means something.
+- **Colour meanings (fixed):** red = danger and enemy attacks; yellow = player and objectives;
+  blue = friendly tech; orange = fire. Never used for decoration.
+- **Telegraphs:** every attack that can hurt the player shows its area or line first (≥ 0.4 s).
+- **Impacts:** every hit has a flash (1–2 frames), particles, a lasting decal and a sound. Big hits
+  add screen shake and 30–80 ms hit-stop. Explosions: flash → fireball → smoke → debris → scorch.
+- **Effects never hide threats:** most fade under 0.5 s; smoke is low and semi-transparent.
+- **Scale contrast:** small enemies smaller than the player, heavies clearly bigger.
+- **Damage shows on the body** (cracks, missing parts, limping); health bars only where the body can't.
+
+### Motion rule: snappy player, real enemies
+
+- **Player is a superhero:** responds in 1–2 frames, short acceleration, no turn lag; dive, reload
+  and throws can cancel each other. Weight comes from timing contrast (short wind-up, very fast
+  action, held recovery) and exaggerated hand-keyed poses, not from input delay.
+- **Enemies are real:** realistic, seamless motion with mass — planted feet (cycles played by
+  distance travelled), mass-limited acceleration and turning, lagging secondary motion, blended
+  hit flinches, physical slide-and-crumple deaths. Enemy sheets get dense frames so motion stays
+  smooth at pixel resolution; mocap is used for enemies.
+- **Player deaths** are short and readable: knockback toward the hit, crumple, done.
+
+### Budget
+
+Under 500 draw calls in a big fight, under 200 idle; texture memory under about 200 MB; 60 fps at
+1080p on a mid-range phone.
