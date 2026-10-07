@@ -26,6 +26,14 @@ func _initialize() -> void:
 	_shot("turning")
 	await _frames(40)
 	_shot("turned")
+	# Dive to the right: airborne, then prone.
+	p.move_input = Vector2(1, -0.3)
+	p.dive()
+	await _frames(14)
+	_shot("dive_air")
+	await _frames(18)
+	_shot("dive_prone")
+	p.move_input = Vector2.ZERO
 	quit()
 
 

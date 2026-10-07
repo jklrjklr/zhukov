@@ -40,5 +40,21 @@ func _initialize() -> void:
 	for i in 30:
 		await physics_frame
 	check("forward follows turn (east)", p.global_position.x - start.x > 50.0, str(p.global_position - start))
+	p.move_input = Vector2.ZERO
+	for i in 30:
+		await physics_frame
+	var before := p.global_position
+	p.move_input = Vector2(1, 0)
+	p.dive()
+	check("dive starts", p.is_diving())
+	for i in 15:
+		await physics_frame
+	check("airborne dive is invulnerable", p.is_invulnerable())
+	for i in 60:
+		await physics_frame
+	var moved := p.global_position.distance_to(before)
+	check("dive ends", not p.is_diving())
+	check("dive covers ~3.2-4 m", moved > 3.0 * 60.0 and moved < 4.5 * 60.0, str(moved))
+	p.move_input = Vector2.ZERO
 	print("FAILURES: %d" % _fails)
 	quit(1 if _fails > 0 else 0)

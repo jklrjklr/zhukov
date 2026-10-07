@@ -2,8 +2,10 @@ extends Control
 ## Mobile controls, multi-touch:
 ## - Left half: floating joystick (appears where the finger lands) -> move.
 ## - Right half: horizontal swipe -> turn (camera rotates with the player).
+## - DIVE button (bottom right): dodge in the stick direction.
 ## On web, the top-right corner toggles fullscreen.
-## Desktop: mouse is emulated as touch index 0, plus WASD move, Left/Right turn, Shift sprint.
+## Desktop: mouse is emulated as touch index 0, plus WASD move, Left/Right turn, Shift sprint,
+## Space / C dive.
 
 @export var player_path: NodePath
 @export var joystick_radius := 110.0
@@ -12,6 +14,7 @@ extends Control
 @export var turn_per_screen_width := 4.5
 
 const FULLSCREEN_SIZE := Vector2(90, 90)
+const DIVE_RADIUS := 64.0
 const HINT_COL := Color(1, 1, 1, 0.12)
 const RING_COL := Color(1.0, 0.9, 0.06, 0.35)
 const KNOB_COL := Color(1, 0.9, 0.06, 0.4)
@@ -51,6 +54,8 @@ func _on_touch(e: InputEventScreenTouch) -> void:
 	if e.pressed:
 		if OS.has_feature("web") and _fullscreen_rect().has_point(e.position):
 			_toggle_fullscreen()
+		elif e.position.distance_to(_dive_center()) < DIVE_RADIUS:
+			_player.dive()
 		elif e.position.x < vp.x * 0.5:
 			if _joy_index == -1:
 				_joy_index = e.index
@@ -90,6 +95,11 @@ func _release_joystick() -> void:
 		_player.move_input = Vector2.ZERO
 
 
+func _dive_center() -> Vector2:
+	var vp := get_viewport_rect().size
+	return Vector2(vp.x - 150, vp.y - 140)
+
+
 func _fullscreen_rect() -> Rect2:
 	var vp := get_viewport_rect().size
 	return Rect2(Vector2(vp.x - FULLSCREEN_SIZE.x, 0), FULLSCREEN_SIZE)
@@ -112,6 +122,12 @@ func _draw() -> void:
 		var hint := Vector2(180, vp.y - 180)
 		draw_arc(hint, joystick_radius, 0, TAU, 48, HINT_COL, 3.0)
 		draw_string(ThemeDB.fallback_font, hint + Vector2(-60, 6), "MOVE", HORIZONTAL_ALIGNMENT_CENTER, 120, 18, Color(1, 1, 1, 0.25))
+
+	var dc := _dive_center()
+	var busy: bool = _player.is_diving()
+	draw_circle(dc, DIVE_RADIUS, Color(1, 0.9, 0.06, 0.45) if busy else Color(0, 0, 0, 0.35))
+	draw_arc(dc, DIVE_RADIUS, 0, TAU, 48, RING_COL, 3.0)
+	draw_string(ThemeDB.fallback_font, dc + Vector2(-DIVE_RADIUS, 7), "DIVE", HORIZONTAL_ALIGNMENT_CENTER, DIVE_RADIUS * 2.0, 20, Color(1, 1, 1, 0.7))
 
 	if OS.has_feature("web"):
 		var r := _fullscreen_rect().grow(-30)

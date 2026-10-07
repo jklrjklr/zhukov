@@ -13,6 +13,9 @@ skill-based player control. Mobile first (budget Android), desktop for testing.
   - **Aim assist:** bends aim / bullets slightly toward the nearest enemy in the cone.
 - **Movement:** floating left joystick, screen-relative; light inertia; strafe/back
   speed penalties; sprint (stick at edge) limited by stamina.
+- **Dodge = dive:** DIVE button (Space / C). Committed lunge in the stick direction
+  (3.2 m airborne, invulnerable while airborne), then prone slide and getting up with no
+  control and no invulnerability: 0.8 s total, so mistimed dives get punished.
 
 ## Implications to keep in mind
 
@@ -33,5 +36,7 @@ skill-based player control. Mobile first (budget Android), desktop for testing.
   - Run: `xvfb-run -a godot --path . --rendering-driver opengl3 --script res://tools/bake_sprites.gd -- <preview dir>`
 - In game `CharSprite` draws the sheet (1 texel = 1 buffer pixel), picks idle / run from
   speed and advances the run cycle by distance travelled (no foot sliding).
+- The dive has no source clip: the tool poses it (body pitched forward around the chest,
+  arms swung ahead, legs straightened; keys in `DIVE_KEYS`) into a 12-frame, 128 px sheet.
 - New characters / clips: add the FBX (same rig) and list the skin / clip in the tool.
   Shooting / hit / death clips will need a source with those animations (same rig).
