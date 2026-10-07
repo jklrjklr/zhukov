@@ -6,21 +6,25 @@ extends SceneTree
 ##   xvfb-run -a godot --path . --rendering-driver opengl3 --script res://tools/bake_sprites.gd
 ## Optional user arg after `--`: a directory to also write a contact sheet preview into.
 
-const MODEL := "res://art/3d/survivors/Model/characterMedium.fbx"
-const ANIM_DIR := "res://art/3d/survivors/Animations/"
+## Bodies reshaped by tools/reshape_character.py (Blender) from Kenney's characterMedium:
+## ~5 heads tall, narrow waist, rounded; each carries its own clips (Idle / Run / Jump).
+## model -> skins rendered with it.
+const MODELS := {
+	"res://art/3d/survivors/Model/characterHuman.glb": ["survivorMaleB", "zombieA", "zombieC"],
+	"res://art/3d/survivors/Model/characterHumanF.glb": ["survivorFemaleA"],
+}
 const SKIN_DIR := "res://art/3d/survivors/Skins/"
 const OUT_DIR := "res://art/sprites/"
 const SKINS := ["survivorMaleB", "survivorFemaleA", "zombieA", "zombieC"]
-## Kenney's characters are chibi: from above the head hides the body. Scaling the head bone
-## gives human proportions (OTXO-like silhouettes: shoulders, arms, legs readable).
-const HEAD_SCALE := 0.6
-## Clips from the FBX files: name -> {fbx file, clip name in it, frames over one loop,
+## Extra head scale at bake time (proportions now come from the reshaped model).
+const HEAD_SCALE := 1.0
+## Clips from the model: name -> {clip name in it, frames over one loop,
 ## hold: arms overridden with the two-handed weapon hold (Poses.hold), armed skins only}.
 const ANIMS := {
-	"idle": {"file": "idle", "clip": "Root|Idle", "frames": 8},
-	"run": {"file": "run", "clip": "Root|Run", "frames": 8},
-	"idle_aim": {"file": "idle", "clip": "Root|Idle", "frames": 8, "hold": true},
-	"run_aim": {"file": "run", "clip": "Root|Run", "frames": 8, "hold": true},
+	"idle": {"clip": "Idle", "frames": 8},
+	"run": {"clip": "Run", "frames": 8},
+	"idle_aim": {"clip": "Idle", "frames": 8, "hold": true},
+	"run_aim": {"clip": "Run", "frames": 8, "hold": true},
 }
 ## Skins that carry weapons (get the *_aim clips and the dive).
 const ARMED := ["survivorMaleB", "survivorFemaleA"]
@@ -45,12 +49,28 @@ var _model: Node3D
 var _skel: Skeleton3D
 ## Weapon anchors of the frames baked by the last _bake(): [grip x, grip y, gun angle].
 var _anchors: Array = []
+## Stock point of the current pose's weapon hold (model space), INF when not holding.
+var _hold_pocket := Vector3.INF
 
 
 func _initialize() -> void:
 	DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path(OUT_DIR))
 	_build_stage()
-	var model: Node3D = (load(MODEL) as PackedScene).instantiate()
+	var preview_rows: Array[Image] = []
+	for path in MODELS:
+		var skins: Array = MODELS[path].filter(func(k: String) -> bool: return k in SKINS)
+		if not skins.is_empty():
+			await _bake_model(path, skins, preview_rows)
+	var args := OS.get_cmdline_user_args()
+	if args.size() > 0:
+		_save_preview(preview_rows, args[0])
+	quit()
+
+
+## All clips for the skins that use the model at `path`.
+func _bake_model(path: String, skins: Array, preview_rows: Array[Image]) -> void:
+	_cam.position = Vector3(0, 20, 0)
+	var model: Node3D = (load(path) as PackedScene).instantiate()
 	_pivot.add_child(model)
 	_model = model
 	var player := AnimationPlayer.new()
@@ -58,7 +78,7 @@ func _initialize() -> void:
 	player.root_node = NodePath("..")
 	var lib := AnimationLibrary.new()
 	for anim_name in ANIMS:
-		lib.add_animation(anim_name, _load_clip(ANIMS[anim_name].file, ANIMS[anim_name].clip))
+		lib.add_animation(anim_name, _load_clip(path, ANIMS[anim_name].clip))
 	player.add_animation_library("", lib)
 	player.callback_mode_process = AnimationMixer.ANIMATION_CALLBACK_MODE_PROCESS_MANUAL
 	var skel := model.find_child("Skeleton3D") as Skeleton3D
@@ -73,8 +93,7 @@ func _initialize() -> void:
 		"hips": (_to_model(skel, model) * skel.get_bone_global_pose(skel.find_bone("Hips"))).origin.y,
 	}
 	await _center_on_body(player, skel)
-	var preview_rows: Array[Image] = []
-	for skin in SKINS:
+	for skin in skins:
 		var mat := StandardMaterial3D.new()
 		mat.albedo_texture = load(SKIN_DIR + skin + ".png")
 		mat.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS
@@ -93,7 +112,9 @@ func _initialize() -> void:
 				player.seek(anim.length * i / n, true)
 				_fix_head(skel)
 				if hold:
-					_pose_keys(skel, model, [Poses.key(0.0, Vector3.ZERO, Poses.hold())], 0.0))
+					_pose_keys(skel, model, [Poses.key(0.0, Vector3.ZERO, Poses.hold())], 0.0)
+				else:
+					_hold_pocket = Vector3.INF)
 			_save(sheet, skin, anim_name, preview_rows)
 			if hold:
 				_save_anchors(skin, anim_name)
@@ -117,10 +138,8 @@ func _initialize() -> void:
 			_save(sheet, skin, clip, preview_rows)
 			if clip == "dive":
 				_save_anchors(skin, clip)
-	var args := OS.get_cmdline_user_args()
-	if args.size() > 0:
-		_save_preview(preview_rows, args[0])
-	quit()
+	_model.queue_free()
+	await process_frame
 
 
 ## Renders n frames of size px; pose(i) sets up frame i.
@@ -133,10 +152,13 @@ func _bake(n: int, size: int, pose: Callable) -> Image:
 		pose.call(i)
 		var grip := _screen_px(_skel.find_bone("RightHand"), size)
 		var fore := _screen_px(_skel.find_bone("LeftHand"), size)
+		var line_x := (grip.x + fore.x) / 2.0
+		if _hold_pocket != Vector3.INF:
+			line_x = _model_to_screen(_hold_pocket, size).x
 		var c := Vector2(size, size) / 2.0
 		# The gun runs straight ahead (the hold keeps it level, sprites face up), centred
 		# between the hands, its grip level with the right hand.
-		var at := Vector2((grip.x + fore.x) / 2.0, grip.y)
+		var at := Vector2(line_x, grip.y)
 		_anchors.append([snappedf(at.x - c.x, 0.1), snappedf(at.y - c.y, 0.1), snappedf(-PI / 2.0, 0.001)])
 		await process_frame
 		await RenderingServer.frame_post_draw
@@ -156,7 +178,10 @@ func _save(sheet: Image, skin: String, anim_name: String, preview_rows: Array[Im
 
 ## Bone position in the frame (pixels from the top-left), from the current pose.
 func _screen_px(bone: int, size: int) -> Vector2:
-	var m := _to_model(_skel, _model) * _skel.get_bone_global_pose(bone).origin
+	return _model_to_screen(_to_model(_skel, _model) * _skel.get_bone_global_pose(bone).origin, size)
+
+
+func _model_to_screen(m: Vector3, size: int) -> Vector2:
 	var w := _holder.transform * _pivot.transform * _model.transform * m
 	return Vector2(w.x - _cam.position.x, w.z - _cam.position.z) * CharSprite.PX_PER_UNIT + Vector2(size, size) / 2.0
 
@@ -185,15 +210,59 @@ func _pose_keys(skel: Skeleton3D, model: Node3D, keys: Array, t: float) -> void:
 	var f := smoothstep(0.0, 1.0, inverse_lerp(ka.t, kb.t, t)) if kb.t > ka.t else 1.0
 	var rot := (ka.rot as Vector3).lerp(kb.rot, f) * (PI / 180.0)
 	_pivot.basis = Basis.from_euler(rot)
+	# Weapon hold (IK) when either key holds: pitch interpolated between the keys.
+	var ha = ka.limbs.get("_hold")
+	var hb = kb.limbs.get("_hold")
+	var holding: bool = ha != null or hb != null
+	var targets := {}
+	if holding:
+		var hp := lerpf(ha if ha != null else hb, hb if hb != null else ha, f)
+		targets = _hold_targets(skel, model, hp)
+	_hold_pocket = targets.get("pocket", Vector3.INF)
 	for limb in Poses.ORDER:
-		if not (ka.limbs.has(limb) or kb.limbs.has(limb)):
+		var arm_ik: bool = holding and targets.has(limb)
+		if not (ka.limbs.has(limb) or kb.limbs.has(limb) or arm_ik):
 			continue
 		var bones: Array = Poses.LIMBS[limb]
 		var cur := _bone_dir(skel, model, bones[0], bones[1])
-		var da: Vector3 = (ka.limbs.get(limb, cur) as Vector3).normalized()
-		var db: Vector3 = (kb.limbs.get(limb, cur) as Vector3).normalized()
+		var ik := cur
+		if arm_ik:
+			# Upper arm: toward the solved elbow. Forearm: from the actual elbow to the hand target.
+			var from := _bone_pos(skel, model, bones[0])
+			ik = ((targets[limb] as Vector3) - from).normalized()
+		var dfa: Vector3 = ik if ha != null and arm_ik else cur
+		var dfb: Vector3 = ik if hb != null and arm_ik else cur
+		var da: Vector3 = (ka.limbs.get(limb, dfa) as Vector3).normalized()
+		var db: Vector3 = (kb.limbs.get(limb, dfb) as Vector3).normalized()
 		# Body frame: +X is the character's left; the model's own +X is its left too.
 		_aim_bone(skel, model, bones[0], bones[1], da.slerp(db, f))
+
+
+## IK targets for the shouldered hold at body pitch `pitch`: {"RArm": elbow, "RFore": hand,
+## "LArm": elbow, "LFore": hand, "pocket": stock point}, model space.
+func _hold_targets(skel: Skeleton3D, model: Node3D, pitch: float) -> Dictionary:
+	var rp := Basis(Vector3.RIGHT, -deg_to_rad(pitch))
+	var pocket := _bone_pos(skel, model, "RightArm") + rp * Poses.POCKET
+	var out := {"pocket": pocket}
+	for side in ["R", "L"]:
+		var pre := "Right" if side == "R" else "Left"
+		var hand := pocket + rp * (Poses.GRIP if side == "R" else Poses.FOREGRIP)
+		var pole := rp * (Poses.POLE_R if side == "R" else Poses.POLE_L)
+		var sh := _bone_pos(skel, model, pre + "Arm")
+		var a := sh.distance_to(_bone_pos(skel, model, pre + "ForeArm"))
+		var b := _bone_pos(skel, model, pre + "ForeArm").distance_to(_bone_pos(skel, model, pre + "Hand"))
+		var to := hand - sh
+		var d := clampf(to.length(), absf(a - b) + 0.001, a + b - 0.001)
+		var u := to.normalized()
+		var ca := clampf((a * a + d * d - b * b) / (2.0 * a * d), -1.0, 1.0)
+		var n := (pole - u * pole.dot(u)).normalized()
+		out[side + "Arm"] = sh + u * a * ca + n * a * sqrt(1.0 - ca * ca)
+		out[side + "Fore"] = sh + u * d
+	return out
+
+
+func _bone_pos(skel: Skeleton3D, model: Node3D, bone: String) -> Vector3:
+	return _to_model(skel, model) * skel.get_bone_global_pose(skel.find_bone(bone)).origin
 
 
 ## Skeleton space -> model space, from the local transforms (global transforms of nodes in
@@ -270,6 +339,8 @@ func _build_stage() -> void:
 ## Shifts the camera so the idle pose's silhouette centre is the frame centre (the sprite
 ## pivots there when the character turns).
 func _center_on_body(player: AnimationPlayer, skel: Skeleton3D) -> void:
+	_vp.size = Vector2i(CharSprite.FRAME, CharSprite.FRAME)
+	_cam.size = CharSprite.FRAME / CharSprite.PX_PER_UNIT
 	player.play("idle")
 	player.seek(0.0, true)
 	_fix_head(skel)
@@ -283,8 +354,8 @@ func _center_on_body(player: AnimationPlayer, skel: Skeleton3D) -> void:
 	print("centre offset px ", off)
 
 
-func _load_clip(file: String, clip: String) -> Animation:
-	var scene: Node = (load(ANIM_DIR + file + ".fbx") as PackedScene).instantiate()
+func _load_clip(path: String, clip: String) -> Animation:
+	var scene: Node = (load(path) as PackedScene).instantiate()
 	var ap := scene.find_child("AnimationPlayer") as AnimationPlayer
 	var anim := ap.get_animation(clip).duplicate() as Animation
 	anim.loop_mode = Animation.LOOP_LINEAR

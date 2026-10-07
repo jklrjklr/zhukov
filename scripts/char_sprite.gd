@@ -27,7 +27,7 @@ var flip := false
 var armed := false
 ## Gun art in sprite pixels (placeholder rifle): length ahead of the grip, behind it, width.
 const GUN_FRONT := 22
-const GUN_BACK := 6
+const GUN_BACK := 8
 const GUN_W := 3
 ## Death variants by fall direction (baked by tools/bake_sprites.gd).
 const DEATHS := {

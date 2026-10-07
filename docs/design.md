@@ -28,17 +28,25 @@ skill-based player control. Mobile first (budget Android), desktop for testing.
 
 - Sources: `art/3d/` (Kenney "Animated Characters Survivors", CC0: one rig, skins for
   survivors and zombies, idle / run / jump clips). Excluded from exports.
+- Bodies: `tools/reshape_character.py` (Blender, `apt install blender`) reshapes Kenney's
+  chibi body to stylised ~5-heads proportions (anime/VRoid-like reference: long legs ~47%
+  of height, short torso, smaller head), sculpts the torso profile (male V-taper / female
+  narrow waist + hips), subdivides for curves and re-exports the clips on the new rest pose
+  -> `characterHuman.glb` / `characterHumanF.glb`:
+  `blender -b --python tools/reshape_character.py -- <in.fbx> <out.glb> male|female`.
+  `tools/model_preview.gd` renders front T-poses (original vs reshaped) to check.
 - `tools/bake_sprites.gd` renders each skin x clip straight down with an orthographic camera
   into `art/sprites/<skin>/<clip>.png` (one row of 64 px frames, facing up):
-  - head bone scaled to 0.6 (Kenney models are chibi; from above the head hid the body),
   - light from straight above + ambient (sprites rotate in game, so no side light baked),
   - binary alpha + 1 px ink outline, centred on the idle silhouette.
   - Run: `xvfb-run -a godot --path . --rendering-driver opengl3 --script res://tools/bake_sprites.gd -- <preview dir>`
 - In game `CharSprite` draws the sheet (1 texel = 1 buffer pixel), picks idle / run from
   speed and advances the run cycle by distance travelled (no foot sliding).
 - Clips the pack lacks are posed procedurally from keyed bone directions (`tools/poses.gd`):
-  - **weapon hold** (`Poses.hold(pitch)`): two-handed rifle hold, counter-rotated by the
-    body pitch so the gun stays level. Every pose of an armed character must keep it:
+  - **weapon hold** (`Poses.hold(pitch)`): shouldered rifle solved with 2-bone IK (stock in
+    the right shoulder pocket, gun beside the right cheek, right hand on the grip with the
+    elbow out, left arm forward on the foregrip), counter-rotated by the body pitch so the
+    gun stays level. Every pose of an armed character must keep it:
     `idle_aim` / `run_aim` (FBX legs + hold arms) and the dive use it; deaths drop the gun.
   - **dive** (HD2-style, 16 frames, 128 px): crouch + push-off, flat flight with one knee
     kicked up, chest-first landing, slide, separate get-up (left hand pushes off, knee
@@ -49,5 +57,6 @@ skill-based player control. Mobile first (budget Android), desktop for testing.
 - Weapons are not baked into the sprites: armed clips export per-frame anchors
   (`<clip>.json`: grip offset px, gun angle) and `CharSprite` draws the weapon there, under
   the arms. Any weapon art fits every armed pose without re-baking.
+- After a bake run `godot --headless --import` so the game picks up the new PNGs.
 - New characters / clips: add the FBX (same rig) and list the skin / clip in the tool.
   Shooting / hit / death clips will need a source with those animations (same rig).

@@ -33,21 +33,24 @@ static func key(t: float, rot: Vector3, limbs: Dictionary) -> Dictionary:
 	return {"t": t, "rot": rot, "limbs": limbs}
 
 
-## Two-handed weapon hold (rifle): right hand on the grip in front of the right chest, left
-## hand forward on the foregrip, gun along +Z. `pitch` is the body's forward pitch (deg):
-## the hold is counter-rotated so the gun stays level (points where he goes) even when the
-## body is flat, the way HD2 keeps the weapon up through a dive.
-const HOLD := {
-	"RArm": Vector3(-0.2, -0.75, 0.6), "RFore": Vector3(0.5, 0.1, 0.86),
-	"LArm": Vector3(0.1, -0.5, 0.85), "LFore": Vector3(-0.5, 0.05, 0.86),
-}
+## Shouldered rifle hold, solved with 2-bone IK by the bake tool (so it fits any arm length):
+## the stock sits in the right shoulder pocket, the gun runs straight ahead beside the right
+## cheek, right hand on the grip just ahead of the pocket (elbow out to the side), left arm
+## reaching forward to the foregrip (elbow down). Offsets are in the AIM frame (+X the
+## character's left, +Y up, +Z ahead), which is the body frame counter-rotated by the body's
+## forward pitch, so the gun stays level (points where he goes) even when the body is flat.
+## POCKET is from the right upper-arm joint; GRIP / FOREGRIP from the pocket.
+const POCKET := Vector3(0.16, 0.05, 0.1)
+const GRIP := Vector3(0.0, -0.16, 0.42)
+const FOREGRIP := Vector3(0.02, -0.1, 0.95)
+const POLE_R := Vector3(-1.0, -0.5, -0.2)
+const POLE_L := Vector3(0.3, -1.0, 0.0)
 
 
+## Arms on the weapon (IK) at body pitch `pitch` (deg); `over` overrides limbs (e.g. a hand
+## leaving the gun to push off the ground).
 static func hold(pitch := 0.0, over := {}) -> Dictionary:
-	var b := Basis(Vector3.RIGHT, -deg_to_rad(pitch))
-	var d := {}
-	for k in HOLD:
-		d[k] = b * (HOLD[k] as Vector3)
+	var d := {"_hold": pitch}
 	d.merge(over, true)
 	return d
 
