@@ -46,6 +46,8 @@ skill-based player control. Mobile first (budget Android), desktop for testing.
   - Run: `xvfb-run -a godot --path . --rendering-driver opengl3 --script res://tools/bake_sprites.gd -- <preview dir>`
 - In game `CharSprite` draws the sheet (1 texel = 1 buffer pixel), picks idle / run from
   speed and advances the run cycle by distance travelled (no foot sliding).
+- Realistic motion is coming from Mixamo mocap (list: `docs/mixamo_clips.md`), retargeted
+  to the rig in Blender; the keyed clips below are stand-ins until then.
 - Clips the pack lacks are posed procedurally from keyed bone directions (`tools/poses.gd`):
   - **weapon hold** (`Poses.hold(pitch)`): shouldered rifle solved with 2-bone IK (stock in
     the right shoulder pocket, gun beside the right cheek, right hand on the grip with the
@@ -55,8 +57,9 @@ skill-based player control. Mobile first (budget Android), desktop for testing.
   - **dive** (HD2-style, 16 frames, 128 px): crouch + push-off, flat flight with one knee
     kicked up, chest-first landing, slide, separate get-up (left hand pushes off, knee
     under, kneel, stand); gun held level throughout. Mirrored at random in game.
-  - **deaths** (10 frames, 160 px, ragdoll-like): back x3, face-down x3, left / right side,
-    crumple x2; random elbow / knee bends, spine twist, lolling head, impact overshoot.
+  - **deaths** (physics ragdoll, `tools/ragdoll.gd`, Jolt at 240 Hz): the body starts from
+    its stance (gun hold), takes a hit impulse (back / face / either side, or a crumple
+    nudge; seed varies force, lift, spin) and falls limp; 12 frames over 1.6 s, 192 px.
     `CharSprite.play_death(push)` picks by hit direction and mirrors at random.
 - Weapons are not baked into the sprites: armed clips export per-frame anchors
   (`<clip>.json`: grip offset px, gun angle) and `CharSprite` draws the weapon there, under

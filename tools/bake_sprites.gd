@@ -34,8 +34,13 @@ const ARMED := ["survivorMaleB", "survivorFemaleA"]
 ## Lying flat the body is ~5 units long, so they get bigger frames. Pivot: the point the
 ## body turns around ("chest" keeps the dive centred, "hips" for falls).
 const DIVE := {"frames": 16, "size": 128, "pivot": "chest"}
-const DEATH := {"frames": 10, "size": 160, "pivot": "hips"}
-## Death clip name -> [kind, seed]. Variants of one kind differ by seed.
+## Deaths are physics ragdolls (tools/ragdoll.gd): the body starts from its stance, takes a
+## hit impulse and falls limp; frames sampled over DEATH_TIME seconds of simulation.
+const DEATH := {"frames": 12, "size": 192}
+const DEATH_TIME := 1.6
+## Death clip name -> [kind, seed]: kind = which way the hit pushes (back / fwd / left /
+## right = toward the character's right side, as CharSprite.play_death expects / crumple);
+## the seed varies force, lift and spin.
 const DEATHS := {
 	"death_back0": ["back", 11], "death_back1": ["back", 23], "death_back2": ["back", 97],
 	"death_fwd0": ["fwd", 31], "death_fwd1": ["fwd", 47], "death_fwd2": ["fwd", 89],
@@ -56,6 +61,8 @@ var _hold_pocket := Vector3.INF
 
 
 func _initialize() -> void:
+	Engine.physics_ticks_per_second = 240 # ragdoll stability
+	Engine.max_physics_steps_per_frame = 64
 	DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path(OUT_DIR))
 	_build_stage()
 	var preview_rows: Array[Image] = []
@@ -125,8 +132,6 @@ func _bake_model(path: String, skins: Array, preview_rows: Array[Image]) -> void
 		var clips := {}
 		if armed:
 			clips["dive"] = [DIVE, Poses.dive()]
-		for d in DEATHS:
-			clips[d] = [DEATH, Poses.death(DEATHS[d][0], DEATHS[d][1])]
 		for clip in clips:
 			var spec: Dictionary = clips[clip][0]
 			var keys: Array = clips[clip][1]
@@ -141,8 +146,56 @@ func _bake_model(path: String, skins: Array, preview_rows: Array[Image]) -> void
 			_save(sheet, skin, clip, preview_rows)
 			if clip == "dive":
 				_save_anchors(skin, clip)
+		for d in DEATHS:
+			var sheet := await _bake_ragdoll(player, skel, model, armed, DEATHS[d][0], DEATHS[d][1])
+			_save(sheet, skin, d, preview_rows)
 	_model.queue_free()
 	await process_frame
+
+
+## Ragdoll death from the standing pose (gun hold if armed), pushed by `kind`.
+func _bake_ragdoll(player: AnimationPlayer, skel: Skeleton3D, model: Node3D, armed: bool, kind: String, seed_: int) -> Image:
+	var rng := RandomNumberGenerator.new()
+	rng.seed = seed_
+	player.play("idle_aim" if armed else "idle")
+	player.seek(0.0, true)
+	_fix_head(skel)
+	if armed:
+		_pose_keys(skel, model, [Poses.key(0.0, Vector3.ZERO, Poses.hold())], 0.0)
+	_hold_pocket = Vector3.INF
+	var floor_y := INF
+	for b in ["LeftToes", "RightToes", "LeftFoot", "RightFoot"]:
+		floor_y = minf(floor_y, _bone_pos(skel, model, b).y)
+	var rag := BakeRagdoll.new()
+	rag.build(skel, _holder, floor_y - 0.08)
+	# Push in the model's own frame (+Z ahead, +X its left), then to world.
+	var speed := rng.randf_range(5.0, 9.0)
+	var push_m: Vector3
+	match kind:
+		"back":
+			push_m = Vector3(rng.randf_range(-0.3, 0.3), rng.randf_range(0.2, 0.6), -1.0)
+		"fwd":
+			push_m = Vector3(rng.randf_range(-0.3, 0.3), rng.randf_range(0.1, 0.4), 1.0)
+		"left":
+			push_m = Vector3(-1.0, rng.randf_range(0.2, 0.5), rng.randf_range(-0.3, 0.3))
+		"right":
+			push_m = Vector3(1.0, rng.randf_range(0.2, 0.5), rng.randf_range(-0.3, 0.3))
+		_:
+			# Crumple: barely nudged, the limp legs give way under the body's own weight.
+			push_m = Vector3(rng.randf_range(-0.4, 0.4), 0.0, rng.randf_range(0.3, 1.0))
+			speed = rng.randf_range(0.8, 1.6)
+	var push := _holder.basis * (push_m.normalized() * speed)
+	var spin := Vector3(rng.randf_range(-3, 3), rng.randf_range(-4, 4), rng.randf_range(-3, 3))
+	var steps := int(DEATH_TIME * Engine.physics_ticks_per_second / (DEATH.frames - 1))
+	var sheet := await _bake(DEATH.frames, DEATH.size, func(i: int) -> void:
+		if i == 1:
+			rag.start(push, spin)
+		if i >= 1:
+			for k in steps:
+				await physics_frame)
+	rag.stop()
+	await process_frame
+	return sheet
 
 
 ## Renders n frames of size px; pose(i) sets up frame i.
@@ -152,7 +205,7 @@ func _bake(n: int, size: int, pose: Callable) -> Image:
 	var sheet := Image.create(size * n, size, false, Image.FORMAT_RGBA8)
 	_anchors.clear()
 	for i in n:
-		pose.call(i)
+		await pose.call(i)
 		var grip := _screen_px(_skel.find_bone("RightHand"), size)
 		var fore := _screen_px(_skel.find_bone("LeftHand"), size)
 		var line_x := (grip.x + fore.x) / 2.0

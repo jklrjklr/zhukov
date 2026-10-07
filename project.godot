@@ -31,6 +31,8 @@ pointing/emulate_touch_from_mouse=true
 [physics]
 
 common/physics_ticks_per_second=60
+; 3D physics is only used offline (ragdoll death bakes): Jolt is stable for joint chains.
+3d/physics_engine="Jolt Physics"
 
 [rendering]
 

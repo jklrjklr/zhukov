@@ -123,9 +123,11 @@ func _draw() -> void:
 	# Undo the parent's scale so one texel = one buffer pixel (1 / CAM_ZOOM world px).
 	var s := 1.0 / Vis.CAM_ZOOM / global_scale.x
 	# Drop shadow, offset in world space (light from the top-left of the world).
-	var sh := Vector2(4, 5) * (1.0 + lift * 2.5)
-	draw_set_transform(sh.rotated(-global_rotation) / global_scale.x, 0.0, Vector2(13, 11) * (1.0 - lift * 0.25) / global_scale.x)
-	draw_circle(Vector2.ZERO, 1.0, Color(Pal.SHADOW, Pal.SHADOW.a * (1.0 - lift * 0.4)))
+	# Drop shadow while upright (a ragdoll corpse lies on the ground and has moved off its origin).
+	if not anim.begins_with("death"):
+		var sh := Vector2(4, 5) * (1.0 + lift * 2.5)
+		draw_set_transform(sh.rotated(-global_rotation) / global_scale.x, 0.0, Vector2(13, 11) * (1.0 - lift * 0.25) / global_scale.x)
+		draw_circle(Vector2.ZERO, 1.0, Color(Pal.SHADOW, Pal.SHADOW.a * (1.0 - lift * 0.4)))
 	s *= 1.0 + lift * 0.18
 	draw_set_transform(Vector2.ZERO, 0.0, Vector2(-s if flip else s, s))
 	if armed:
