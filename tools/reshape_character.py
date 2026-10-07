@@ -46,7 +46,24 @@ SCALES = {
 }
 SUBDIV = 2
 ANIM_DIR = "art/3d/survivors/Animations/"
-CLIPS = {"idle": "Idle", "run": "Run", "jump": "Jump"}
+CLIPS = {}  # Kenney FBX clips (replaced by mocap)
+MOCAP_DIR = "art/mocap/cmu/"
+# Mocap clips: name -> (take, start s, end s, loop, loop length range s, direction[, mirror[,
+# in_place[, align]]])
+MOCAP = {
+    "Idle": ("82_08", 0.2, 3.0, True, (1.2, 2.6), None),
+    "Walk": ("16_15", 0.8, None, True, (0.8, 1.4), None),
+    "Run": ("16_35", 0.2, None, True, (0.5, 0.9), None),
+    "WalkBack": ("41_02", 0.0, None, True, (0.8, 1.4), "back"),
+    "WalkLeft": ("41_02", 0.0, None, True, (0.6, 1.4), "left", True),  # mirrored walk-right
+    "WalkRight": ("41_02", 0.0, None, True, (0.6, 1.4), "right"),
+    # Dive = crouch, leap, belly landing (90_16) + get up from face down (140_01).
+    "DiveFall": ("90_16", 2.6, 4.3, False, None, None, False, "lock", "end_body"),
+    "DiveUp": ("140_01", 1.6, 5.0, False, None, None, False, "lock", "start_body"),
+    "ZombieWalk": ("104_41", 0.5, None, True, (0.9, 1.8), None),
+}
+sys.path.append("tools")
+import cmu_retarget  # noqa: E402
 
 bpy.ops.wm.read_factory_settings(use_empty=True)
 bpy.ops.import_scene.fbx(filepath=SRC)
@@ -255,6 +272,12 @@ for f, clip in CLIPS.items():
     for a in new:
         if a is not act:
             bpy.data.actions.remove(a)
+for clip, spec in MOCAP.items():
+    take, st, en, lp, ll, dr = spec[:6]
+    ip = spec[7] if len(spec) > 7 else True
+    actions.append(cmu_retarget.retarget(arm, MOCAP_DIR + take + ".bvh", clip, st, en, lp, ip, ll or (0.6, 1.6),
+                                         direction=dr, mirror=len(spec) > 6 and spec[6],
+                                         align=spec[8] if len(spec) > 8 else "pelvis"))
 arm.animation_data_create()
 for act in actions:
     tr = arm.animation_data.nla_tracks.new()

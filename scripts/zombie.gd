@@ -63,4 +63,4 @@ func _physics_process(delta: float) -> void:
 		var want := velocity.angle() + PI / 2.0
 		rotation = rotate_toward(rotation, want, turn_speed * delta)
 	move_and_slide()
-	_sprite.advance(delta, get_real_velocity().length())
+	_sprite.advance(delta, get_real_velocity().rotated(-rotation))

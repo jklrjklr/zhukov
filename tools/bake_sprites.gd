@@ -18,22 +18,26 @@ const OUT_DIR := "res://art/sprites/"
 const SKINS := ["survivorMaleB", "survivorFemaleA", "zombieA", "zombieC"]
 ## Extra head scale at bake time (proportions now come from the reshaped model).
 const HEAD_SCALE := 1.0
-## Clips from the model: name -> {clip name in it, frames over one loop,
-## hold: arms overridden with the two-handed weapon hold (Poses.hold), armed skins only}.
+## Looping clips from the model (mocap retargeted by tools/reshape_character.py):
+## sprite clip -> {clip in the model, frames over one loop, hold: arms on the weapon (IK,
+## armed skins only; otherwise unarmed skins only)}.
 const ANIMS := {
-	"idle": {"clip": "Idle", "frames": 8},
-	"run": {"clip": "Run", "frames": 8},
-	"idle_aim": {"clip": "Idle", "frames": 8, "hold": true},
-	"run_aim": {"clip": "Run", "frames": 8, "hold": true},
+	"idle": {"clip": "Idle", "frames": 16},
+	"walk": {"clip": "ZombieWalk", "frames": 16},
+	"idle_aim": {"clip": "Idle", "frames": 16, "hold": true},
+	"walk_aim": {"clip": "Walk", "frames": 12, "hold": true},
+	"run_aim": {"clip": "Run", "frames": 12, "hold": true},
+	"back_aim": {"clip": "WalkBack", "frames": 12, "hold": true},
+	"left_aim": {"clip": "WalkLeft", "frames": 12, "hold": true},
+	"right_aim": {"clip": "WalkRight", "frames": 12, "hold": true},
 }
+## Dive (armed skins): mocap leap + belly landing, then the get-up, gun held level by IK.
+const DIVE_CLIPS := [["DiveFall", 12], ["DiveUp", 12]]
+const DIVE_SIZE := 192
 ## Skins wearing the outfit painted into the body meshes (black suit, white shirt, tie).
 const OUTFIT := ["survivorMaleB", "survivorFemaleA"]
 ## Skins that carry weapons (get the *_aim clips and the dive).
 const ARMED := ["survivorMaleB", "survivorFemaleA"]
-## Procedural clips (tools/poses.gd), not looping: frames sampled at t = i / (frames - 1).
-## Lying flat the body is ~5 units long, so they get bigger frames. Pivot: the point the
-## body turns around ("chest" keeps the dive centred, "hips" for falls).
-const DIVE := {"frames": 16, "size": 128, "pivot": "chest"}
 ## Deaths are physics ragdolls (tools/ragdoll.gd): the body starts from its stance, takes a
 ## hit impulse and falls limp; frames sampled over DEATH_TIME seconds of simulation.
 ## DEATH_DIRS push directions (sprite space, 0 = pushed back / screen-down, clockwise in 45 deg
@@ -84,19 +88,15 @@ func _bake_model(path: String, skins: Array, preview_rows: Array[Image]) -> void
 	var lib := AnimationLibrary.new()
 	for anim_name in ANIMS:
 		lib.add_animation(anim_name, _load_clip(path, ANIMS[anim_name].clip))
+	for dc in DIVE_CLIPS:
+		var a := _load_clip(path, dc[0])
+		a.loop_mode = Animation.LOOP_NONE
+		lib.add_animation(dc[0], a)
 	player.add_animation_library("", lib)
 	player.callback_mode_process = AnimationMixer.ANIMATION_CALLBACK_MODE_PROCESS_MANUAL
 	var skel := model.find_child("Skeleton3D") as Skeleton3D
 	_skel = skel
 	var mesh := _find_mesh(model)
-	# The dive pitches the body around the chest, so the flat body (hands ahead, feet behind)
-	# stays centred on the same point as the standing one.
-	player.play("idle")
-	player.seek(0.0, true)
-	var pivots := {
-		"chest": (_to_model(skel, model) * skel.get_bone_global_pose(skel.find_bone("UpperChest"))).origin.y,
-		"hips": (_to_model(skel, model) * skel.get_bone_global_pose(skel.find_bone("Hips"))).origin.y,
-	}
 	await _center_on_body(player, skel)
 	for skin in skins:
 		var mat := ShaderMaterial.new()
@@ -109,7 +109,7 @@ func _bake_model(path: String, skins: Array, preview_rows: Array[Image]) -> void
 		for anim_name in ANIMS:
 			var spec: Dictionary = ANIMS[anim_name]
 			var hold: bool = spec.get("hold", false)
-			if hold and not armed:
+			if hold != armed:
 				continue
 			var n: int = spec.frames
 			var anim := lib.get_animation(anim_name)
@@ -124,24 +124,18 @@ func _bake_model(path: String, skins: Array, preview_rows: Array[Image]) -> void
 			_save(sheet, skin, anim_name, preview_rows)
 			if hold:
 				_save_anchors(skin, anim_name)
-		player.play("idle")
-		var clips := {}
 		if armed:
-			clips["dive"] = [DIVE, Poses.dive()]
-		for clip in clips:
-			var spec: Dictionary = clips[clip][0]
-			var keys: Array = clips[clip][1]
-			_pivot.position.y = pivots[spec.pivot]
-			model.position.y = -pivots[spec.pivot]
-			var sheet := await _bake(spec.frames, spec.size, func(i: int) -> void:
-				player.seek(0.0, true)
+			var segs: Array = []
+			for dc in DIVE_CLIPS:
+				for i in dc[1]:
+					segs.append([dc[0], float(i) / (dc[1] - 1)])
+			var sheet := await _bake(segs.size(), DIVE_SIZE, func(i: int) -> void:
+				var clip: String = segs[i][0]
+				player.play(clip)
+				player.seek(lib.get_animation(clip).length * segs[i][1], true)
 				_fix_head(skel)
-				_pose_keys(skel, model, keys, float(i) / (spec.frames - 1)))
-			_pivot.transform = Transform3D.IDENTITY
-			model.position = Vector3.ZERO
-			_save(sheet, skin, clip, preview_rows)
-			if clip == "dive":
-				_save_anchors(skin, clip)
+				_pose_keys(skel, model, [Poses.key(0.0, Vector3.ZERO, Poses.hold())], 0.0))
+			_save_cropped(sheet, DIVE_SIZE, skin, "dive", preview_rows, _anchors)
 		for k in DEATH_DIRS:
 			for v in DEATH_VARIANTS:
 				var clip := "death_d%d_%d" % [k, v]
@@ -213,7 +207,7 @@ func _bake(n: int, size: int, pose: Callable) -> Image:
 
 ## Saves a sheet cropped to the union of its frames' used areas; the crop rect (in frame
 ## pixels) goes to <clip>.json as "rect" so the game draws it at the right offset.
-func _save_cropped(sheet: Image, size: int, skin: String, clip: String, preview_rows: Array[Image]) -> void:
+func _save_cropped(sheet: Image, size: int, skin: String, clip: String, preview_rows: Array[Image], anchors := []) -> void:
 	var n := sheet.get_width() / size
 	var u := Rect2i()
 	for i in n:
@@ -225,7 +219,10 @@ func _save_cropped(sheet: Image, size: int, skin: String, clip: String, preview_
 		out.blit_rect(sheet, Rect2i(i * size + u.position.x, u.position.y, u.size.x, u.size.y), Vector2i(i * u.size.x, 0))
 	out.save_png(ProjectSettings.globalize_path(OUT_DIR + "%s/%s.png" % [skin, clip]))
 	var f := FileAccess.open(ProjectSettings.globalize_path(OUT_DIR + "%s/%s.json" % [skin, clip]), FileAccess.WRITE)
-	f.store_string(JSON.stringify({"frame": size, "frames_n": n, "rect": [u.position.x, u.position.y, u.size.x, u.size.y]}))
+	var meta := {"frame": size, "frames_n": n, "rect": [u.position.x, u.position.y, u.size.x, u.size.y]}
+	if not anchors.is_empty():
+		meta["frames"] = anchors
+	f.store_string(JSON.stringify(meta))
 	preview_rows.append(sheet)
 	print("baked ", clip, " frames=", n, " crop=", u.size)
 
@@ -470,6 +467,7 @@ func _save_preview(rows: Array[Image], dir: String) -> void:
 	for r in rows:
 		img.blend_rect(r, Rect2i(Vector2i.ZERO, r.get_size()), Vector2i(0, y))
 		y += r.get_height()
-	img.resize(img.get_width() * 2, img.get_height() * 2, Image.INTERPOLATE_NEAREST)
+	if img.get_width() * img.get_height() < 16_000_000:
+		img.resize(img.get_width() * 2, img.get_height() * 2, Image.INTERPOLATE_NEAREST)
 	DirAccess.make_dir_recursive_absolute(dir)
 	img.save_png(dir.path_join("bake_preview.png"))

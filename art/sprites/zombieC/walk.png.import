@@ -2,16 +2,16 @@
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://pvudk6jlq5ef"
-path="res://.godot/imported/idle.png-d1c73a1c566fe8092ce3e930e920aa02.ctex"
+uid="uid://bdmf5ptoeop6q"
+path="res://.godot/imported/walk.png-f77786512bf3f26c69145bb36c1a57bc.ctex"
 metadata={
 "vram_texture": false
 }
 
 [deps]
 
-source_file="res://art/sprites/survivorFemaleA/idle.png"
-dest_files=["res://.godot/imported/idle.png-d1c73a1c566fe8092ce3e930e920aa02.ctex"]
+source_file="res://art/sprites/zombieC/walk.png"
+dest_files=["res://.godot/imported/walk.png-f77786512bf3f26c69145bb36c1a57bc.ctex"]
 
 [params]
 

@@ -21,12 +21,12 @@ extends CharacterBody2D
 
 ## Dive: total time (s, matches the baked clip: airborne, prone slide, getting up), airborne
 ## distance (m), and the clip fractions where flight ends / the slide ends.
-@export var dive_time := 0.8
+@export var dive_time := 1.6
 @export var dive_distance := 3.2
-const DIVE_AIR_END := 0.55
-const DIVE_SLIDE_END := 0.72
+const DIVE_AIR_END := 0.34
+const DIVE_SLIDE_END := 0.5
 ## Invulnerable from take-off until landing (fractions of dive_time).
-const DIVE_IFRAMES := Vector2(0.05, 0.55)
+const DIVE_IFRAMES := Vector2(0.05, 0.34)
 
 const PX_PER_M := 60.0
 
@@ -178,6 +178,7 @@ func _update_dive(delta: float) -> void:
 		sprite.lift = 0.0
 		sprite.flip = false
 		sprite.anim = "idle_aim"
+		sprite.phase = 0.0
 	_ov.queue_redraw()
 
 
@@ -210,7 +211,7 @@ func _keyboard_move() -> Vector2:
 
 
 func _animate(delta: float) -> void:
-	sprite.advance(delta, get_real_velocity().length())
+	sprite.advance(delta, get_real_velocity().rotated(-rotation))
 	_ov.queue_redraw()
 
 

@@ -2,16 +2,16 @@
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://dam0tma6kirlu"
-path="res://.godot/imported/idle.png-2f100adb62387549a6be8f3e3e82da8a.ctex"
+uid="uid://bh5c6avmirehf"
+path="res://.godot/imported/walk.png-f7afe8188483aa1980089fc092660b99.ctex"
 metadata={
 "vram_texture": false
 }
 
 [deps]
 
-source_file="res://art/sprites/survivorMaleB/idle.png"
-dest_files=["res://.godot/imported/idle.png-2f100adb62387549a6be8f3e3e82da8a.ctex"]
+source_file="res://art/sprites/zombieA/walk.png"
+dest_files=["res://.godot/imported/walk.png-f7afe8188483aa1980089fc092660b99.ctex"]
 
 [params]
 

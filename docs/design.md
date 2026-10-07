@@ -46,17 +46,26 @@ skill-based player control. Mobile first (budget Android), desktop for testing.
   - Run: `xvfb-run -a godot --path . --rendering-driver opengl3 --script res://tools/bake_sprites.gd -- <preview dir>`
 - In game `CharSprite` draws the sheet (1 texel = 1 buffer pixel), picks idle / run from
   speed and advances the run cycle by distance travelled (no foot sliding).
-- Realistic motion: CMU Graphics Lab mocap (BVH), retargeted to the rig in Blender (Mixamo
-  list kept in `docs/mixamo_clips.md` for later); keyed clips are stand-ins until replaced.
-- Clips the pack lacks are posed procedurally from keyed bone directions (`tools/poses.gd`):
+- Motion is real mocap: CMU Graphics Lab Motion Capture Database (BVH in `art/mocap/cmu/`,
+  credit in its README), retargeted in Blender by `tools/cmu_retarget.py` (called from the
+  reshape): world-space rotation transfer between the T-pose rests, facing aligned, travel
+  removed (sway kept) or hips locked, automatic seamless loops, mirroring, direction
+  segments cut from "navigate" takes. Clips: Idle (82_08), Walk (16_15), Run (16_35),
+  WalkBack / WalkLeft (mirrored) / WalkRight (41_02), DiveFall (90_16 leap + belly landing),
+  DiveUp (140_01 get up face down), ZombieWalk (104_41). Mixamo list kept in
+  `docs/mixamo_clips.md` for later.
+- In game `CharSprite.advance(delta, local_velocity)` picks idle / walk / run / back /
+  strafe left / right from the direction relative to facing and plays each by distance
+  travelled (per-clip stride, `CYCLE_PX`), so feet don't slide. The dive plays the 24-frame
+  mocap sheet (leap, landing, slide, get-up) over `dive_time` 1.6 s.
+- Preview tools: `tools/clip_preview.gd` (side-view filmstrips of the model's clips),
+  `tools/sheet_preview.gd` (baked top-down sheets with gun anchors).
+- Procedural layers (`tools/poses.gd`, keyed bone directions / IK) on top of the mocap:
   - **weapon hold** (`Poses.hold(pitch)`): shouldered rifle solved with 2-bone IK (stock in
     the right shoulder pocket, gun beside the right cheek, right hand on the grip with the
     elbow out, left arm forward on the foregrip), counter-rotated by the body pitch so the
     gun stays level. Every pose of an armed character must keep it:
     `idle_aim` / `run_aim` (FBX legs + hold arms) and the dive use it; deaths drop the gun.
-  - **dive** (HD2-style, 16 frames, 128 px): crouch + push-off, flat flight with one knee
-    kicked up, chest-first landing, slide, separate get-up (left hand pushes off, knee
-    under, kneel, stand); gun held level throughout. Mirrored at random in game.
   - **deaths** (physics ragdoll, `tools/ragdoll.gd`, Jolt at 240 Hz): the body starts from
     its stance (gun hold), takes a hit impulse and falls limp; 8 push directions (45 deg) x 3
     seeded variants (force, lift, spin) = `death_d<dir>_<v>`, 10 frames over 1.5 s. Sheets

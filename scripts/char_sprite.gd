@@ -8,11 +8,18 @@ extends Node2D
 const FRAME := 64
 const PX_PER_UNIT := 18.0
 
-## World px travelled per run cycle (two steps) and idle loop length (s), matching the clips.
-const RUN_PX_PER_CYCLE := 170.0
-const IDLE_LOOP := 1.07
-## Below this speed (world px/s) the idle clip plays.
+## Locomotion clips (mocap): world px travelled per loop (stride matching, no foot sliding).
+## 1 model unit = PX_PER_UNIT buffer px = PX_PER_UNIT / CAM_ZOOM world px.
+const UNIT_PX := PX_PER_UNIT / Vis.CAM_ZOOM
+const CYCLE_PX := {
+	"walk_aim": 2.501 * UNIT_PX, "run_aim": 4.368 * UNIT_PX, "back_aim": 1.359 * UNIT_PX,
+	"left_aim": 1.027 * UNIT_PX, "right_aim": 1.027 * UNIT_PX, "walk": 1.42 * UNIT_PX,
+}
+## Idle loop length (s).
+const IDLE_LOOP := 41.0 / 30.0
+## Below this speed (world px/s) the idle clip plays; above RUN_SPEED forward is a run.
 const MOVE_THRESHOLD := 20.0
+const RUN_SPEED := 135.0
 
 @export var skin := "survivorMaleB"
 ## Current animation and its phase (0..1 over one loop); set by the owner each frame.
@@ -45,7 +52,7 @@ var _crops := {}
 func _ready() -> void:
 	texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
 	set_process(false)
-	for a in ["idle", "run", "idle_aim", "run_aim"] if armed else ["idle", "run"]:
+	for a in ["idle", "walk"]:
 		_sheet(a)
 
 
@@ -96,13 +103,32 @@ func show_clip(a: String, p: float) -> void:
 	queue_redraw()
 
 
-## Picks the clip from the owner's speed and advances it (call once per tick).
-func advance(delta: float, speed: float) -> void:
-	var a := ("run" if speed > MOVE_THRESHOLD else "idle") + ("_aim" if armed else "")
+## Picks the locomotion clip from the owner's velocity in sprite space (-Y = facing, world
+## px/s) and advances it by distance travelled (call once per tick).
+func advance(delta: float, vel: Vector2) -> void:
+	var speed := vel.length()
+	var a: String
+	if speed <= MOVE_THRESHOLD:
+		a = "idle_aim" if armed else "idle"
+	elif not armed:
+		a = "walk"
+	else:
+		var d := vel / speed
+		if -d.y >= absf(d.x) * 0.8:
+			a = "run_aim" if speed > RUN_SPEED else "walk_aim"
+		elif d.y >= absf(d.x) * 0.8:
+			a = "back_aim"
+		else:
+			a = "right_aim" if d.x > 0.0 else "left_aim"
 	if a != anim:
+		# Keep the step phase across walk / run / strafe switches.
+		if not (anim in CYCLE_PX and a in CYCLE_PX):
+			phase = 0.0
 		anim = a
-		phase = 0.0
-	phase = fposmod(phase + (speed * delta / RUN_PX_PER_CYCLE if a == "run" else delta / IDLE_LOOP), 1.0)
+	if a in CYCLE_PX:
+		phase = fposmod(phase + speed * delta / CYCLE_PX[a], 1.0)
+	else:
+		phase = fposmod(phase + delta / IDLE_LOOP, 1.0)
 	queue_redraw()
 
 

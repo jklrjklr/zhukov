@@ -50,7 +50,7 @@ func _initialize() -> void:
 	for i in 15:
 		await physics_frame
 	check("airborne dive is invulnerable", p.is_invulnerable())
-	for i in 60:
+	for i in 110:
 		await physics_frame
 	var moved := p.global_position.distance_to(before)
 	check("dive ends", not p.is_diving())
