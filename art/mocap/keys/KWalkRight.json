@@ -1,0 +1,27 @@
+{
+ "clip": "KWalkRight",
+ "kind": "strafe",
+ "direction": "right",
+ "labels": [
+  "contact_L",
+  "down_L",
+  "passing_L",
+  "up_L",
+  "contact_R",
+  "down_R",
+  "passing_R",
+  "up_R"
+ ],
+ "phases": [
+  0.0,
+  0.0829,
+  0.2143,
+  0.46,
+  0.6857,
+  0.7314,
+  0.85,
+  0.9257
+ ],
+ "stride": 1.164,
+ "loop_s": 1.167
+}

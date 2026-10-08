@@ -1,5 +1,5 @@
 #!/bin/sh
-# Renders docs/preview/player_moves.{mp4,gif} and player_sheets.png (see tools/player_preview.gd).
+# Renders docs/preview/player_moves_v2.{mp4,gif} and player_sheets.png (see tools/player_preview.gd).
 #   sh tools/player_preview.sh
 set -e
 OUT=${TMPDIR:-/tmp}/player_preview
@@ -14,8 +14,8 @@ while IFS='|' read -r a b text; do
 done < "$OUT/captions.txt"
 VF=${VF#,}
 ffmpeg -y -loglevel error -framerate 30 -i "$OUT/f_%05d.png" -vf "$VF,format=yuv420p" \
-  -c:v libx264 -crf 20 -preset slow -movflags +faststart docs/preview/player_moves.mp4
+  -c:v libx264 -crf 22 -preset slow -movflags +faststart docs/preview/player_moves_v2.mp4
 ffmpeg -y -loglevel error -framerate 30 -i "$OUT/f_%05d.png" \
   -vf "$VF,fps=15,scale=480:-1:flags=neighbor,split[a][b];[a]palettegen=max_colors=64[p];[b][p]paletteuse=dither=none" \
-  docs/preview/player_moves.gif
+  docs/preview/player_moves_v2.gif
 ls -la docs/preview

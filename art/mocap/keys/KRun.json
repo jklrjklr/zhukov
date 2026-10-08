@@ -1,0 +1,27 @@
+{
+ "clip": "KRun",
+ "kind": "run",
+ "direction": "fwd",
+ "labels": [
+  "contact_L",
+  "down_L",
+  "push_L",
+  "flight_L",
+  "contact_R",
+  "down_R",
+  "push_R",
+  "flight_R"
+ ],
+ "phases": [
+  0.0,
+  0.128,
+  0.2608,
+  0.3688,
+  0.48,
+  0.612,
+  0.7492,
+  0.8812
+ ],
+ "stride": 2.609,
+ "loop_s": 0.833
+}

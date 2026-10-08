@@ -68,25 +68,50 @@ skill-based player control. Mobile first (budget Android), desktop for testing.
   segments cut from "navigate" takes. Clips: Idle (82_08), Walk (16_15), Run (16_35),
   WalkBack / WalkLeft (mirrored) / WalkRight (41_02), ZombieWalk (104_41). Mixamo list kept in
   `docs/mixamo_clips.md` for later.
+- **Player mocap and key poses** (v2). Sources (credits in `art/mocap/README.md`): CMU (127_23 "Run
+  Dive Over Roll Run" for the dive) and **100STYLE** (Mason, Starke, Komura, CC BY 4.0, Zenodo
+  8127870; style "Proud": forward / backward / sideways walk and forward run). `cmu_retarget.py` maps
+  the 100STYLE skeleton to the CMU names and reads the frame rate from the BVH. `tools/keypose.py`
+  turns each dense retargeted loop into **key poses** like a 2D animator (clips `KWalk`, `KRun`,
+  `KWalkBack`, `KWalkRight`, `KWalkLeft`, `KDive` in the glb, sidecar `art/mocap/keys/<clip>.json`
+  with labels, phases, stride):
+  - *Selection* (from foot travel and hip height, not even spacing): walk = contact (lead foot's
+    forward extreme; strafe: landing), down (hips lowest), passing (swing foot passes the stance foot),
+    up (push-off) per foot = 8 keys; run = contact, down, push, flight (hips highest). Phase 0 = left
+    contact. Dive = 12 picked mocap frames (coil, push, extend, reach, impact, flip, inverted, roll,
+    ball, crouch, rise, stand) + the standing hold.
+  - *Exaggeration* around the cycle mean: foot offsets x1.4-1.5 along the travel direction and
+    x1.2-1.35 sideways, swing height x1.9-2.4, hip bob x1.6-2.0 plus a constant crouch (knees
+    bend), sway x1.3, forward lean +5 deg walk / +11 deg run, head damped; legs are re-solved with
+    2-bone IK (knee forward) and the hips lowered if a planted leg can't reach, so the lowest point
+    of each foot stays on the ground at contacts. Arms are not touched: the rifle hold (IK) replaces
+    them. (Spine / hips yaw is kept at the mocap's amount: scaling it made the torso wobble against
+    the gun.)
+  - *Timing*: each key is one sprite frame held to the next (`starts`); key times are the mocap's
+    own blended 50 % toward a hold pattern that gives contact and passing / flight the long holds
+    and down / up the short ones (snappy). Stride per loop = median ground speed of the planted feet
+    (unexaggerated mocap) x the stride exaggeration.
+  - *Check*: `tools/bake_sprites.gd ... side=<dir>` also renders each key from the side, and
+    `python3 tools/key_sheet.py <dir> out.png <skin> <clips>` makes the contact sheet
+    `docs/preview/player_keys.png` (3D side view above the top-down sprite).
 - **Player locomotion sheets** (armed skins, `walk_<tag>`, `run_<tag>`, tag = f, fr, r, br, b, bl, l,
   fl = direction relative to the look direction, clockwise): forward / back / left / right
-  walks and the forward run are the mocap clips. The **diagonals re-aim the forward / back gait**
-  (no suitable diagonal take exists in the CMU takes we have; blending forward and strafe clips
-  gives strides that don't match, and a run can't be blended with a side step): each foot's swing
-  around its neutral position is turned 45 degrees about the vertical axis and the legs are re-solved
-  with 2-bone IK (knee forward, foot orientation kept), so cadence and leg timing stay mocap and the
-  planted foot moves in a straight line against the travel direction. Run exists as `run_f`, `run_fr`,
-  `run_fl` only. Every loop is phase-aligned (frame 0 = left foot at its leading extreme) so switching
-  direction mid-stride doesn't pop, and its **stride is measured from the planted toes** (written to
-  `<clip>.json` `stride`; the mocap hips travel overestimates it by ~20-40%). The bake log prints the
-  residual slide per clip (`GAIT ...`). `CharSprite.advance_dir(delta, speed, idx, running)` plays them
-  by distance travelled (`stride x UNIT_PX` per loop).
-- **Player dive sheets** (`dive_0..7`, direction relative to look): hand-keyed, not mocap, per the
-  snappy-player rule. `Poses.dive(heading)` gives 12 key poses (coil, kick-off, flight with one knee
-  driven up, flat skid, prone, prop, kneel, rise, stand), the whole body tipping toward the heading
-  about the hips; the weapon hold IK works in the aim frame (body rotation undone), so the gun stays
-  level and pointing ahead. One sprite frame per key pose, held until the next key (`starts` = key
-  times), so the fast part is a few hard cuts and the recovery lingers.
+  walks and the forward run are key-pose clips. The **diagonals re-aim the forward / back gait**
+  (no diagonal take in the sets used; blending gives mismatched strides): each foot's swing
+  around its neutral position (hold-weighted mean over the keys) is turned 45 degrees about the
+  vertical axis and the legs are re-solved with 2-bone IK, so cadence, key choice and timing stay.
+  Run exists as `run_f`, `run_fr`, `run_fl` only. Frame 0 of every loop is the left contact so
+  switching direction mid-stride doesn't pop; `CharSprite.advance_dir(delta, speed, idx, running)`
+  plays them by distance travelled (`stride x UNIT_PX` per loop).
+- **Player dive sheets** (`dive_0..7`, direction relative to look): the mocap dive keys above.
+  The pose is turned toward the heading about the vertical axis, then twisted about its own long
+  axis (hips -> head) by the opposite angle: upright it is exactly the look direction, flat it
+  lies tipped toward the heading (belly-down forward, on the back for back, on the side for
+  left / right) with the chest still facing the look direction, and rolls / tumbles the same way.
+  In the air (coil .. reach) and standing the arms hold the rifle on the aim line (IK, world
+  frame; the gun can fire); during the roll the mocap arms are used and the gun is slung (anchor
+  4th value 0: not drawn, no muzzle). Back-ish headings reuse the forward dive's articulation
+  (no back-fall take available in the repo's BVH set), only the whole-body tipping changes.
 - **Pixel-art rendering rules** (bake):
   - Timing is pose-to-pose, not per time: each clip is rendered densely (32 samples per
     loop, 30 for a ragdoll fall) and only key poses are kept, each held
@@ -116,7 +141,7 @@ skill-based player control. Mobile first (budget Android), desktop for testing.
   the arms. Any weapon art fits every armed pose without re-baking.
 - Tests: `gd --headless --script res://tools/smoke_test.gd` and `tools/player_test.gd` (movement
   quantisation, run refusal, exact dive direction, dive animation index, facing, firing / melee in a
-  dive). Preview video / gif: `sh tools/player_preview.sh` -> `docs/preview/`.
+  dive). Preview video / gif: `sh tools/player_preview.sh` -> `docs/preview/` (`player_moves_v2.mp4`/`.gif`, `player_keys.png`).
 - After a bake run `godot --headless --import` so the game picks up the new PNGs.
 - New characters / clips: add the FBX (same rig) and list the skin / clip in the tool.
   Shooting / hit / death clips will need a source with those animations (same rig).

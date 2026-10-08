@@ -1,0 +1,27 @@
+{
+ "clip": "KWalkBack",
+ "kind": "back",
+ "direction": "back",
+ "labels": [
+  "contact_L",
+  "down_L",
+  "passing_L",
+  "up_L",
+  "contact_R",
+  "down_R",
+  "passing_R",
+  "up_R"
+ ],
+ "phases": [
+  0.0,
+  0.0757,
+  0.2838,
+  0.3973,
+  0.4865,
+  0.5649,
+  0.7905,
+  0.9081
+ ],
+ "stride": 2.494,
+ "loop_s": 1.233
+}

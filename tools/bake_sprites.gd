@@ -38,17 +38,17 @@ const ANIMS := {
 ## against it at bake time. Each loop is also phase-aligned: frame 0 = the left foot at its
 ## leading extreme, so switching direction mid-stride doesn't pop.
 const GAIT := {
-	"walk_f": {"clip": "Walk", "keys": 8, "go": 0, "aim": 0.0, "stride": 2.501},
-	"walk_fr": {"clip": "Walk", "keys": 8, "go": 1, "aim": -45.0, "stride": 2.501},
-	"walk_r": {"clip": "WalkRight", "keys": 6, "go": 2, "aim": 0.0, "stride": 1.027},
-	"walk_b": {"clip": "WalkBack", "keys": 8, "go": 4, "aim": 0.0, "stride": 1.359},
-	"walk_br": {"clip": "WalkBack", "keys": 8, "go": 3, "aim": 45.0, "stride": 1.359},
-	"walk_bl": {"clip": "WalkBack", "keys": 8, "go": 5, "aim": -45.0, "stride": 1.359},
-	"walk_l": {"clip": "WalkLeft", "keys": 6, "go": 6, "aim": 0.0, "stride": 1.027},
-	"walk_fl": {"clip": "Walk", "keys": 8, "go": 7, "aim": 45.0, "stride": 2.501},
-	"run_f": {"clip": "Run", "keys": 8, "go": 0, "aim": 0.0, "stride": 4.368},
-	"run_fr": {"clip": "Run", "keys": 8, "go": 1, "aim": -45.0, "stride": 4.368},
-	"run_fl": {"clip": "Run", "keys": 8, "go": 7, "aim": 45.0, "stride": 4.368},
+	"walk_f": {"clip": "KWalk", "go": 0, "aim": 0.0},
+	"walk_fr": {"clip": "KWalk", "go": 1, "aim": -45.0},
+	"walk_r": {"clip": "KWalkRight", "go": 2, "aim": 0.0},
+	"walk_b": {"clip": "KWalkBack", "go": 4, "aim": 0.0},
+	"walk_br": {"clip": "KWalkBack", "go": 3, "aim": 45.0},
+	"walk_bl": {"clip": "KWalkBack", "go": 5, "aim": -45.0},
+	"walk_l": {"clip": "KWalkLeft", "go": 6, "aim": 0.0},
+	"walk_fl": {"clip": "KWalk", "go": 7, "aim": 45.0},
+	"run_f": {"clip": "KRun", "go": 0, "aim": 0.0},
+	"run_fr": {"clip": "KRun", "go": 1, "aim": -45.0},
+	"run_fl": {"clip": "KRun", "go": 7, "aim": 45.0},
 }
 ## Pixel-art timing (Dead Cells style): every clip is rendered densely (DENSE samples), then
 ## only key poses are kept - the extremes where the body slows down, plus fills for long gaps
@@ -93,12 +93,16 @@ var _hold_pocket := Vector3.INF
 var _only: Array = []
 ## User arg `skin=survivorMaleB`: bake only these skins.
 var _skin_filter: Array = []
+## User arg `side=<dir>`: also render each kept key pose from the SIDE (3D pose check) into
+## <dir>/<skin>_<clip>_side.png (strip of SIDE_PX frames; used by tools/key_sheet.py).
+var _side_dir := ""
+var _sides: Array[Image] = []
+var _side_strip: Image
+const SIDE_PX := 128
 ## Phase starts forced for the next _bake() (hand-keyed clips: the key times).
 var _force_starts: Array = []
 ## Extra fields for the next _save() json (locomotion: stride per loop, direction).
 var _meta_extra := {}
-## Measured stride (model units per loop) of each source clip's straight gait.
-var _base_stride := {}
 
 
 func _initialize() -> void:
@@ -109,6 +113,8 @@ func _initialize() -> void:
 	for a in OS.get_cmdline_user_args():
 		if a.begins_with("only="):
 			_only = a.substr(5).split(",")
+		elif a.begins_with("side="):
+			_side_dir = a.substr(5)
 		elif a.begins_with("skin="):
 			_skin_filter = a.substr(5).split(",")
 		else:
@@ -141,6 +147,7 @@ func _bake_model(path: String, skins: Array, preview_rows: Array[Image]) -> void
 	for table in [ANIMS, GAIT]:
 		for anim_name in table:
 			lib.add_animation(anim_name, _load_clip(path, table[anim_name].clip))
+	lib.add_animation("KDive", _load_clip(path, "KDive"))
 	player.add_animation_library("", lib)
 	player.callback_mode_process = AnimationMixer.ANIMATION_CALLBACK_MODE_PROCESS_MANUAL
 	var skel := model.find_child("Skeleton3D") as Skeleton3D
@@ -176,7 +183,7 @@ func _bake_model(path: String, skins: Array, preview_rows: Array[Image]) -> void
 					await _bake_gait(player, lib, skel, model, anim_name, GAIT[anim_name], skin, preview_rows)
 			for k in 8:
 				if _want("dive_%d" % k):
-					await _bake_dive(player, skel, model, k, skin, preview_rows)
+					await _bake_dive(player, lib, skel, model, k, skin, preview_rows)
 		if _want("death"):
 			for k in DEATH_DIRS:
 				for v in DEATH_VARIANTS:
@@ -187,80 +194,44 @@ func _bake_model(path: String, skins: Array, preview_rows: Array[Image]) -> void
 	await process_frame
 
 
-## One 8-direction locomotion loop (see GAIT): re-aimed legs, phase-aligned, key poses.
+## One 8-direction locomotion loop (see GAIT): one sprite frame per KEY POSE of a key-pose clip
+## (tools/keypose.py: contact / down / passing / up per foot, picked from the mocap and
+## exaggerated; sidecar art/mocap/keys/<clip>.json has their phases and the stride), the legs
+## re-aimed for the diagonals, each key held until the next.
 func _bake_gait(player: AnimationPlayer, lib: AnimationLibrary, skel: Skeleton3D, model: Node3D,
 		name: String, spec: Dictionary, skin: String, preview_rows: Array[Image]) -> void:
 	var anim := lib.get_animation(name)
 	player.play(name)
+	var info := _key_info(spec.clip)
+	var phases: Array = info.phases
+	var n := phases.size()
 	var phi: float = spec.aim
-	var th := deg_to_rad(float(spec.go) * 45.0)
-	# Travel direction in model space (x = character's left, z = forward).
-	var go := Vector2(-sin(th), cos(th))
 	var at := func(i: int, aim: float, means: Array) -> void:
-		player.seek(anim.length * fposmod(float(i), DENSE) / DENSE, true)
+		player.seek(anim.length * float(i) / float(n - 1), true)
 		_fix_head(skel)
 		if means.size() > 0 and absf(aim) > 0.01:
 			_reaim_legs(skel, model, means, aim)
-	# Neutral (mean) foot offsets from the hips over the loop, from the unmodified mocap.
+	# Neutral (mean) foot offsets from the hips over the cycle, weighted by how long each key is held.
 	var means := [Vector2.ZERO, Vector2.ZERO]
-	for i in DENSE:
+	for i in n:
 		at.call(i, 0.0, [])
+		var hold: float = (float(phases[(i + 1) % n]) - float(phases[i]) + (1.0 if i == n - 1 else 0.0))
 		for f in 2:
-			means[f] += _foot_off(skel, model, f) / DENSE
-	# Phase alignment (left foot at its leading extreme = frame 0), planted-foot measurements.
-	var best := -1e9
-	var shift := 0
-	var toes: Array = [] # [frame][foot] ball-of-foot position
-	for i in DENSE:
+			means[f] += _foot_off(skel, model, f) * hold
+	var stride: float = info.stride
+	print("GAIT %s from %s: stride %.3f units/loop, key phases %s" % [name, spec.clip, stride, phases])
+	_force_starts = phases.duplicate()
+	var sheet := await _bake(n, CharSprite.FRAME, func(i: int) -> void:
 		at.call(i, phi, means)
-		toes.append([_bone_pos(skel, model, "LeftToes"), _bone_pos(skel, model, "RightToes")])
-		var lead := _foot_off(skel, model, 0).dot(go)
-		if lead > best:
-			best = lead
-			shift = i
-	# Contact = the ball of the foot within 12% of its height range of the floor; its ground
-	# speed along the travel direction (median: heel strike / toe off are outliers, mid stance is
-	# the ground speed) is the true stride, which the mocap hips travel only approximates.
-	var lo := [1e9, 1e9]
-	var hi := [-1e9, -1e9]
-	for i in DENSE:
-		for f in 2:
-			lo[f] = minf(lo[f], toes[i][f].y)
-			hi[f] = maxf(hi[f], toes[i][f].y)
-	var flat := func(i: int, f: int) -> bool:
-		return toes[i][f].y - lo[f] < 0.12 * (hi[f] - lo[f])
-	var speeds: Array = []
-	for i in DENSE:
-		for f in 2:
-			if flat.call(i, f) and flat.call((i + 1) % DENSE, f):
-				var dd: Vector3 = toes[(i + 1) % DENSE][f] - toes[i][f]
-				speeds.append(-Vector2(dd.x, dd.z).dot(go))
-	speeds.sort()
-	var est: float = speeds[speeds.size() / 2] * DENSE if speeds.size() > 0 else 0.0
-	var stride: float = est if est > 0.3 else float(spec.stride)
-	# Re-aimed gaits keep the stride of their source gait (same legs, only the heading differs).
-	if absf(phi) < 0.01:
-		_base_stride[spec.clip] = stride
-	elif _base_stride.has(spec.clip):
-		stride = _base_stride[spec.clip]
-	var slide := 0.0
-	var worst := 0.0
-	var step := Vector3(go.x, 0.0, go.y) * stride / DENSE
-	for i in DENSE:
-		for f in 2:
-			if flat.call(i, f) and flat.call((i + 1) % DENSE, f):
-				var d: Vector3 = toes[(i + 1) % DENSE][f] - toes[i][f] + step
-				d.y = 0.0
-				slide += d.length()
-				worst = maxf(worst, d.length())
-	var cnt := speeds.size()
-	print("GAIT %s stride %.3f units/loop (planted toes; mocap hips travel %.3f)  phase shift %d  slide of planted toes: mean %.2f px / dense frame, max %.2f" % [
-		name, stride, spec.stride, shift, slide / maxi(cnt, 1) * CharSprite.PX_PER_UNIT, worst * CharSprite.PX_PER_UNIT])
-	var sheet := await _bake(DENSE, CharSprite.FRAME, func(i: int) -> void:
-		at.call(i + shift, phi, means)
-		_pose_keys(skel, model, [Poses.key(0.0, Vector3.ZERO, Poses.hold())], 0.0), spec.keys, true)
-	_meta_extra = {"stride": snappedf(stride, 0.001), "go": spec.go}
+		_pose_keys(skel, model, [Poses.key(0.0, Vector3.ZERO, Poses.hold())], 0.0), 0, true)
+	_meta_extra = {"stride": snappedf(stride, 0.001), "go": spec.go, "labels": info.labels}
 	_save(sheet, skin, name, preview_rows, _anchors)
+
+
+## Sidecar of a key-pose clip written by tools/keypose.py.
+func _key_info(clip: String) -> Dictionary:
+	var f := FileAccess.open("res://art/mocap/keys/%s.json" % clip, FileAccess.READ)
+	return JSON.parse_string(f.get_as_text())
 
 
 ## Foot (0 = left, 1 = right) position relative to the hips, horizontal (x = character's left,
@@ -304,16 +275,52 @@ func _reaim_legs(skel: Skeleton3D, model: Node3D, means: Array, deg: float) -> v
 		skel.set_bone_global_pose(fb, gp)
 
 
-## Hand-keyed dive k (Poses.dive): one frame per key pose, held until the next key.
-func _bake_dive(player: AnimationPlayer, skel: Skeleton3D, model: Node3D, k: int, skin: String, preview_rows: Array[Image]) -> void:
-	var keys := Poses.dive(float(k) * 45.0)
-	player.play("idle_aim")
-	_force_starts = keys.map(func(kk: Dictionary) -> float: return kk.t)
-	var sheet := await _bake(keys.size(), DIVE_SIZE, func(i: int) -> void:
-		player.seek(0.0, true)
+## Dive k (direction relative to the look direction, 45 deg steps): the key poses are real mocap
+## frames (CMU 127_23 dive and shoulder roll, picked in tools/reshape_character.py DIVE_KEYS,
+## clip KDive). The whole pose is turned toward the heading about the vertical axis, then twisted
+## about its own long axis (hips -> head) by the opposite angle: upright it is exactly the look
+## direction again, flat it lies tipped toward the heading with the chest still facing forward, so
+## the body always faces where the player looks. In the air (coil .. reach) and when standing again
+## the arms hold the rifle on the aim line (IK, world frame); on the ground the mocap arms push
+## off and the gun is slung (not drawn). Last key = the standing hold. Each key held to the next.
+func _bake_dive(player: AnimationPlayer, lib: AnimationLibrary, skel: Skeleton3D, model: Node3D, k: int, skin: String, preview_rows: Array[Image]) -> void:
+	var info := _key_info("KDive")
+	var phases: Array = info.phases
+	var labels: Array = info.labels
+	var nm := phases.size()
+	var anim := lib.get_animation("KDive")
+	var psi := deg_to_rad(float(k) * 45.0)
+	var holds: Array = labels.map(func(l: String) -> bool: return l in ["coil", "push", "extend", "reach", "stand"])
+	holds.append(true)
+	_force_starts = phases.duplicate()
+	_force_starts.append(1.0)
+	var sheet := await _bake(nm + 1, DIVE_SIZE, func(i: int) -> void:
+		if i < nm:
+			player.play("KDive")
+			player.seek(anim.length * float(i) / float(nm - 1), true)
+		else:
+			player.play("idle_aim")
+			player.seek(0.0, true)
 		_fix_head(skel)
-		_pose_keys(skel, model, keys, keys[i].t), 0, false)
+		var a0 := (_bone_pos(skel, model, "Head") - _bone_pos(skel, model, "Hips")).normalized() if i < nm else Vector3.UP
+		var body := Basis(Basis(Vector3.UP, -psi) * a0, psi) * Basis(Vector3.UP, -psi)
+		var centre := _model.transform * _bone_pos(skel, model, "Hips")
+		_pivot.transform = Transform3D(body, centre - body * centre)
+		_hold_pocket = Vector3.INF
+		if holds[i]:
+			_hold_arms(skel, model, body.inverse()), 0, false)
+	_meta_extra = {"labels": labels + ["stand_hold"], "mocap": "CMU 127_23"}
 	_save_cropped(sheet, DIVE_SIZE, skin, "dive_%d" % k, preview_rows, _anchors)
+
+
+## Arms on the shouldered rifle (IK in the aim frame `rp`, see _hold_targets).
+func _hold_arms(skel: Skeleton3D, model: Node3D, rp: Basis) -> void:
+	var targets := _hold_targets(skel, model, rp)
+	_hold_pocket = targets.pocket
+	for limb in ["LArm", "LFore", "RArm", "RFore"]:
+		var bones: Array = Poses.LIMBS[limb]
+		var from := _bone_pos(skel, model, bones[0])
+		_aim_bone(skel, model, bones[0], bones[1], ((targets[limb] as Vector3) - from).normalized())
 
 
 ## Ragdoll death from the standing pose (gun hold if armed), pushed toward direction `dir`.
@@ -368,6 +375,7 @@ func _bake(n: int, size: int, pose: Callable, keys := 0, loop := true, joints_fn
 	var frames: Array[Image] = []
 	var anchors: Array = []
 	var joints: Array = []
+	var sides: Array[Image] = []
 	for i in n:
 		await pose.call(i)
 		var grip := _screen_px(_skel.find_bone("RightHand"), size)
@@ -379,7 +387,8 @@ func _bake(n: int, size: int, pose: Callable, keys := 0, loop := true, joints_fn
 		# The gun runs straight ahead (the hold keeps it level, sprites face up), centred
 		# between the hands, its grip level with the right hand.
 		var at := Vector2(line_x, grip.y)
-		anchors.append([snappedf(at.x - c.x, 0.1), snappedf(at.y - c.y, 0.1), snappedf(-PI / 2.0, 0.001)])
+		# 4th value: gun drawn (hold) or slung (not drawn)
+		anchors.append([snappedf(at.x - c.x, 0.1), snappedf(at.y - c.y, 0.1), snappedf(-PI / 2.0, 0.001), 1 if _hold_pocket != Vector3.INF else 0])
 		var js := PackedVector2Array()
 		if joints_fn.is_valid():
 			js = joints_fn.call(size)
@@ -394,6 +403,8 @@ func _bake(n: int, size: int, pose: Callable, keys := 0, loop := true, joints_fn
 		img = _majority_down(img, SUPERSAMPLE)
 		_outline(img)
 		frames.append(img)
+		if _side_dir != "":
+			sides.append(await _side_image(size))
 	var kept: Array = range(n) if keys <= 0 or keys >= n else _pick_keys(joints, keys, loop)
 	var sheet := Image.create(size * kept.size(), size, false, Image.FORMAT_RGBA8)
 	_anchors.clear()
@@ -403,7 +414,33 @@ func _bake(n: int, size: int, pose: Callable, keys := 0, loop := true, joints_fn
 		_anchors.append(anchors[kept[j]])
 		_starts.append(snappedf(float(kept[j]) / n, 0.0001) if _force_starts.is_empty() else _force_starts[j])
 	_force_starts = []
+	_side_strip = null
+	if _side_dir != "":
+		_side_strip = Image.create(SIDE_PX * kept.size(), SIDE_PX, false, Image.FORMAT_RGBA8)
+		for j in kept.size():
+			_side_strip.blit_rect(sides[kept[j]], Rect2i(0, 0, SIDE_PX, SIDE_PX), Vector2i(j * SIDE_PX, 0))
 	return sheet
+
+
+## The current pose seen from the side (character faces screen-right), SIDE_PX square.
+func _side_image(top_size: int) -> Image:
+	var p := _cam.position
+	var r := _cam.rotation_degrees
+	var sz := _cam.size
+	_vp.size = Vector2i(SIDE_PX * SUPERSAMPLE, SIDE_PX * SUPERSAMPLE)
+	_cam.size = 4.6
+	_cam.rotation_degrees = Vector3(0, 90, 0)
+	_cam.position = Vector3(20, 1.75, p.z)
+	await process_frame
+	await RenderingServer.frame_post_draw
+	var img := _vp.get_texture().get_image()
+	img.convert(Image.FORMAT_RGBA8)
+	img = _majority_down(img, SUPERSAMPLE)
+	_cam.position = p
+	_cam.rotation_degrees = r
+	_cam.size = sz
+	_vp.size = Vector2i(top_size * SUPERSAMPLE, top_size * SUPERSAMPLE)
+	return img
 
 
 ## Key poses: local minima of joint speed (screen space, i.e. what reads from above), the
@@ -527,6 +564,7 @@ func _save_cropped(sheet: Image, size: int, skin: String, clip: String, preview_
 	var out := Image.create(u.size.x * n, u.size.y, false, Image.FORMAT_RGBA8)
 	for i in n:
 		out.blit_rect(sheet, Rect2i(i * size + u.position.x, u.position.y, u.size.x, u.size.y), Vector2i(i * u.size.x, 0))
+	_write_side(skin, clip)
 	out.save_png(ProjectSettings.globalize_path(OUT_DIR + "%s/%s.png" % [skin, clip]))
 	var f := FileAccess.open(ProjectSettings.globalize_path(OUT_DIR + "%s/%s.json" % [skin, clip]), FileAccess.WRITE)
 	var meta := {"frame": size, "frames_n": n, "rect": [u.position.x, u.position.y, u.size.x, u.size.y], "starts": _starts}
@@ -537,11 +575,18 @@ func _save_cropped(sheet: Image, size: int, skin: String, clip: String, preview_
 	print("baked ", clip, " frames=", n, " crop=", u.size)
 
 
+func _write_side(skin: String, clip: String) -> void:
+	if _side_dir != "" and _side_strip != null:
+		DirAccess.make_dir_recursive_absolute(_side_dir)
+		_side_strip.save_png(_side_dir.path_join("%s_%s_side.png" % [skin, clip]))
+
+
 ## Saves a sheet plus <clip>.json: frame phase starts and (armed) weapon anchors per frame
 ## (grip offset from the frame centre in px, gun angle in rad, sprite facing up).
 func _save(sheet: Image, skin: String, anim_name: String, preview_rows: Array[Image], anchors := []) -> void:
 	var path := OUT_DIR + "%s/%s.png" % [skin, anim_name]
 	sheet.save_png(ProjectSettings.globalize_path(path))
+	_write_side(skin, anim_name)
 	var meta := {"starts": _starts}
 	meta.merge(_meta_extra)
 	_meta_extra = {}

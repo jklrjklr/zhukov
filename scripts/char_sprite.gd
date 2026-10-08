@@ -196,6 +196,8 @@ func muzzle_local() -> Vector2:
 	if i >= frames.size():
 		return Vector2.INF
 	var a: Array = frames[i]
+	if a.size() > 3 and int(a[3]) == 0:
+		return Vector2.INF # gun slung (rolling on the ground)
 	var p := Vector2(a[0], a[1]).round() + Vector2(0, -GUN_FRONT - 3)
 	return Vector2(-p.x if flip else p.x, p.y)
 
@@ -253,6 +255,8 @@ func _draw_gun(i: int) -> void:
 	if i >= frames.size():
 		return
 	var a: Array = frames[i]
+	if a.size() > 3 and int(a[3]) == 0:
+		return
 	var at := Vector2(a[0], a[1]).round()
 	# Anchors point the gun straight ahead (-Y), so it stays on the pixel grid.
 	var body := Rect2(at.x - 1, at.y - GUN_FRONT, GUN_W, GUN_FRONT + GUN_BACK)

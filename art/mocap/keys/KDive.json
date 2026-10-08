@@ -1,0 +1,46 @@
+{
+ "clip": "KDive",
+ "kind": "dive",
+ "labels": [
+  "coil",
+  "push",
+  "extend",
+  "reach",
+  "impact",
+  "flip",
+  "inverted",
+  "roll",
+  "ball",
+  "crouch",
+  "rise",
+  "stand"
+ ],
+ "phases": [
+  0.0,
+  0.05,
+  0.12,
+  0.22,
+  0.32,
+  0.38,
+  0.43,
+  0.48,
+  0.54,
+  0.64,
+  0.76,
+  0.88
+ ],
+ "frames": [
+  3,
+  9,
+  13,
+  16,
+  19,
+  23,
+  26,
+  30,
+  34,
+  40,
+  48,
+  58
+ ]
+}

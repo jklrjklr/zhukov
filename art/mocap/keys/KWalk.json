@@ -1,0 +1,27 @@
+{
+ "clip": "KWalk",
+ "kind": "walk",
+ "direction": "fwd",
+ "labels": [
+  "contact_L",
+  "down_L",
+  "passing_L",
+  "up_L",
+  "contact_R",
+  "down_R",
+  "passing_R",
+  "up_R"
+ ],
+ "phases": [
+  0.0,
+  0.1,
+  0.2756,
+  0.4,
+  0.4872,
+  0.5769,
+  0.7949,
+  0.9103
+ ],
+ "stride": 2.873,
+ "loop_s": 1.3
+}

@@ -3,12 +3,16 @@ extends SceneTree
 ##   xvfb-run -a godot --path . --rendering-driver opengl3 --script res://tools/clip_preview.gd -- out.png [model] [clips...]
 const W := 128
 const H := 192
-const FRAMES := 10
+var FRAMES := 10
 
 
 func _initialize() -> void:
-	var args := OS.get_cmdline_user_args()
-	var model_path := args[1] if args.size() > 1 else "res://art/3d/survivors/Model/characterHuman.glb"
+	var args := Array(OS.get_cmdline_user_args())
+	for a: String in args.duplicate():
+		if a.begins_with("frames="):
+			FRAMES = int(a.substr(7))
+			args.erase(a)
+	var model_path: String = args[1] if args.size() > 1 else "res://art/3d/survivors/Model/characterHuman.glb"
 	var m: Node3D = load(model_path).instantiate()
 	var ap := m.find_child("AnimationPlayer") as AnimationPlayer
 	var clips: Array = args.slice(2) if args.size() > 2 else Array(ap.get_animation_list())

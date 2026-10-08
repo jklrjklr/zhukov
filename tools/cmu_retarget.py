@@ -22,8 +22,37 @@ MAP = {
     "LeftUpLeg": "LeftUpLeg", "LeftLeg": "LeftLeg", "LeftFoot": "LeftFoot", "LeftToeBase": "LeftToes",
     "RightUpLeg": "RightUpLeg", "RightLeg": "RightLeg", "RightFoot": "RightFoot", "RightToeBase": "RightToes",
 }
-SRC_FPS = 120.0
+CMU_LEG = 16.26  # hip-to-toe length of the CMU skeleton in BVH units
+SRC_FPS = 120.0  # default (CMU); read from the BVH header per file
 FPS = 30.0
+# 100STYLE (Mason, Starke, Komura; CC BY 4.0) skeleton -> the CMU names used by MAP (Chest3 is
+# skipped: Chest4 drives UpperChest). Applied through temporary names so the swaps don't clash.
+STYLE100 = {
+    "Chest": "LowerBack", "Chest2": "Spine", "Chest4": "Spine1",
+    "RightCollar": "RightShoulder", "RightShoulder": "RightArm", "RightElbow": "RightForeArm",
+    "RightWrist": "RightHand", "LeftCollar": "LeftShoulder", "LeftShoulder": "LeftArm",
+    "LeftElbow": "LeftForeArm", "LeftWrist": "LeftHand",
+    "RightHip": "RightUpLeg", "RightKnee": "RightLeg", "RightAnkle": "RightFoot", "RightToe": "RightToeBase",
+    "LeftHip": "LeftUpLeg", "LeftKnee": "LeftLeg", "LeftAnkle": "LeftFoot", "LeftToe": "LeftToeBase",
+}
+
+
+def _bvh_fps(path):
+    with open(path) as f:
+        for line in f:
+            if line.startswith("Frame Time"):
+                return 1.0 / float(line.split(":")[1])
+    return SRC_FPS
+
+
+def _to_cmu_names(src):
+    """Renames a 100STYLE armature's bones to the CMU names."""
+    if "Chest2" not in src.data.bones:
+        return
+    for a in STYLE100:
+        src.data.bones[a].name = "tmp_" + a
+    for a, b in STYLE100.items():
+        src.data.bones["tmp_" + a].name = b
 # Bones compared when looking for a seamless loop.
 LOOP_BONES = ["LeftUpLeg", "LeftLeg", "RightUpLeg", "RightLeg", "LeftArm", "RightArm"]
 
@@ -88,7 +117,7 @@ def _find_loop(poses, min_len, max_len):
     return best[1], best[2]
 
 
-def _segment(poses, direction, min_speed=0.25):
+def _segment(poses, direction, min_speed=0.25, unit=17.0):
     """Longest run of samples moving `direction` ('fwd', 'back', 'left', 'right') relative to
     the pelvis facing. Returns (start, end) sample indices."""
     want = {"fwd": (1, 0), "back": (-1, 0), "left": (0, 1), "right": (0, -1)}[direction]
@@ -103,7 +132,7 @@ def _segment(poses, direction, min_speed=0.25):
         v.z = 0
         sp = v.length * FPS
         ok = False
-        if sp > min_speed * 17.0:  # CMU units: ~17 per leg length
+        if sp > min_speed * unit:  # `unit` = source units per leg length (CMU ~17)
             d = (v.dot(f) / v.length, v.dot(l) / v.length)
             ok = d[0] * want[0] + d[1] * want[1] > 0.8
         if ok:
@@ -124,13 +153,16 @@ def retarget(arm, bvh, name, start=0.0, end=None, loop=False, in_place=True,
     before = set(bpy.data.objects)
     bpy.ops.import_anim.bvh(filepath=bvh, update_scene_fps=False, update_scene_duration=False)
     src = next(o for o in bpy.data.objects if o not in before)
+    _to_cmu_names(src)
+    src_fps = _bvh_fps(bvh)
     f0, f1 = src.animation_data.action.frame_range
-    a = int(f0 + start * SRC_FPS)
-    b = int(min(f1, f0 + (end if end is not None else 1e9) * SRC_FPS))
-    step = int(round(SRC_FPS / FPS))
+    a = int(f0 + start * src_fps)
+    b = int(min(f1, f0 + (end if end is not None else 1e9) * src_fps))
+    step = int(round(src_fps / FPS))
     poses = [_src_pose(src, f, mirror) for f in range(a, b + 1, step)]
     if direction:
-        s0, e0 = _segment(poses, direction)
+        leg_u = -(src.matrix_world @ src.data.bones["LeftToeBase"].head_local).z + (src.matrix_world @ src.data.bones["Hips"].head_local).z
+        s0, e0 = _segment(poses, direction, unit=17.0 * leg_u / CMU_LEG)
         print("RETARGET %s %s segment %.2f..%.2f s" % (name, direction, start + s0 / FPS, start + e0 / FPS))
         poses = poses[s0:e0 + 1]
     if loop:
@@ -142,7 +174,12 @@ def retarget(arm, bvh, name, start=0.0, end=None, loop=False, in_place=True,
     # (hips -> head) of the last ("end_body") / first ("start_body") frames -> -Y.
     yaw = 0.0
     if not keep_yaw:
-        if align in ("end_body", "start_body"):
+        if align.startswith("body@"):
+            # hips -> head of the samples a..b (30 fps indices) points -Y (e.g. a dive's flight)
+            a_, b_ = (int(v) for v in align[5:].split("-"))
+            bv = sum((p[4] - p[1] for p in poses[a_:b_ + 1]), Vector((0, 0, 0)))
+            yaw = -math.pi / 2 - math.atan2(bv.y, bv.x)
+        elif align in ("end_body", "start_body"):
             sel = poses[-6:] if align == "end_body" else poses[:6]
             bv = sum((p[4] - p[1] for p in sel), Vector((0, 0, 0)))
             yaw = -math.pi / 2 - math.atan2(bv.y, bv.x)

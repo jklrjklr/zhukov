@@ -59,8 +59,21 @@ MOCAP = {
     "WalkRight": ("41_02", 0.0, None, True, (0.6, 1.4), "right"),
     "ZombieWalk": ("104_41", 0.5, None, True, (0.9, 1.8), None),
 }
+# Player source takes (dense, in place); tools/keypose.py turns them into key-pose clips.
+# 100STYLE "Proud" (CC BY 4.0, art/mocap/100style/): confident, chest-out locomotion.
+S100 = "art/mocap/100style/"
+KEYED = {"PWalk": ("walk", "fwd"), "PRun": ("run", "fwd"), "PWalkBack": ("back", "back"),
+         "PWalkRight": ("strafe", "right"), "PWalkLeft": ("strafe", "left")}
+MOCAP_P = {
+    "PWalk": (S100 + "Proud_FW.bvh", 0.0, None, True, (0.8, 1.5), "fwd"),
+    "PRun": (S100 + "Proud_FR.bvh", 0.0, None, True, (0.5, 1.0), "fwd"),
+    "PWalkBack": (S100 + "Proud_BW.bvh", 0.0, None, True, (0.8, 1.6), "back"),
+    "PWalkRight": (S100 + "Proud_SW.bvh", 0.0, None, True, (0.6, 1.5), "right"),
+    "PWalkLeft": (S100 + "Proud_SW.bvh", 0.0, None, True, (0.6, 1.5), "left", True),
+}
 sys.path.append("tools")
 import cmu_retarget  # noqa: E402
+import keypose  # noqa: E402
 
 bpy.ops.wm.read_factory_settings(use_empty=True)
 bpy.ops.import_scene.fbx(filepath=SRC)
@@ -275,6 +288,28 @@ for clip, spec in MOCAP.items():
     actions.append(cmu_retarget.retarget(arm, MOCAP_DIR + take + ".bvh", clip, st, en, lp, ip, ll or (0.6, 1.6),
                                          direction=dr, mirror=len(spec) > 6 and spec[6],
                                          align=spec[8] if len(spec) > 8 else "pelvis"))
+dense = {}
+for clip, spec in MOCAP_P.items():
+    take, st, en, lp, ll, dr = spec[:6]
+    dense[clip] = cmu_retarget.retarget(arm, take, clip, st, en, lp, True, ll, direction=dr,
+                                        mirror=len(spec) > 6 and spec[6])
+    kind, kdir = KEYED[clip]
+    actions.append(keypose.make(arm, dense[clip], "K" + clip[1:], kind, kdir))
+# Dive: CMU 127_23 "Run Dive Over Roll Run" (diving superman, shoulder roll, crouch, stand). The
+# dive keys are mocap frames (30 fps, 1-based) picked for strong silhouettes; time = phase of the
+# whole dive (air to 0.34, roll to 0.5, get up to 1.0).
+DIVE_TAKE = ("127_23", "body@8-15")
+DIVE_KEYS = [  # label, mocap frame, phase
+    ("coil", 3, 0.0), ("push", 9, 0.05), ("extend", 13, 0.12), ("reach", 16, 0.22), ("impact", 19, 0.32),
+    ("flip", 23, 0.38), ("inverted", 26, 0.43), ("roll", 30, 0.48), ("ball", 34, 0.54),
+    ("crouch", 40, 0.64), ("rise", 48, 0.76), ("stand", 58, 0.88)]
+dd = cmu_retarget.retarget(arm, MOCAP_DIR + DIVE_TAKE[0] + ".bvh", "DDive", 0, None, False, "lock", align=DIVE_TAKE[1])
+actions.append(keypose.pick_frames(arm, dd, "KDive", [k[1] for k in DIVE_KEYS], [k[0] for k in DIVE_KEYS], [k[2] for k in DIVE_KEYS]))
+import os  # noqa: E402
+for take in os.environ.get("MOCAP_DEBUG", "").split(","):
+    if take:  # exploration: any CMU take as a dense clip "D<take>" (hips locked), for tools/clip_preview.gd
+        actions.append(cmu_retarget.retarget(arm, MOCAP_DIR + take + ".bvh", "D" + take, 0, None, False, "lock",
+                                             align=os.environ.get("ALIGN", "pelvis")))
 arm.animation_data_create()
 for act in actions:
     tr = arm.animation_data.nla_tracks.new()
