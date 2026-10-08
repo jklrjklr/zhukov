@@ -31,7 +31,11 @@ var lift := 0.0
 var flip := false
 ## Carries a weapon: plays the *_aim clips and draws the gun in the hands (per-frame anchors
 ## art/sprites/<skin>/<clip>.json from the bake: grip offset px, gun angle).
-var armed := false
+var armed := false:
+	set(v):
+		armed = v
+		if is_node_ready():
+			_preload()
 ## Gun art in sprite pixels (placeholder rifle): length ahead of the grip, behind it, width.
 const GUN_FRONT := 22
 const GUN_BACK := 8
@@ -57,7 +61,14 @@ var _crops := {}
 func _ready() -> void:
 	texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
 	set_process(false)
-	for a in ["idle", "walk"]:
+	# Deferred: the owner (player) sets `armed` in its own _ready, after this one.
+	_preload.call_deferred()
+
+
+## Loads the sheets the idle / walk states need. Armed skins only have the *_aim clips baked,
+## unarmed ones only idle / walk: asking for the wrong set is a missing-file error.
+func _preload() -> void:
+	for a in (["idle_aim", "walk_aim"] if armed else ["idle", "walk"]):
 		_sheet(a)
 
 
