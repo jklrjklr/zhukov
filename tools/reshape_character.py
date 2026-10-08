@@ -27,10 +27,10 @@ BODIES = {
     "female": {"width": [1.12, 0.82, 0.98, 0.98], "depth": [1.0, 0.88, 1.0, 0.96], "bust": 0.2},
 }
 
-## Proportion reference: stylised anime / VRoid body, ~6 heads: legs about half the height,
+## Proportion reference: stylised anime / VRoid body, 5 heads tall: legs about half the height,
 ## short torso, narrow shoulders, thin neck and limbs, small feet.
 SCALES = {
-    "Head": (0.56, 0.72, 0.64),  # narrower and shallower than Kenney's wide box head
+    "Head": (0.51, 0.645, 0.58),  # narrower and shallower than Kenney's wide box head; 5 heads tall
     "Neck": (0.78, 0.9, 0.78),
     "UpperChest": (1.1, 1.0, 1.0),
     "Chest": (1.02, 1.0, 0.98),
@@ -57,9 +57,6 @@ MOCAP = {
     "WalkBack": ("41_02", 0.0, None, True, (0.8, 1.4), "back"),
     "WalkLeft": ("41_02", 0.0, None, True, (0.6, 1.4), "left", True),  # mirrored walk-right
     "WalkRight": ("41_02", 0.0, None, True, (0.6, 1.4), "right"),
-    # Dive = crouch, leap, belly landing (90_16) + get up from face down (140_01).
-    "DiveFall": ("90_16", 2.6, 4.3, False, None, None, False, "lock", "end_body"),
-    "DiveUp": ("140_01", 1.6, 5.0, False, None, None, False, "lock", "start_body"),
     "ZombieWalk": ("104_41", 0.5, None, True, (0.9, 1.8), None),
 }
 sys.path.append("tools")

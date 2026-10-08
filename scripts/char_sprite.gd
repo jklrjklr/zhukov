@@ -11,10 +11,14 @@ const PX_PER_UNIT := 18.0
 ## Locomotion clips (mocap): world px travelled per loop (stride matching, no foot sliding).
 ## 1 model unit = PX_PER_UNIT buffer px = PX_PER_UNIT / CAM_ZOOM world px.
 const UNIT_PX := PX_PER_UNIT / Vis.CAM_ZOOM
-const CYCLE_PX := {
-	"walk_aim": 2.501 * UNIT_PX, "run_aim": 4.368 * UNIT_PX, "back_aim": 1.359 * UNIT_PX,
-	"left_aim": 1.027 * UNIT_PX, "right_aim": 1.027 * UNIT_PX, "walk": 1.42 * UNIT_PX,
-}
+const CYCLE_PX := {"walk": 1.42 * UNIT_PX} # zombies (unarmed)
+## Armed locomotion clips walk_<tag> / run_<tag>: 8 directions relative to the look direction,
+## clockwise from forward. Their stride (model units per loop, measured by the bake from the
+## planted feet) is in <clip>.json.
+const TAGS := ["f", "fr", "r", "br", "b", "bl", "l", "fl"]
+## Directions (indices into TAGS) where running is allowed: forward, forward-right, forward-left.
+const RUN_DIRS := [0, 1, 7]
+## Hand-keyed dives dive_<k>, k = dive direction relative to the look direction (same indices).
 ## Idle loop length (s).
 const IDLE_LOOP := 41.0 / 30.0
 ## Below this speed (world px/s) the idle clip plays; above RUN_SPEED forward is a run.
@@ -34,6 +38,8 @@ var flip := false
 var armed := false:
 	set(v):
 		armed = v
+		if v and anim == "idle":
+			anim = "idle_aim"
 		if is_node_ready():
 			_preload()
 ## Gun art in sprite pixels (placeholder rifle): length ahead of the grip, behind it, width.
@@ -49,6 +55,7 @@ var _once_dur := 1.0
 
 var _sheets := {}
 var _anchors := {}
+var _strides := {}
 ## Key-pose timing: clip -> phase (0..1) at which each frame starts (frames hold until the next).
 var _starts := {}
 ## Per-instance phase offset and pace so a crowd doesn't move in lockstep.
@@ -68,7 +75,7 @@ func _ready() -> void:
 ## Loads the sheets the idle / walk states need. Armed skins only have the *_aim clips baked,
 ## unarmed ones only idle / walk: asking for the wrong set is a missing-file error.
 func _preload() -> void:
-	for a in (["idle_aim", "walk_aim"] if armed else ["idle", "walk"]):
+	for a in (["idle_aim", "walk_f", "run_f"] if armed else ["idle", "walk"]):
 		_sheet(a)
 
 
@@ -79,6 +86,8 @@ func _sheet(a: String) -> Texture2D:
 		var meta: Dictionary = (load(jp) as JSON).data if ResourceLoader.exists(jp) else {}
 		_anchors[a] = meta.get("frames", [])
 		_starts[a] = meta.get("starts", [])
+		if meta.has("stride"):
+			_strides[a] = float(meta.stride) * UNIT_PX
 		if meta.has("rect"):
 			_crops[a] = meta
 	return _sheets[a]
@@ -120,33 +129,75 @@ func show_clip(a: String, p: float) -> void:
 	queue_redraw()
 
 
+## Direction index (0..7, clockwise from forward, TAGS) of `v` in look space (-Y = forward),
+## snapped to the nearest 45 degrees.
+static func dir_index(v: Vector2) -> int:
+	return posmod(roundi(rad_to_deg(atan2(v.x, -v.y)) / 45.0), 8)
+
+
+## Unit vector of direction index `k` in look space (-Y = forward).
+static func dir_vector(k: int) -> Vector2:
+	return Vector2.UP.rotated(deg_to_rad(k * 45.0))
+
+
+func _cycle_px(a: String) -> float:
+	return CYCLE_PX.get(a, _strides.get(a, 0.0))
+
+
+func _is_cycle(a: String) -> bool:
+	return a.begins_with("walk") or a.begins_with("run")
+
+
+## Armed locomotion: walk_<tag> / run_<tag> for direction `idx` (0..7 relative to the look
+## direction), played by distance travelled (`speed` world px/s) so the feet stay planted.
+## Running only exists in the three forward directions; any other direction walks.
+func advance_dir(delta: float, speed: float, idx: int, running: bool) -> void:
+	var a := "idle_aim"
+	if speed > MOVE_THRESHOLD:
+		a = ("run_" if running and idx in RUN_DIRS else "walk_") + TAGS[idx]
+	_play_loop(a, delta, speed)
+
+
 ## Picks the locomotion clip from the owner's velocity in sprite space (-Y = facing, world
-## px/s) and advances it by distance travelled (call once per tick).
+## px/s) and advances it by distance travelled (call once per tick). Unarmed (zombies).
 func advance(delta: float, vel: Vector2) -> void:
 	var speed := vel.length()
-	var a: String
-	if speed <= MOVE_THRESHOLD:
-		a = "idle_aim" if armed else "idle"
-	elif not armed:
-		a = "walk"
-	else:
-		var d := vel / speed
-		if -d.y >= absf(d.x) * 0.8:
-			a = "run_aim" if speed > RUN_SPEED else "walk_aim"
-		elif d.y >= absf(d.x) * 0.8:
-			a = "back_aim"
-		else:
-			a = "right_aim" if d.x > 0.0 else "left_aim"
+	if armed:
+		advance_dir(delta, speed, dir_index(vel), speed > RUN_SPEED)
+		return
+	_play_loop("walk" if speed > MOVE_THRESHOLD else "idle", delta, speed)
+
+
+func _play_loop(a: String, delta: float, speed: float) -> void:
 	if a != anim:
-		# Keep the step phase across walk / run / strafe switches.
-		if not (anim in CYCLE_PX and a in CYCLE_PX):
+		# Keep the step phase across walk / run / direction switches (clips are phase-aligned).
+		if not (_is_cycle(anim) and _is_cycle(a)):
 			phase = 0.0
 		anim = a
-	if a in CYCLE_PX:
-		phase = fposmod(phase + speed * delta / CYCLE_PX[a], 1.0)
+		_sheet(a)
+	var c := _cycle_px(a)
+	if c > 0.0:
+		phase = fposmod(phase + speed * delta / c, 1.0)
 	else:
 		phase = fposmod(phase + delta * pace / IDLE_LOOP, 1.0)
 	queue_redraw()
+
+
+## Tip of the gun in sprite pixels (facing up) for the frame on screen, or INF without a weapon.
+func muzzle_local() -> Vector2:
+	var tex: Texture2D = _sheet(anim)
+	if tex == null or not armed:
+		return Vector2.INF
+	var n := tex.get_width() / tex.get_height()
+	if _crops.has(anim):
+		n = int((_crops[anim] as Dictionary).frames_n)
+	var frames: Array = _anchors.get(anim, [])
+	var i := _frame_at(anim, n)
+	if i >= frames.size():
+		return Vector2.INF
+	var a: Array = frames[i]
+	var p := Vector2(a[0], a[1]).round() + Vector2(0, -GUN_FRONT - 3)
+	return Vector2(-p.x if flip else p.x, p.y)
 
 
 func _draw() -> void:
@@ -184,7 +235,7 @@ func _draw() -> void:
 ## timing from the bake), or evenly spaced frames for sheets without starts. Looping clips
 ## use the per-instance offset.
 func _frame_at(a: String, n: int) -> int:
-	var looping := not (a.begins_with("death") or a == "dive")
+	var looping := not (a.begins_with("death") or a.begins_with("dive"))
 	var p := fposmod(phase + (phase_offset if looping else 0.0), 1.0) if looping else clampf(phase, 0.0, 0.999)
 	var st: Array = _starts.get(a, [])
 	if st.size() != n:
